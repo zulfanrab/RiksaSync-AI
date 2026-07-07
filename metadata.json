@@ -1,0 +1,6 @@
+{
+  "name": "RiksaSync AI",
+  "description": "Smart Manpower Plotting & Inspection Scheduling Platform utilizing the Gemini API to resolve scheduling conflicts and plot staff based on SKP licenses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

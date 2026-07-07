@@ -1,0 +1,165 @@
+{
+  "manpower": [
+    {
+      "id": "m1",
+      "name": "Angga",
+      "role": "Leader & Ahli Utama",
+      "status": "internal",
+      "skp": [
+        "PTP",
+        "PAA",
+        "Elevator",
+        "Eskalator"
+      ]
+    },
+    {
+      "id": "m2",
+      "name": "Imam",
+      "role": "Ahli Spesialis",
+      "status": "internal",
+      "skp": [
+        "PUBT",
+        "Instalasi Listrik"
+      ]
+    },
+    {
+      "id": "m3",
+      "name": "Fakhziar",
+      "role": "Ahli Spesialis",
+      "status": "internal",
+      "skp": [
+        "PUBT"
+      ]
+    },
+    {
+      "id": "m4",
+      "name": "Fauzan",
+      "role": "Ahli Spesialis",
+      "status": "internal",
+      "skp": [
+        "Instalasi Listrik",
+        "PAA"
+      ]
+    },
+    {
+      "id": "m5",
+      "name": "Katez",
+      "role": "Ahli Eksternal",
+      "status": "external",
+      "skp": [
+        "Angkur TKPK"
+      ]
+    },
+    {
+      "id": "m6",
+      "name": "Riyan",
+      "role": "Helper & Teknisi",
+      "status": "external",
+      "skp": []
+    },
+    {
+      "id": "m7",
+      "name": "Ajay",
+      "role": "Support Staff",
+      "status": "internal",
+      "skp": []
+    },
+    {
+      "id": "m8",
+      "name": "Arya",
+      "role": "Support Staff",
+      "status": "internal",
+      "skp": []
+    }
+  ],
+  "units": [
+    {
+      "id": "u1",
+      "unit_name": "Pesawat Tenaga dan Produksi (PTP)",
+      "required_skp": "PTP"
+    },
+    {
+      "id": "u2",
+      "unit_name": "Pesawat Angkat dan Angkut (PAA)",
+      "required_skp": "PAA"
+    },
+    {
+      "id": "u3",
+      "unit_name": "Elevator & Eskalator",
+      "required_skp": "Elevator"
+    },
+    {
+      "id": "u4",
+      "unit_name": "Pesawat Uap dan Bejana Tekan (PUBT)",
+      "required_skp": "PUBT"
+    },
+    {
+      "id": "u5",
+      "unit_name": "Instalasi Penyalur Petir",
+      "required_skp": "Instalasi Listrik"
+    },
+    {
+      "id": "u6",
+      "unit_name": "Angkur & TKPK",
+      "required_skp": "Angkur TKPK"
+    },
+    {
+      "id": "u7",
+      "unit_name": "Instalasi Listrik",
+      "required_skp": "Instalasi Listrik"
+    }
+  ],
+  "schedules": [
+    {
+      "id": "s1",
+      "client_name": "PT Maju Jaya Sentosa",
+      "pic_name": "Bpk. Budi",
+      "start_date": "2026-07-04",
+      "end_date": "2026-07-07",
+      "unit_ids": [
+        "u1",
+        "u2"
+      ],
+      "lead_expert_id": "m1",
+      "support_ids": [
+        "m7",
+        "m8"
+      ],
+      "priority": "P2",
+      "status": "Scheduled"
+    },
+    {
+      "id": "s2",
+      "client_name": "Rumah Sakit Sehat Sejahtera",
+      "pic_name": "Ibu Linda",
+      "start_date": "2026-07-08",
+      "end_date": "2026-07-09",
+      "unit_ids": [
+        "u4"
+      ],
+      "lead_expert_id": "m2",
+      "support_ids": [
+        "m6"
+      ],
+      "priority": "P1",
+      "status": "Scheduled"
+    },
+    {
+      "id": "s3",
+      "client_name": "Apartemen Green View",
+      "pic_name": "Bpk. Rahmat",
+      "start_date": "2026-07-06",
+      "end_date": "2026-07-06",
+      "unit_ids": [
+        "u3"
+      ],
+      "lead_expert_id": "m1",
+      "support_ids": [
+        "m6",
+        "m7"
+      ],
+      "priority": "P3",
+      "status": "Scheduled"
+    }
+  ]
+}
