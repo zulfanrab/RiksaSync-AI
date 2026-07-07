@@ -33,6 +33,9 @@ export interface Schedule {
   unit_descriptions?: string[]; // Optional unit descriptions
   created_by?: string;
   updated_by?: string;
+  agenda_type?: string;        // 'Riksa Uji' | 'Survey' | 'Lainnya'
+  manual_agenda?: string;      // Manual text input for 'Lainnya'
+  is_until_finished?: boolean; // Until finished option
 }
 
 export interface AppUser {

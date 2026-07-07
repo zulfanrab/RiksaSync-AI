@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, MapPin, Award, Users, Tag, AlertCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, MapPin, Award, Users, Tag, AlertCircle, Plus } from 'lucide-react';
 import { Schedule, Unit, Manpower } from '../types';
 
 interface CalendarViewProps {
@@ -15,6 +15,7 @@ interface CalendarViewProps {
   onSelectDate: (dateStr: string) => void;
   onEditSchedule: (schedule: Schedule) => void;
   onDeleteSchedule: (id: string) => void;
+  onQuickAddSchedule?: (dateStr: string) => void;
 }
 
 export default function CalendarView({
@@ -24,7 +25,8 @@ export default function CalendarView({
   selectedDate,
   onSelectDate,
   onEditSchedule,
-  onDeleteSchedule
+  onDeleteSchedule,
+  onQuickAddSchedule
 }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
 
@@ -174,7 +176,7 @@ export default function CalendarView({
               <div
                 key={idx}
                 onClick={() => onSelectDate(dateStr)}
-                className={`min-h-[72px] p-1.5 rounded-lg border cursor-pointer flex flex-col justify-between transition-all ${
+                className={`min-h-[72px] p-1.5 rounded-lg border cursor-pointer flex flex-col justify-between transition-all group/cell relative ${
                   isSelected
                     ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold ring-1 ring-emerald-500/20'
                     : isToday
@@ -184,16 +186,34 @@ export default function CalendarView({
                     : 'bg-slate-50/10 border-transparent text-slate-300 hover:text-slate-400'
                 }`}
               >
-                <div className="flex justify-between items-center">
-                  <span className={`text-xs ${isToday && !isSelected ? 'text-emerald-600' : ''}`}>
+                <div className="flex justify-between items-center w-full">
+                  <span className={`text-xs ${isToday && !isSelected ? 'text-emerald-600 font-bold' : ''}`}>
                     {day.getDate()}
                   </span>
-                  {/* Total projects bubble */}
-                  {daySchedules.length > 0 && (
-                    <span className="text-[9px] bg-slate-50 text-slate-500 px-1.5 py-0.2 rounded border border-slate-200 font-semibold">
-                      {daySchedules.length}
-                    </span>
-                  )}
+                  
+                  <div className="flex items-center gap-1">
+                    {/* Quick plus icon button */}
+                    {onQuickAddSchedule && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevents selection change
+                          onQuickAddSchedule(dateStr);
+                        }}
+                        title={`Tambah plotting cepat untuk tanggal ${dateStr}`}
+                        className="opacity-0 group-hover/cell:opacity-100 focus:opacity-100 transition-opacity p-0.5 bg-emerald-650 hover:bg-emerald-700 text-white rounded-md shadow-sm flex items-center justify-center shrink-0 active:scale-90"
+                      >
+                        <Plus className="h-2.5 w-2.5 font-bold" />
+                      </button>
+                    )}
+
+                    {/* Total projects bubble */}
+                    {daySchedules.length > 0 && (
+                      <span className="text-[8px] bg-slate-50 text-slate-500 px-1 rounded border border-slate-200 font-semibold shrink-0">
+                        {daySchedules.length}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Schedule Indicators */}
@@ -264,8 +284,31 @@ export default function CalendarView({
                           {s.priority}
                         </span>
                       </div>
+
+                      {/* Agenda Type & Until Finished Badges */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {s.agenda_type === 'Survey' ? (
+                          <span className="text-[8px] font-extrabold uppercase bg-indigo-50 border border-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-md">
+                            🔍 Survey
+                          </span>
+                        ) : s.agenda_type === 'Lainnya' ? (
+                          <span className="text-[8px] font-extrabold uppercase bg-slate-100 border border-slate-200 text-slate-700 px-1.5 py-0.5 rounded-md truncate max-w-[130px]" title={s.manual_agenda || 'Kegiatan Lainnya'}>
+                            ⚙️ {s.manual_agenda || 'Lainnya'}
+                          </span>
+                        ) : (
+                          <span className="text-[8px] font-extrabold uppercase bg-emerald-50 border border-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-md">
+                            ⚡ Riksa Uji
+                          </span>
+                        )}
+                        
+                        {s.is_until_finished && (
+                          <span className="text-[8px] font-extrabold uppercase bg-rose-50 border border-rose-100 text-rose-600 px-1.5 py-0.5 rounded-md">
+                            🔄 Sampai Selesainya
+                          </span>
+                        )}
+                      </div>
                       
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-500">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[10px] text-slate-500">
                         <div className="flex items-center gap-1">
                           <Tag className="h-3 w-3 text-slate-400 shrink-0" />
                           <span className="truncate font-medium">{s.pic_name || 'Tanpa PIC'}</span>

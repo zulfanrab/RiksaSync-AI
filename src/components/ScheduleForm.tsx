@@ -38,6 +38,19 @@ export default function ScheduleForm({
   const [priority, setPriority] = useState<'P1' | 'P2' | 'P3'>('P2');
   const [status, setStatus] = useState<Schedule['status']>('Scheduled');
 
+  // New features states
+  const [agendaType, setAgendaType] = useState<string>('Riksa Uji');
+  const [manualAgenda, setManualAgenda] = useState('');
+  const [isUntilFinished, setIsUntilFinished] = useState<boolean>(false);
+  const [isTodayChecked, setIsTodayChecked] = useState<boolean>(false);
+
+  // Sync end date with start date if isUntilFinished is true
+  useEffect(() => {
+    if (isUntilFinished && startDate) {
+      setEndDate(startDate);
+    }
+  }, [startDate, isUntilFinished]);
+
   // AI Recommendation Feedback State
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -51,18 +64,26 @@ export default function ScheduleForm({
   // Load initial values if editing
   useEffect(() => {
     if (initialSchedule) {
-      setClientName(initialSchedule.client_name);
-      setPicName(initialSchedule.pic_name);
-      setStartDate(initialSchedule.start_date);
-      setEndDate(initialSchedule.end_date);
+      setClientName(initialSchedule.client_name || '');
+      setPicName(initialSchedule.pic_name || '');
+      setStartDate(initialSchedule.start_date || new Date().toISOString().split('T')[0]);
+      setEndDate(initialSchedule.end_date || new Date().toISOString().split('T')[0]);
       setStartTime(initialSchedule.start_time || '');
       setEndTime(initialSchedule.end_time || '');
-      setSelectedUnitIds(initialSchedule.unit_ids);
+      setSelectedUnitIds(initialSchedule.unit_ids || []);
       setUnitDescriptions(initialSchedule.unit_descriptions && initialSchedule.unit_descriptions.length > 0 ? initialSchedule.unit_descriptions : ['']);
-      setLeadExpertId(initialSchedule.lead_expert_id);
-      setSelectedSupportIds(initialSchedule.support_ids);
-      setPriority(initialSchedule.priority);
-      setStatus(initialSchedule.status);
+      setLeadExpertId(initialSchedule.lead_expert_id || '');
+      setSelectedSupportIds(initialSchedule.support_ids || []);
+      setPriority(initialSchedule.priority || 'P2');
+      setStatus(initialSchedule.status || 'Scheduled');
+      
+      // Load new fields
+      setAgendaType(initialSchedule.agenda_type || 'Riksa Uji');
+      setManualAgenda(initialSchedule.manual_agenda || '');
+      setIsUntilFinished(initialSchedule.is_until_finished || false);
+      
+      const todayStr = new Date().toISOString().split('T')[0];
+      setIsTodayChecked(initialSchedule.start_date === todayStr && initialSchedule.end_date === todayStr);
     } else {
       // Clear form
       setClientName('');
@@ -79,6 +100,12 @@ export default function ScheduleForm({
       setPriority('P2');
       setStatus('Scheduled');
       setAiRecommendation(null);
+      
+      // Reset new fields
+      setAgendaType('Riksa Uji');
+      setManualAgenda('');
+      setIsUntilFinished(false);
+      setIsTodayChecked(false);
     }
   }, [initialSchedule]);
 
@@ -266,7 +293,10 @@ export default function ScheduleForm({
       lead_expert_id: leadExpertId,
       support_ids: selectedSupportIds,
       priority,
-      status
+      status,
+      agenda_type: agendaType,
+      manual_agenda: agendaType === 'Lainnya' ? manualAgenda : undefined,
+      is_until_finished: isUntilFinished
     });
   };
 
@@ -320,27 +350,124 @@ export default function ScheduleForm({
           </div>
         </div>
 
-        {/* Date Row */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Mulai</label>
-            <input
-              type="date"
-              required
-              value={startDate}
-              onChange={e => setStartDate(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
-            />
+        {/* Jenis Agenda */}
+        <div className="space-y-1.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/60">
+          <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Jenis Agenda Kegiatan</label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'Riksa Uji', label: 'Riksa Uji' },
+              { id: 'Survey', label: 'Survey' },
+              { id: 'Lainnya', label: 'Lainnya (Manual)' }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setAgendaType(opt.id)}
+                className={`px-2.5 py-2 text-[11px] font-extrabold rounded-lg border text-center transition-all ${
+                  agendaType === opt.id
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                    : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Selesai</label>
-            <input
-              type="date"
-              required
-              value={endDate}
-              onChange={e => setEndDate(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
-            />
+          {agendaType === 'Lainnya' && (
+            <div className="mt-2.5">
+              <input
+                type="text"
+                required
+                value={manualAgenda}
+                onChange={e => setManualAgenda(e.target.value)}
+                placeholder="Tuliskan nama kegiatan manual riksa teknik..."
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-850 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-medium h-10"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Date Row with Options */}
+        <div className="space-y-2 bg-slate-50/40 p-3.5 rounded-xl border border-slate-200/50">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Kegiatan</label>
+            <div className="flex items-center gap-4">
+              {/* Checkbox Hari Ini */}
+              <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500 hover:text-emerald-600 select-none">
+                <input
+                  type="checkbox"
+                  checked={isTodayChecked}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setIsTodayChecked(checked);
+                    if (checked) {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      setStartDate(todayStr);
+                      setEndDate(todayStr);
+                    }
+                  }}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 h-3.5 w-3.5"
+                />
+                <span>Hari Ini (Survey Cepat)</span>
+              </label>
+
+              {/* Checkbox Sampai Selesainya */}
+              <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500 hover:text-emerald-600 select-none">
+                <input
+                  type="checkbox"
+                  checked={isUntilFinished}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setIsUntilFinished(checked);
+                    if (checked) {
+                      setEndDate(startDate);
+                    }
+                  }}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 h-3.5 w-3.5"
+                />
+                <span>Sampai Selesainya</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <span className="text-[9px] font-bold text-slate-400 block uppercase">Mulai</span>
+              <input
+                type="date"
+                required
+                value={startDate}
+                disabled={isTodayChecked}
+                onChange={e => {
+                  setStartDate(e.target.value);
+                  setIsTodayChecked(false); // Uncheck if manually edited
+                }}
+                className="w-full bg-white border border-slate-200 disabled:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
+              />
+            </div>
+            <div className="space-y-1">
+              <span className="text-[9px] font-bold text-slate-400 block uppercase">Selesai</span>
+              {isUntilFinished ? (
+                <input
+                  type="text"
+                  disabled
+                  value="Sampai Selesainya"
+                  className="w-full bg-slate-100 border border-slate-200 disabled:opacity-90 rounded-lg px-3 py-2 text-xs text-emerald-700 font-extrabold italic h-10 text-center"
+                />
+              ) : (
+                <input
+                  type="date"
+                  required
+                  value={endDate}
+                  disabled={isTodayChecked}
+                  onChange={e => {
+                    setEndDate(e.target.value);
+                    setIsTodayChecked(false); // Uncheck if manually edited
+                  }}
+                  className="w-full bg-white border border-slate-200 disabled:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
+                />
+              )}
+            </div>
           </div>
         </div>
 

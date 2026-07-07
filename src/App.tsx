@@ -78,7 +78,7 @@ export default function App() {
   const handleSaveSchedule = async (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => {
     try {
       setIsRefreshing(true);
-      if (editingSchedule) {
+      if (editingSchedule && editingSchedule.id) {
         // Edit flow - automatically append activeUser to updated_by
         const updatedData = {
           ...scheduleData,
@@ -151,6 +151,22 @@ export default function App() {
 
   const handleEditTrigger = (schedule: Schedule) => {
     setEditingSchedule(schedule);
+    setIsFormOpen(true);
+  };
+
+  const handleQuickAddSchedule = (dateStr: string) => {
+    setEditingSchedule({
+      id: '', // Blank ID denotes custom quick template
+      client_name: '',
+      pic_name: '',
+      start_date: dateStr,
+      end_date: dateStr,
+      unit_ids: [],
+      lead_expert_id: '',
+      support_ids: [],
+      priority: 'P2',
+      status: 'Scheduled'
+    });
     setIsFormOpen(true);
   };
 
@@ -290,6 +306,7 @@ export default function App() {
             onSelectDate={setSelectedDate}
             onEditSchedule={handleEditTrigger}
             onDeleteSchedule={handleDeleteSchedule}
+            onQuickAddSchedule={handleQuickAddSchedule}
           />
 
           {/* Manpower Directory Directory status card */}
