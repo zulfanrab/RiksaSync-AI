@@ -7,6 +7,8 @@ interface UserContextType {
   setActiveUser: (username: string | null) => void;
   appUsers: AppUser[];
   loading: boolean;
+  mounted: boolean;
+  error: string | null;
   refreshUsers: () => Promise<void>;
   logout: () => void;
 }
@@ -18,36 +20,67 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeUserRole, setActiveUserRole] = useState<string | null>(null);
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch all app_users
   const fetchUsers = async () => {
+    setLoading(true);
+    setError(null);
+    console.log('[Auth Debug] Fetching app_users from API...');
     try {
       const res = await fetch('/api/app_users');
       if (res.ok) {
         const data = await res.json();
+        if (!data || !Array.isArray(data)) {
+          const emptyErrorMsg = 'Empty or invalid user data returned from database';
+          setError(emptyErrorMsg);
+          console.error('[Auth Error]', emptyErrorMsg, data);
+          setAppUsers([]);
+          return;
+        }
+
+        console.log(`[Auth Success] Loaded ${data.length} users successfully.`, data);
         setAppUsers(data);
         
         // If activeUser is already set, update/find their role
-        const savedUser = localStorage.getItem('active_user');
-        if (savedUser) {
-          const userObj = data.find((u: AppUser) => u.username.toLowerCase() === savedUser.toLowerCase());
-          if (userObj) {
-            setActiveUserRole(userObj.role);
+        if (typeof window !== 'undefined') {
+          const savedUser = localStorage.getItem('active_user');
+          if (savedUser) {
+            const userObj = data.find((u: AppUser) => u.username.toLowerCase() === savedUser.toLowerCase());
+            if (userObj) {
+              setActiveUserRole(userObj.role);
+            }
           }
         }
+      } else {
+        const statusText = res.statusText || 'Unknown Status';
+        const errorText = `Failed with status ${res.status}: ${statusText}`;
+        setError(errorText);
+        console.error('[Auth Error] fetchUsers API call failed:', errorText);
       }
-    } catch (err) {
-      console.error('Failed to load app users:', err);
+    } catch (err: any) {
+      const exceptionMsg = err?.message || String(err);
+      setError(exceptionMsg);
+      console.error('[Auth Error] Exception caught in fetchUsers:', exceptionMsg, err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // 1. Initial check of localStorage for active user
-    const savedUser = localStorage.getItem('active_user');
-    if (savedUser) {
-      setActiveUserState(savedUser);
+    setMounted(true);
+    // 1. Initial check of localStorage for active user (Safely inside useEffect)
+    if (typeof window !== 'undefined') {
+      try {
+        const savedUser = localStorage.getItem('active_user');
+        if (savedUser) {
+          console.log('[Auth Debug] Found active user session in localStorage:', savedUser);
+          setActiveUserState(savedUser);
+        }
+      } catch (err) {
+        console.warn('[Auth Warning] Unable to access localStorage:', err);
+      }
     }
     
     // 2. Fetch the actual user list from Supabase/API
@@ -56,7 +89,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setActiveUser = (username: string | null) => {
     if (username) {
-      localStorage.setItem('active_user', username);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('active_user', username);
+        } catch (err) {
+          console.warn('[Auth Warning] Unable to write to localStorage:', err);
+        }
+      }
       setActiveUserState(username);
       
       // Update role based on username
@@ -67,7 +106,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveUserRole('User');
       }
     } else {
-      localStorage.removeItem('active_user');
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('active_user');
+        } catch (err) {
+          console.warn('[Auth Warning] Unable to remove from localStorage:', err);
+        }
+      }
       setActiveUserState(null);
       setActiveUserRole(null);
     }
@@ -85,6 +130,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveUser,
         appUsers,
         loading,
+        mounted,
+        error,
         refreshUsers: fetchUsers,
         logout
       }}
