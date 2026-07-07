@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
-const supabaseKey = (process.env.SUPABASE_ANON_KEY || '').trim();
+const supabaseUrl = ((import.meta as any).env.VITE_SUPABASE_URL || '').trim();
+const supabaseKey = ((import.meta as any).env.VITE_SUPABASE_ANON_KEY || '').trim();
 
 // Ensure the URL is valid, non-placeholder, and starts with https://
 export const isSupabaseConfigured = !!(

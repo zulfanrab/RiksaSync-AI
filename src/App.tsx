@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
@@ -97,16 +97,109 @@ const saveLocalSchedules = (list: Schedule[]) => {
 };
 
 export default function App() {
-  const { activeUser, loading } = useUser();
+  const { activeUser, loading, logout, error: authError } = useUser();
 
   // Database States
   const [manpowerList, setManpowerList] = useState<Manpower[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   // System status
   const [supabaseConnected, setSupabaseConnected] = useState(false);
   const [geminiConnected, setGeminiConnected] = useState(false);
+
+  // State to track if SQL is copied
+  const [isCopied, setIsCopied] = useState(false);
+
+  const dbErrorCombined = dbError || authError;
+
+  const SQL_SEED_SCRIPT = `-- 1. Create app_users table
+CREATE TABLE IF NOT EXISTS app_users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL
+);
+
+-- 2. Create manpower table
+CREATE TABLE IF NOT EXISTS manpower (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('internal', 'external')),
+  skp TEXT[] NOT NULL DEFAULT '{}'
+);
+
+-- 3. Create units table
+CREATE TABLE IF NOT EXISTS units (
+  id TEXT PRIMARY KEY,
+  unit_name TEXT NOT NULL,
+  required_skp TEXT NOT NULL
+);
+
+-- 4. Create schedules table
+CREATE TABLE IF NOT EXISTS schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_name TEXT NOT NULL,
+  pic_name TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  start_time TEXT,
+  end_time TEXT,
+  unit_ids TEXT[] NOT NULL DEFAULT '{}',
+  lead_expert_id TEXT NOT NULL,
+  support_ids TEXT[] NOT NULL DEFAULT '{}',
+  priority TEXT NOT NULL CHECK (priority IN ('P1', 'P2', 'P3')),
+  status TEXT NOT NULL CHECK (status IN ('Draft', 'Scheduled', 'Completed', 'Cancelled')) DEFAULT 'Scheduled',
+  unit_descriptions TEXT[] DEFAULT '{}',
+  created_by TEXT,
+  updated_by TEXT,
+  agenda_type TEXT,
+  manual_agenda TEXT,
+  is_until_finished BOOLEAN DEFAULT false
+);
+
+-- 5. Seed app_users
+INSERT INTO app_users (id, username, role) VALUES
+  ('u1', 'Zulfan', 'IT Staff'),
+  ('u2', 'Angga', 'Leader & Ahli Utama'),
+  ('u3', 'Imam', 'Ahli Spesialis'),
+  ('u4', 'Fakhziar', 'Ahli Spesialis'),
+  ('u5', 'Fauzan', 'Ahli Spesialis'),
+  ('u6', 'Ajay', 'Support Staff'),
+  ('u7', 'Arya', 'Support Staff')
+ON CONFLICT (username) DO UPDATE SET role = EXCLUDED.role;
+
+-- 6. Seed manpower
+INSERT INTO manpower (id, name, role, status, skp) VALUES
+  ('m1', 'Angga', 'Leader & Ahli Utama', 'internal', ARRAY['PTP', 'PAA', 'Elevator', 'Eskalator']),
+  ('m2', 'Imam', 'Ahli Spesialis', 'internal', ARRAY['PUBT', 'Instalasi Listrik']),
+  ('m3', 'Fakhziar', 'Ahli Spesialis', 'internal', ARRAY['PUBT']),
+  ('m4', 'Fauzan', 'Ahli Spesialis', 'internal', ARRAY['Instalasi Listrik', 'PAA']),
+  ('m5', 'Katez', 'Ahli Eksternal', 'external', ARRAY['Angkur TKPK']),
+  ('m6', 'Riyan', 'Helper & Teknisi', 'external', ARRAY[]::TEXT[]),
+  ('m7', 'Ajay', 'Support Staff', 'internal', ARRAY[]::TEXT[]),
+  ('m8', 'Arya', 'Support Staff', 'internal', ARRAY[]::TEXT[])
+ON CONFLICT (id) DO NOTHING;
+
+-- 7. Seed units
+INSERT INTO units (id, unit_name, required_skp) VALUES
+  ('u1', 'Pesawat Tenaga dan Produksi (PTP)', 'PTP'),
+  ('u2', 'Pesawat Angkat dan Angkut (PAA)', 'PAA'),
+  ('u3', 'Elevator & Eskalator', 'Elevator'),
+  ('u4', 'Pesawat Uap dan Bejana Tekan (PUBT)', 'PUBT'),
+  ('u5', 'Instalasi Penyalur Petir', 'Instalasi Listrik'),
+  ('u6', 'Angkur & TKPK', 'Angkur TKPK'),
+  ('u7', 'Instalasi Listrik', 'Instalasi Listrik')
+ON CONFLICT (id) DO NOTHING;`;
+
+  const handleCopySql = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(SQL_SEED_SCRIPT);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
 
   // App UI state
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -118,16 +211,10 @@ export default function App() {
   // Fetch all initial data directly from Supabase
   const loadAllData = async () => {
     setIsRefreshing(true);
+    setDbError(null);
     try {
       if (!isSupabaseConfigured || !supabase) {
-        console.warn('[Data Warn] Supabase is not configured. Falling back to Local Storage / Local datasets.');
-        setSupabaseConnected(false);
-        setGeminiConnected(true); // AI feature fallback
-
-        setManpowerList(INITIAL_MANPOWER);
-        setUnits(INITIAL_UNITS);
-        setSchedules(getLocalSchedules());
-        return;
+        throw new Error('Supabase client is not configured. Please supply valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.');
       }
 
       setSupabaseConnected(true);
@@ -141,31 +228,66 @@ export default function App() {
       ]);
 
       if (manpowerRes.error) {
-        console.warn('[Supabase Warning] Manpower query returned error, using local fallback:', manpowerRes.error.message || manpowerRes.error);
-        setManpowerList(INITIAL_MANPOWER);
-      } else {
-        setManpowerList(manpowerRes.data && manpowerRes.data.length > 0 ? (manpowerRes.data as Manpower[]) : INITIAL_MANPOWER);
+        throw new Error(`Error fetching manpower from Supabase: ${manpowerRes.error.message || JSON.stringify(manpowerRes.error)}`);
       }
-
       if (unitsRes.error) {
-        console.warn('[Supabase Warning] Units query returned error, using local fallback:', unitsRes.error.message || unitsRes.error);
-        setUnits(INITIAL_UNITS);
-      } else {
-        setUnits(unitsRes.data && unitsRes.data.length > 0 ? (unitsRes.data as Unit[]) : INITIAL_UNITS);
+        throw new Error(`Error fetching units from Supabase: ${unitsRes.error.message || JSON.stringify(unitsRes.error)}`);
+      }
+      if (schedulesRes.error) {
+        throw new Error(`Error fetching schedules from Supabase: ${schedulesRes.error.message || JSON.stringify(schedulesRes.error)}`);
       }
 
-      if (schedulesRes.error) {
-        console.warn('[Supabase Warning] Schedules query returned error, using local fallback:', schedulesRes.error.message || schedulesRes.error);
-        setSchedules(getLocalSchedules());
-      } else {
-        setSchedules(schedulesRes.data ? (schedulesRes.data as Schedule[]) : []);
+      let manpowerData = manpowerRes.data as Manpower[] || [];
+      if (manpowerData.length === 0) {
+        console.log('[App] manpower table is empty. Auto-seeding initial manpower...');
+        const initialManpower: Manpower[] = [
+          { id: 'm1', name: 'Angga', role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
+          { id: 'm2', name: 'Imam', role: 'Ahli Spesialis', status: 'internal', skp: ['PUBT', 'Instalasi Listrik'] },
+          { id: 'm3', name: 'Fakhziar', role: 'Ahli Spesialis', status: 'internal', skp: ['PUBT'] },
+          { id: 'm4', name: 'Fauzan', role: 'Ahli Spesialis', status: 'internal', skp: ['Instalasi Listrik', 'PAA'] },
+          { id: 'm5', name: 'Katez', role: 'Ahli Eksternal', status: 'external', skp: ['Angkur TKPK'] },
+          { id: 'm6', name: 'Riyan', role: 'Helper & Teknisi', status: 'external', skp: [] },
+          { id: 'm7', name: 'Ajay', role: 'Support Staff', status: 'internal', skp: [] },
+          { id: 'm8', name: 'Arya', role: 'Support Staff', status: 'internal', skp: [] }
+        ];
+        const { data: seeded, error: err } = await supabase.from('manpower').insert(initialManpower).select();
+        if (!err && seeded) {
+          manpowerData = seeded as Manpower[];
+        } else {
+          manpowerData = initialManpower;
+        }
       }
+
+      let unitsData = unitsRes.data as Unit[] || [];
+      if (unitsData.length === 0) {
+        console.log('[App] units table is empty. Auto-seeding initial units...');
+        const initialUnits = [
+          { id: 'u1', unit_name: 'Pesawat Tenaga dan Produksi (PTP)', required_skp: 'PTP' },
+          { id: 'u2', unit_name: 'Pesawat Angkat dan Angkut (PAA)', required_skp: 'PAA' },
+          { id: 'u3', unit_name: 'Elevator & Eskalator', required_skp: 'Elevator' },
+          { id: 'u4', unit_name: 'Pesawat Uap dan Bejana Tekan (PUBT)', required_skp: 'PUBT' },
+          { id: 'u5', unit_name: 'Instalasi Penyalur Petir', required_skp: 'Instalasi Listrik' },
+          { id: 'u6', unit_name: 'Angkur & TKPK', required_skp: 'Angkur TKPK' },
+          { id: 'u7', unit_name: 'Instalasi Listrik', required_skp: 'Instalasi Listrik' }
+        ];
+        const { data: seeded, error: err } = await supabase.from('units').insert(initialUnits).select();
+        if (!err && seeded) {
+          unitsData = seeded as Unit[];
+        } else {
+          unitsData = initialUnits;
+        }
+      }
+
+      setManpowerList(manpowerData);
+      setUnits(unitsData);
+      setSchedules(schedulesRes.data as Schedule[] || []);
     } catch (err: any) {
-      console.warn('[Supabase Warning] Exception caught in loadAllData, falling back to local datasets:', err?.message || err);
-      // Failover safely
-      setManpowerList(INITIAL_MANPOWER);
-      setUnits(INITIAL_UNITS);
-      setSchedules(getLocalSchedules());
+      const exceptionMsg = err?.message || String(err);
+      console.warn('[Supabase Warning] Direct data fetching failed:', exceptionMsg);
+      setDbError(exceptionMsg);
+      setManpowerList([]);
+      setUnits([]);
+      setSchedules([]);
     } finally {
       setIsRefreshing(false);
     }
@@ -179,6 +301,10 @@ export default function App() {
   const handleSaveSchedule = async (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => {
     try {
       setIsRefreshing(true);
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase client is not configured. Cannot save schedule.');
+      }
+
       if (editingSchedule && editingSchedule.id) {
         // Edit flow
         const updatedData = {
@@ -186,20 +312,9 @@ export default function App() {
           updated_by: activeUser || undefined
         };
 
-        if (isSupabaseConfigured && supabase) {
-          const { error } = await supabase.from('schedules').update(updatedData).eq('id', editingSchedule.id);
-          if (error) {
-            console.error('Error updating schedule on Supabase:', error);
-            alert(`Gagal memperbarui jadwal di Supabase: ${error.message}`);
-          }
-        } else {
-          console.log('[App Debug] Supabase offline/unconfigured, updating locally.');
-          const current = getLocalSchedules();
-          const idx = current.findIndex(s => s.id === editingSchedule.id);
-          if (idx !== -1) {
-            current[idx] = { ...current[idx], ...updatedData };
-            saveLocalSchedules(current);
-          }
+        const { error } = await supabase.from('schedules').update(updatedData).eq('id', editingSchedule.id);
+        if (error) {
+          throw new Error(`Gagal memperbarui jadwal di Supabase: ${error.message}`);
         }
 
         await loadAllData();
@@ -213,32 +328,22 @@ export default function App() {
           created_by: activeUser || undefined
         };
 
-        if (isSupabaseConfigured && supabase) {
-          const insertPayload = { ...newData };
-          delete (insertPayload as any).id; // Auto-generate primary key on Supabase side
+        const insertPayload = { ...newData };
+        delete (insertPayload as any).id; // Auto-generate primary key on Supabase side
 
-          const { error } = await supabase.from('schedules').insert([insertPayload]);
-          if (error) {
-            console.error('Error inserting schedule on Supabase:', error);
-            alert(`Gagal menyimpan jadwal baru di Supabase: ${error.message}`);
-          }
-        } else {
-          console.log('[App Debug] Supabase offline/unconfigured, inserting locally.');
-          const current = getLocalSchedules();
-          const newLocalItem = {
-            ...newData,
-            id: `s_local_${Date.now()}`
-          };
-          current.push(newLocalItem);
-          saveLocalSchedules(current);
+        const { error } = await supabase.from('schedules').insert([insertPayload]);
+        if (error) {
+          throw new Error(`Gagal menyimpan jadwal baru di Supabase: ${error.message}`);
         }
 
         await loadAllData();
         setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
         setIsFormOpen(false);
       }
-    } catch (err) {
-      console.error('Error saving schedule:', err);
+    } catch (err: any) {
+      const exceptionMsg = err?.message || String(err);
+      console.error('[Supabase Error] Saving schedule failed:', exceptionMsg);
+      setDbError(exceptionMsg);
     } finally {
       setIsRefreshing(false);
     }
@@ -249,23 +354,21 @@ export default function App() {
     if (!confirm('Apakah Anda yakin ingin menghapus agenda plotting ini?')) return;
     try {
       setIsRefreshing(true);
-      if (isSupabaseConfigured && supabase) {
-        const { error } = await supabase.from('schedules').delete().eq('id', id);
-        if (error) {
-          console.error('Error deleting schedule on Supabase:', error);
-          alert(`Gagal menghapus jadwal di Supabase: ${error.message}`);
-        }
-      } else {
-        console.log('[App Debug] Supabase offline/unconfigured, deleting locally.');
-        const current = getLocalSchedules();
-        const filtered = current.filter(s => s.id !== id);
-        saveLocalSchedules(filtered);
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase client is not configured. Cannot delete schedule.');
+      }
+
+      const { error } = await supabase.from('schedules').delete().eq('id', id);
+      if (error) {
+        throw new Error(`Gagal menghapus jadwal di Supabase: ${error.message}`);
       }
 
       await loadAllData();
       setSummaryTrigger(p => p + 1); // trigger AI Summary update
-    } catch (err) {
-      console.error('Error deleting schedule:', err);
+    } catch (err: any) {
+      const exceptionMsg = err?.message || String(err);
+      console.error('[Supabase Error] Deleting schedule failed:', exceptionMsg);
+      setDbError(exceptionMsg);
     } finally {
       setIsRefreshing(false);
     }
@@ -321,6 +424,74 @@ export default function App() {
 
   if (!activeUser) {
     return <LoginScreen />;
+  }
+
+  if (dbErrorCombined) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFB] flex flex-col items-center justify-center p-4 py-12">
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-rose-600" />
+        <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-3xl shadow-2xl p-8 space-y-6 relative overflow-hidden">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center justify-center p-3 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 mb-2">
+              <AlertTriangle className="h-6 w-6 text-rose-600 animate-bounce" />
+            </div>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight">Koneksi / Inisialisasi Database Gagal</h1>
+            <p className="text-xs text-slate-500 font-medium">
+              Sistem tidak dapat terhubung, memuat data, atau menemukan tabel di database Supabase Anda.
+            </p>
+          </div>
+
+          <div className="p-5 bg-rose-50 border border-rose-150 rounded-2xl space-y-2 font-mono text-xs">
+            <p className="font-bold text-rose-800">Detail Kesalahan:</p>
+            <p className="text-rose-700 leading-relaxed break-all whitespace-pre-wrap">{dbErrorCombined}</p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Solusi: Jalankan Script SQL di Supabase SQL Editor
+              </h2>
+              <button
+                onClick={handleCopySql}
+                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 transition-all active:scale-95 cursor-pointer"
+              >
+                {isCopied ? 'Tersalin!' : 'Salin SQL'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Silakan salin kode SQL di bawah ini dan jalankan pada menu <strong>SQL Editor</strong> di dashboard Supabase Anda untuk membuat dan mengisi tabel yang diperlukan secara instan:
+            </p>
+            <div className="relative">
+              <pre className="p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-[10px] leading-relaxed max-h-48 overflow-y-auto whitespace-pre select-all border border-slate-800">
+                {SQL_SEED_SCRIPT}
+              </pre>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              onClick={() => {
+                setDbError(null);
+                loadAllData();
+              }}
+              className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-5 py-3 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+            >
+              <RefreshCcw className="h-4 w-4 animate-spin-reverse" />
+              Coba Hubungkan Kembali
+            </button>
+            <button
+              onClick={() => {
+                setDbError(null);
+                logout();
+              }}
+              className="flex-1 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
+            >
+              Keluar Sesi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

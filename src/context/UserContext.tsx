@@ -41,8 +41,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     console.log('[Auth Debug] Fetching app_users directly from Supabase...');
 
     if (!isSupabaseConfigured || !supabase) {
-      console.warn('[Auth Warning] Supabase is not configured. Falling back to local app users.');
-      setAppUsers(INITIAL_APP_USERS);
+      const msg = 'Supabase is not configured. Please supply valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.';
+      console.error('[Auth Error]', msg);
+      setError(msg);
+      setAppUsers([]);
       setLoading(false);
       return;
     }
@@ -58,30 +60,48 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Empty or invalid user data returned from database');
       }
 
-      if (data.length === 0) {
-        console.warn('[Auth Warning] Supabase app_users table is empty. Using local fallback.');
-        setAppUsers(INITIAL_APP_USERS);
-        return;
+      let users = data as AppUser[];
+      if (users.length === 0) {
+        console.log('[Auth] app_users table is empty. Auto-seeding initial user profiles...');
+        const initialUsers = [
+          { id: 'u1', username: 'Zulfan', role: 'IT Staff' },
+          { id: 'u2', username: 'Angga', role: 'Leader & Ahli Utama' },
+          { id: 'u3', username: 'Imam', role: 'Ahli Spesialis' },
+          { id: 'u4', username: 'Fakhziar', role: 'Ahli Spesialis' },
+          { id: 'u5', username: 'Fauzan', role: 'Ahli Spesialis' },
+          { id: 'u6', username: 'Ajay', role: 'Support Staff' },
+          { id: 'u7', username: 'Arya', role: 'Support Staff' }
+        ];
+        const { data: seedData, error: seedError } = await supabase.from('app_users').insert(initialUsers).select();
+        if (seedError) {
+          throw new Error(`The app_users table is empty and auto-seeding failed: ${seedError.message}`);
+        }
+        users = (seedData as AppUser[]) || initialUsers;
       }
 
-      console.log(`[Auth Success] Loaded ${data.length} users successfully from Supabase.`, data);
-      setAppUsers(data as AppUser[]);
+      console.log(`[Auth Success] Loaded ${users.length} users successfully from Supabase.`, users);
+      setAppUsers(users);
       
       // If activeUser is already set, update/find their role
       if (typeof window !== 'undefined') {
         const savedUser = localStorage.getItem('active_user');
         if (savedUser) {
-          const userObj = data.find((u: any) => u.username.toLowerCase() === savedUser.toLowerCase());
+          const userObj = users.find((u: any) => u.username.toLowerCase() === savedUser.toLowerCase());
           if (userObj) {
             setActiveUserRole(userObj.role);
+          } else {
+            // User in localStorage not found in real db, clear active user to prevent stale auth
+            localStorage.removeItem('active_user');
+            setActiveUserState(null);
+            setActiveUserRole(null);
           }
         }
       }
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
-      console.warn('[Auth Warning] Direct Supabase app_users query failed, falling back to local users:', exceptionMsg);
-      // Failover gracefully to local app users without setting the blocking error state
-      setAppUsers(INITIAL_APP_USERS);
+      console.warn('[Auth Warning] Direct Supabase app_users query failed/empty:', exceptionMsg);
+      setError(`Database Error: ${exceptionMsg}`);
+      setAppUsers([]);
     } finally {
       setLoading(false);
     }
