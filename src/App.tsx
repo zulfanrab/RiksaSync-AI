@@ -14,6 +14,87 @@ import ScheduleForm from './components/ScheduleForm';
 import { Manpower, Unit, Schedule } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+
+const INITIAL_MANPOWER: Manpower[] = [
+  { id: 'm1', name: 'Angga', role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
+  { id: 'm2', name: 'Imam', role: 'Ahli Spesialis', status: 'internal', skp: ['PUBT', 'Instalasi Listrik'] },
+  { id: 'm3', name: 'Fakhziar', role: 'Ahli Spesialis', status: 'internal', skp: ['PUBT'] },
+  { id: 'm4', name: 'Fauzan', role: 'Ahli Spesialis', status: 'internal', skp: ['Instalasi Listrik', 'PAA'] },
+  { id: 'm5', name: 'Katez', role: 'Ahli Eksternal', status: 'external', skp: ['Angkur TKPK'] },
+  { id: 'm6', name: 'Riyan', role: 'Helper & Teknisi', status: 'external', skp: [] },
+  { id: 'm7', name: 'Ajay', role: 'Support Staff', status: 'internal', skp: [] },
+  { id: 'm8', name: 'Arya', role: 'Support Staff', status: 'internal', skp: [] }
+];
+
+const INITIAL_UNITS: Unit[] = [
+  { id: 'u1', unit_name: 'Pesawat Tenaga dan Produksi (PTP)', required_skp: 'PTP' },
+  { id: 'u2', unit_name: 'Pesawat Angkat dan Angkut (PAA)', required_skp: 'PAA' },
+  { id: 'u3', unit_name: 'Elevator & Eskalator', required_skp: 'Elevator' },
+  { id: 'u4', unit_name: 'Pesawat Uap dan Bejana Tekan (PUBT)', required_skp: 'PUBT' },
+  { id: 'u5', unit_name: 'Instalasi Penyalur Petir', required_skp: 'Instalasi Listrik' },
+  { id: 'u6', unit_name: 'Angkur & TKPK', required_skp: 'Angkur TKPK' },
+  { id: 'u7', unit_name: 'Instalasi Listrik', required_skp: 'Instalasi Listrik' }
+];
+
+const INITIAL_SCHEDULES: Schedule[] = [
+  {
+    id: 's1',
+    client_name: 'PT Maju Jaya Sentosa',
+    pic_name: 'Bpk. Budi',
+    start_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    end_date: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    unit_ids: ['u1', 'u2'],
+    lead_expert_id: 'm1',
+    support_ids: ['m7', 'm8'],
+    priority: 'P2',
+    status: 'Scheduled'
+  },
+  {
+    id: 's2',
+    client_name: 'Rumah Sakit Sehat Sejahtera',
+    pic_name: 'Ibu Linda',
+    start_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    end_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    unit_ids: ['u4'],
+    lead_expert_id: 'm2',
+    support_ids: ['m6'],
+    priority: 'P1',
+    status: 'Scheduled'
+  },
+  {
+    id: 's3',
+    client_name: 'Apartemen Green View',
+    pic_name: 'Bpk. Rahmat',
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: new Date().toISOString().split('T')[0],
+    unit_ids: ['u3'],
+    lead_expert_id: 'm1',
+    support_ids: ['m6', 'm7'],
+    priority: 'P3',
+    status: 'Scheduled'
+  }
+];
+
+const getLocalSchedules = (): Schedule[] => {
+  if (typeof window === 'undefined') return INITIAL_SCHEDULES;
+  const stored = localStorage.getItem('local_schedules');
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      return INITIAL_SCHEDULES;
+    }
+  }
+  localStorage.setItem('local_schedules', JSON.stringify(INITIAL_SCHEDULES));
+  return INITIAL_SCHEDULES;
+};
+
+const saveLocalSchedules = (list: Schedule[]) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('local_schedules', JSON.stringify(list));
+  }
+};
 
 export default function App() {
   const { activeUser, loading } = useUser();
@@ -34,37 +115,57 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [summaryTrigger, setSummaryTrigger] = useState(0);
 
-  // Fetch all initial data
+  // Fetch all initial data directly from Supabase
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      // Parallel fetches for speed!
-      const [resStatus, resManpower, resUnits, resSchedules] = await Promise.all([
-        fetch('/api/status'),
-        fetch('/api/manpower'),
-        fetch('/api/units'),
-        fetch('/api/schedules')
+      if (!isSupabaseConfigured || !supabase) {
+        console.warn('[Data Warn] Supabase is not configured. Falling back to Local Storage / Local datasets.');
+        setSupabaseConnected(false);
+        setGeminiConnected(true); // AI feature fallback
+
+        setManpowerList(INITIAL_MANPOWER);
+        setUnits(INITIAL_UNITS);
+        setSchedules(getLocalSchedules());
+        return;
+      }
+
+      setSupabaseConnected(true);
+      setGeminiConnected(true);
+
+      // Call Supabase queries in parallel for ultra fast load times
+      const [manpowerRes, unitsRes, schedulesRes] = await Promise.all([
+        supabase.from('manpower').select('*'),
+        supabase.from('units').select('*'),
+        supabase.from('schedules').select('*')
       ]);
 
-      if (resStatus.ok) {
-        const statusData = await resStatus.json();
-        setSupabaseConnected(statusData.supabase);
-        setGeminiConnected(statusData.gemini);
+      if (manpowerRes.error) {
+        console.warn('[Supabase Warning] Manpower query returned error, using local fallback:', manpowerRes.error.message || manpowerRes.error);
+        setManpowerList(INITIAL_MANPOWER);
+      } else {
+        setManpowerList(manpowerRes.data && manpowerRes.data.length > 0 ? (manpowerRes.data as Manpower[]) : INITIAL_MANPOWER);
       }
 
-      if (resManpower.ok) {
-        setManpowerList(await resManpower.json());
+      if (unitsRes.error) {
+        console.warn('[Supabase Warning] Units query returned error, using local fallback:', unitsRes.error.message || unitsRes.error);
+        setUnits(INITIAL_UNITS);
+      } else {
+        setUnits(unitsRes.data && unitsRes.data.length > 0 ? (unitsRes.data as Unit[]) : INITIAL_UNITS);
       }
 
-      if (resUnits.ok) {
-        setUnits(await resUnits.json());
+      if (schedulesRes.error) {
+        console.warn('[Supabase Warning] Schedules query returned error, using local fallback:', schedulesRes.error.message || schedulesRes.error);
+        setSchedules(getLocalSchedules());
+      } else {
+        setSchedules(schedulesRes.data ? (schedulesRes.data as Schedule[]) : []);
       }
-
-      if (resSchedules.ok) {
-        setSchedules(await resSchedules.json());
-      }
-    } catch (err) {
-      console.error('Error loading operational data:', err);
+    } catch (err: any) {
+      console.warn('[Supabase Warning] Exception caught in loadAllData, falling back to local datasets:', err?.message || err);
+      // Failover safely
+      setManpowerList(INITIAL_MANPOWER);
+      setUnits(INITIAL_UNITS);
+      setSchedules(getLocalSchedules());
     } finally {
       setIsRefreshing(false);
     }
@@ -74,51 +175,67 @@ export default function App() {
     loadAllData();
   }, []);
 
-  // Handle saving a schedule (creates or updates)
+  // Handle saving a schedule directly on Supabase
   const handleSaveSchedule = async (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => {
     try {
       setIsRefreshing(true);
       if (editingSchedule && editingSchedule.id) {
-        // Edit flow - automatically append activeUser to updated_by
+        // Edit flow
         const updatedData = {
           ...scheduleData,
           updated_by: activeUser || undefined
         };
 
-        const properRes = await fetch(`/api/schedules/${editingSchedule.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedData)
-        });
-
-        if (properRes.ok) {
-          await loadAllData();
-          setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
-          setIsFormOpen(false);
-          setEditingSchedule(null);
+        if (isSupabaseConfigured && supabase) {
+          const { error } = await supabase.from('schedules').update(updatedData).eq('id', editingSchedule.id);
+          if (error) {
+            console.error('Error updating schedule on Supabase:', error);
+            alert(`Gagal memperbarui jadwal di Supabase: ${error.message}`);
+          }
         } else {
-          alert('Gagal memperbarui jadwal.');
+          console.log('[App Debug] Supabase offline/unconfigured, updating locally.');
+          const current = getLocalSchedules();
+          const idx = current.findIndex(s => s.id === editingSchedule.id);
+          if (idx !== -1) {
+            current[idx] = { ...current[idx], ...updatedData };
+            saveLocalSchedules(current);
+          }
         }
+
+        await loadAllData();
+        setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
+        setIsFormOpen(false);
+        setEditingSchedule(null);
       } else {
-        // Add flow - automatically append activeUser to created_by
+        // Add flow
         const newData = {
           ...scheduleData,
           created_by: activeUser || undefined
         };
 
-        const res = await fetch('/api/schedules', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newData)
-        });
+        if (isSupabaseConfigured && supabase) {
+          const insertPayload = { ...newData };
+          delete (insertPayload as any).id; // Auto-generate primary key on Supabase side
 
-        if (res.ok) {
-          await loadAllData();
-          setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
-          setIsFormOpen(false);
+          const { error } = await supabase.from('schedules').insert([insertPayload]);
+          if (error) {
+            console.error('Error inserting schedule on Supabase:', error);
+            alert(`Gagal menyimpan jadwal baru di Supabase: ${error.message}`);
+          }
         } else {
-          alert('Gagal menyimpan jadwal baru.');
+          console.log('[App Debug] Supabase offline/unconfigured, inserting locally.');
+          const current = getLocalSchedules();
+          const newLocalItem = {
+            ...newData,
+            id: `s_local_${Date.now()}`
+          };
+          current.push(newLocalItem);
+          saveLocalSchedules(current);
         }
+
+        await loadAllData();
+        setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
+        setIsFormOpen(false);
       }
     } catch (err) {
       console.error('Error saving schedule:', err);
@@ -127,21 +244,26 @@ export default function App() {
     }
   };
 
-  // Delete schedule
+  // Delete schedule directly from Supabase
   const handleDeleteSchedule = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus agenda plotting ini?')) return;
     try {
       setIsRefreshing(true);
-      const res = await fetch(`/api/schedules/${id}`, {
-        method: 'DELETE'
-      });
-
-      if (res.ok) {
-        await loadAllData();
-        setSummaryTrigger(p => p + 1); // trigger AI Summary update
+      if (isSupabaseConfigured && supabase) {
+        const { error } = await supabase.from('schedules').delete().eq('id', id);
+        if (error) {
+          console.error('Error deleting schedule on Supabase:', error);
+          alert(`Gagal menghapus jadwal di Supabase: ${error.message}`);
+        }
       } else {
-        alert('Gagal menghapus jadwal.');
+        console.log('[App Debug] Supabase offline/unconfigured, deleting locally.');
+        const current = getLocalSchedules();
+        const filtered = current.filter(s => s.id !== id);
+        saveLocalSchedules(filtered);
       }
+
+      await loadAllData();
+      setSummaryTrigger(p => p + 1); // trigger AI Summary update
     } catch (err) {
       console.error('Error deleting schedule:', err);
     } finally {

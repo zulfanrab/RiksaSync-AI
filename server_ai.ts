@@ -240,10 +240,13 @@ Berikan output dalam format JSON sesuai dengan skema yang diberikan.
     return JSON.parse(resultText);
   } catch (error: any) {
     const isQuotaError = error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('RESOURCE_EXHAUSTED');
+    const isUnavailableError = error?.message?.includes('503') || error?.message?.includes('UNAVAILABLE') || error?.message?.includes('demand');
     if (isQuotaError) {
       console.warn('[AI Quota Limit] Gemini API free tier limit reached for Smart Plotter. Utilizing beautiful local deterministic plotter fallback.');
+    } else if (isUnavailableError) {
+      console.warn('[AI Temp Limit] Gemini API model is experiencing temporary high demand for Smart Plotter. Utilizing local deterministic plotter fallback.');
     } else {
-      console.error('Error in Gemini Smart Plotter:', error);
+      console.warn('[AI Warn] Gemini Smart Plotter exception caught, falling back:', error?.message || error);
     }
     // Graceful fallback to deterministic local plotter on API failure
     return localDeterministicPlotter(newSchedule, dbState);
@@ -327,11 +330,15 @@ Tulis ringkasannya langsung tanpa pengantar seperti "Berikut adalah ringkasan...
     return response.text?.trim() || 'Gagal menghasilkan ringkasan AI.';
   } catch (error: any) {
     const isQuotaError = error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('RESOURCE_EXHAUSTED');
+    const isUnavailableError = error?.message?.includes('503') || error?.message?.includes('UNAVAILABLE') || error?.message?.includes('demand');
     if (isQuotaError) {
       console.warn('[AI Quota Limit] Gemini API free tier limit reached. Utilizing beautiful local deterministic analysis.');
       return 'Ringkasan Operasional (Analisis Lokal - Quota AI Terbatas): ' + localDeterministicSummary(dbState);
+    } else if (isUnavailableError) {
+      console.warn('[AI Temp Limit] Gemini API model is experiencing temporary high demand. Utilizing local deterministic analysis.');
+      return 'Ringkasan Operasional (Analisis Lokal - Model Sangat Sibuk): ' + localDeterministicSummary(dbState);
     }
-    console.error('Error generating AI summary:', error);
+    console.warn('[AI Warn] Exception caught in generating AI summary, using fallback:', error?.message || error);
     return 'Ringkasan Operasional (Analisis Lokal - Koneksi Terbatas): ' + localDeterministicSummary(dbState);
   }
 }

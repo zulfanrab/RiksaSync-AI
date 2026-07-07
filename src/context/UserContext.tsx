@@ -1,5 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AppUser } from '../types';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
+const INITIAL_APP_USERS: AppUser[] = [
+  { id: 'u1', username: 'Zulfan', role: 'IT Staff' },
+  { id: 'u2', username: 'Angga', role: 'Leader & Ahli Utama' },
+  { id: 'u3', username: 'Imam', role: 'Ahli Spesialis' },
+  { id: 'u4', username: 'Fakhziar', role: 'Ahli Spesialis' },
+  { id: 'u5', username: 'Fauzan', role: 'Ahli Spesialis' },
+  { id: 'u6', username: 'Ajay', role: 'Support Staff' },
+  { id: 'u7', username: 'Arya', role: 'Support Staff' }
+];
 
 interface UserContextType {
   activeUser: string | null;
@@ -27,42 +38,50 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchUsers = async () => {
     setLoading(true);
     setError(null);
-    console.log('[Auth Debug] Fetching app_users from API...');
-    try {
-      const res = await fetch('/api/app_users');
-      if (res.ok) {
-        const data = await res.json();
-        if (!data || !Array.isArray(data)) {
-          const emptyErrorMsg = 'Empty or invalid user data returned from database';
-          setError(emptyErrorMsg);
-          console.error('[Auth Error]', emptyErrorMsg, data);
-          setAppUsers([]);
-          return;
-        }
+    console.log('[Auth Debug] Fetching app_users directly from Supabase...');
 
-        console.log(`[Auth Success] Loaded ${data.length} users successfully.`, data);
-        setAppUsers(data);
-        
-        // If activeUser is already set, update/find their role
-        if (typeof window !== 'undefined') {
-          const savedUser = localStorage.getItem('active_user');
-          if (savedUser) {
-            const userObj = data.find((u: AppUser) => u.username.toLowerCase() === savedUser.toLowerCase());
-            if (userObj) {
-              setActiveUserRole(userObj.role);
-            }
+    if (!isSupabaseConfigured || !supabase) {
+      console.warn('[Auth Warning] Supabase is not configured. Falling back to local app users.');
+      setAppUsers(INITIAL_APP_USERS);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error: sbError } = await supabase.from('app_users').select('*');
+      
+      if (sbError) {
+        throw new Error(sbError.message);
+      }
+
+      if (!data || !Array.isArray(data)) {
+        throw new Error('Empty or invalid user data returned from database');
+      }
+
+      if (data.length === 0) {
+        console.warn('[Auth Warning] Supabase app_users table is empty. Using local fallback.');
+        setAppUsers(INITIAL_APP_USERS);
+        return;
+      }
+
+      console.log(`[Auth Success] Loaded ${data.length} users successfully from Supabase.`, data);
+      setAppUsers(data as AppUser[]);
+      
+      // If activeUser is already set, update/find their role
+      if (typeof window !== 'undefined') {
+        const savedUser = localStorage.getItem('active_user');
+        if (savedUser) {
+          const userObj = data.find((u: any) => u.username.toLowerCase() === savedUser.toLowerCase());
+          if (userObj) {
+            setActiveUserRole(userObj.role);
           }
         }
-      } else {
-        const statusText = res.statusText || 'Unknown Status';
-        const errorText = `Failed with status ${res.status}: ${statusText}`;
-        setError(errorText);
-        console.error('[Auth Error] fetchUsers API call failed:', errorText);
       }
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
-      setError(exceptionMsg);
-      console.error('[Auth Error] Exception caught in fetchUsers:', exceptionMsg, err);
+      console.warn('[Auth Warning] Direct Supabase app_users query failed, falling back to local users:', exceptionMsg);
+      // Failover gracefully to local app users without setting the blocking error state
+      setAppUsers(INITIAL_APP_USERS);
     } finally {
       setLoading(false);
     }
