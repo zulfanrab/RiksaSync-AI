@@ -105,6 +105,7 @@ export default function App() {
   const [manpowerList, setManpowerList] = useState<Manpower[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [clients, setClients] = useState<{ id: string; client_name: string; pic_name: string; pic_phone: string }[]>([]);
   const [dbError, setDbError] = useState<string | null>(null);
 
   // System status
@@ -132,6 +133,15 @@ CREATE TABLE IF NOT EXISTS manpower (
   skp TEXT[] NOT NULL DEFAULT '{}'
 );
 
+-- 2b. Create clients table (UPGRADE 2026)
+CREATE TABLE IF NOT EXISTS clients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_name TEXT UNIQUE NOT NULL,
+  pic_name TEXT NOT NULL,
+  pic_phone TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- 3. Create units table
 CREATE TABLE IF NOT EXISTS units (
   id TEXT PRIMARY KEY,
@@ -144,21 +154,23 @@ CREATE TABLE IF NOT EXISTS schedules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name TEXT NOT NULL,
   pic_name TEXT NOT NULL,
+  pic_phone TEXT,
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
   start_time TEXT,
   end_time TEXT,
-  unit_ids TEXT[] NOT NULL DEFAULT '{}',
-  lead_expert_id TEXT NOT NULL,
+  unit_ids TEXT[] DEFAULT '{}',
+  lead_expert_id TEXT,
   support_ids TEXT[] NOT NULL DEFAULT '{}',
   priority TEXT NOT NULL CHECK (priority IN ('P1', 'P2', 'P3')),
   status TEXT NOT NULL CHECK (status IN ('Draft', 'Scheduled', 'Completed', 'Cancelled')) DEFAULT 'Scheduled',
   unit_descriptions TEXT[] DEFAULT '{}',
   created_by TEXT,
   updated_by TEXT,
-  agenda_type TEXT,
+  agenda_type TEXT DEFAULT 'Riksa Uji',
   manual_agenda TEXT,
-  is_until_finished BOOLEAN DEFAULT false
+  is_until_finished BOOLEAN DEFAULT false,
+  location TEXT
 );
 
 -- 5. Seed app_users
@@ -225,10 +237,17 @@ ON CONFLICT (id) DO NOTHING;`;
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
-        supabase.from('schedules').select('*')
+        supabase.from('schedules').select('*'),
+        (async () => {
+          try {
+            return await supabase.from('clients').select('*');
+          } catch (e) {
+            return { data: [], error: e } as any;
+          }
+        })()
       ]);
 
       if (manpowerRes.error) {
@@ -283,9 +302,12 @@ ON CONFLICT (id) DO NOTHING;`;
         }
       }
 
+      const clientsData = clientsRes && !clientsRes.error ? (clientsRes.data || []) : [];
+
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
+      setClients(clientsData);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed:', exceptionMsg);
@@ -293,6 +315,7 @@ ON CONFLICT (id) DO NOTHING;`;
       setManpowerList([]);
       setUnits([]);
       setSchedules([]);
+      setClients([]);
     } finally {
       setIsRefreshing(false);
     }
@@ -308,6 +331,28 @@ ON CONFLICT (id) DO NOTHING;`;
       setIsRefreshing(true);
       if (!isSupabaseConfigured || !supabase) {
         throw new Error('Supabase client is not configured. Cannot save schedule.');
+      }
+
+      // Check if client is new and automatically insert into the clients table
+      if (scheduleData.client_name) {
+        const trimmedClient = scheduleData.client_name.trim();
+        const clientExists = clients.some(
+          c => c.client_name.toLowerCase() === trimmedClient.toLowerCase()
+        );
+        if (!clientExists && trimmedClient !== '') {
+          try {
+            await supabase.from('clients').insert([
+              {
+                client_name: trimmedClient,
+                pic_name: scheduleData.pic_name || 'Staff PIC',
+                pic_phone: scheduleData.pic_phone || '-'
+              }
+            ]);
+            console.log('Successfully auto-inserted new client to database:', trimmedClient);
+          } catch (clientErr) {
+            console.warn('Auto insert new client failed (table clients might be missing or trigger error):', clientErr);
+          }
+        }
       }
 
       if (editingSchedule && editingSchedule.id) {
@@ -642,6 +687,7 @@ ON CONFLICT (id) DO NOTHING;`;
                 manpowerList={manpowerList}
                 units={units}
                 schedules={schedules}
+                clients={clients}
                 onSave={handleSaveSchedule}
                 onCancel={() => {
                   setIsFormOpen(false);
