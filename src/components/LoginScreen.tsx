@@ -2,6 +2,7 @@ import React from 'react';
 import { useUser } from '../context/UserContext';
 import { User, Sparkles, LogIn, Shield, AlertTriangle, RefreshCcw } from 'lucide-react';
 import { motion } from 'motion/react';
+import Logo from './Logo';
 
 export default function LoginScreen() {
   const { appUsers, setActiveUser, loading, mounted, error, refreshUsers } = useUser();
@@ -27,10 +28,10 @@ export default function LoginScreen() {
         <div className="absolute -bottom-16 -left-16 w-40 h-40 bg-teal-50 rounded-full -z-10 opacity-50" />
 
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center p-3 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-600 mb-2">
-            <Sparkles className="h-6 w-6 text-emerald-600 animate-pulse" />
+          <div className="inline-flex items-center justify-center mb-1">
+            <Logo className="h-16 w-16" />
           </div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">RiksaSync AI</h1>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">AksaraSync AI</h1>
           <p className="text-xs text-slate-500 font-medium">
             Sistem Manajemen Plotting Jadwal & Ahli Keselamatan Kerja PJK3
           </p>

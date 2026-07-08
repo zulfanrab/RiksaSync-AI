@@ -3,6 +3,635 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { app } from '../server_app';
+import 'dotenv/config';
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI, Type } from '@google/genai';
 
+// --- Type Interfaces ---
+export interface Manpower {
+  id: string;
+  name: string;
+  role: string;
+  status: 'internal' | 'external';
+  skp: string[]; // List of SKP licenses/skills
+}
+
+export interface Unit {
+  id: string;
+  unit_name: string;
+  required_skp: string;
+}
+
+export interface Schedule {
+  id: string;
+  client_name: string;
+  pic_name: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
+  start_time?: string; // Optional HH:MM
+  end_time?: string;   // Optional HH:MM
+  unit_ids: string[]; // Array of Unit IDs
+  lead_expert_id: string;
+  support_ids: string[]; // Array of Support Manpower IDs
+  priority: 'P1' | 'P2' | 'P3'; // P1: Critical, P2: High, P3: Medium
+  status: 'Draft' | 'Scheduled' | 'Completed' | 'Cancelled';
+  unit_descriptions?: string[]; // Optional unit descriptions
+  created_by?: string;
+  updated_by?: string;
+  agenda_type?: string;        // 'Riksa Uji' | 'Survey' | 'Lainnya'
+  manual_agenda?: string;      // Manual text input for 'Lainnya'
+  is_until_finished?: boolean; // Until finished option
+}
+
+export interface AppUser {
+  id: string;
+  username: string;
+  role: string;
+}
+
+export interface DBState {
+  manpower: Manpower[];
+  units: Unit[];
+  schedules: Schedule[];
+}
+
+// --- Database Manager ---
+export class DatabaseManager {
+  private supabase: any = null;
+
+  constructor() {
+    this.initDatabase();
+  }
+
+  private initDatabase() {
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+    if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('https://')) {
+      try {
+        this.supabase = createClient(supabaseUrl, supabaseKey);
+        console.log('Supabase client successfully initialized on backend.');
+      } catch (err) {
+        console.error('Failed to initialize Supabase client:', err);
+      }
+    } else {
+      console.error('Supabase credentials not configured in backend environment.');
+    }
+  }
+
+  // --- Manpower API ---
+  async getManpower(): Promise<Manpower[]> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('manpower').select('*');
+    if (error) {
+      throw new Error(`Error fetching manpower: ${error.message}`);
+    }
+    return data as Manpower[];
+  }
+
+  async addManpower(person: Omit<Manpower, 'id'>): Promise<Manpower> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('manpower').insert([person]).select();
+    if (error) {
+      throw new Error(`Error adding manpower: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      throw new Error('Failed to insert manpower: No data returned');
+    }
+    return data[0] as Manpower;
+  }
+
+  // --- Units API ---
+  async getUnits(): Promise<Unit[]> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('units').select('*');
+    if (error) {
+      throw new Error(`Error fetching units: ${error.message}`);
+    }
+    return data as Unit[];
+  }
+
+  async addUnit(unit: Omit<Unit, 'id'>): Promise<Unit> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('units').insert([unit]).select();
+    if (error) {
+      throw new Error(`Error adding unit: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      throw new Error('Failed to insert unit: No data returned');
+    }
+    return data[0] as Unit;
+  }
+
+  // --- Schedules API ---
+  async getSchedules(): Promise<Schedule[]> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('schedules').select('*');
+    if (error) {
+      throw new Error(`Error fetching schedules: ${error.message}`);
+    }
+    return data as Schedule[];
+  }
+
+  async addSchedule(schedule: Omit<Schedule, 'id'>): Promise<Schedule> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('schedules').insert([schedule]).select();
+    if (error) {
+      throw new Error(`Error adding schedule: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      throw new Error('Failed to insert schedule: No data returned');
+    }
+    return data[0] as Schedule;
+  }
+
+  async updateSchedule(id: string, updates: Partial<Schedule>): Promise<Schedule | null> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('schedules').update(updates).eq('id', id).select();
+    if (error) {
+      throw new Error(`Error updating schedule: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      return null;
+    }
+    return data[0] as Schedule;
+  }
+
+  async deleteSchedule(id: string): Promise<boolean> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { error } = await this.supabase.from('schedules').delete().eq('id', id);
+    if (error) {
+      throw new Error(`Error deleting schedule: ${error.message}`);
+    }
+    return true;
+  }
+
+  async getAppUsers(): Promise<AppUser[]> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('app_users').select('*');
+    if (error) {
+      throw new Error(`Error fetching app_users: ${error.message}`);
+    }
+    return data as AppUser[];
+  }
+
+  async getFullState(): Promise<DBState> {
+    const [manpower, units, schedules] = await Promise.all([
+      this.getManpower(),
+      this.getUnits(),
+      this.getSchedules()
+    ]);
+    return { manpower, units, schedules };
+  }
+
+  isSupabaseConnected(): boolean {
+    return !!this.supabase;
+  }
+}
+
+const dbManager = new DatabaseManager();
+
+// --- AI Engine & Helpers ---
+let aiClient: GoogleGenAI | null = null;
+
+function getAIClient(): GoogleGenAI {
+  if (!aiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error('GEMINI_API_KEY is not defined in environment variables.');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiClient;
+}
+
+export function isGeminiConfigured(): boolean {
+  return !!process.env.GEMINI_API_KEY;
+}
+
+function localDeterministicPlotter(
+  newSchedule: {
+    client_name: string;
+    pic_name: string;
+    start_date: string;
+    end_date: string;
+    unit_ids: string[];
+    priority: 'P1' | 'P2' | 'P3';
+  },
+  dbState: DBState
+): {
+  recommendedLeadExpertId: string;
+  recommendedSupportIds: string[];
+  rescheduleAdvice: string;
+  reasoning: string;
+} {
+  const { manpower, units, schedules } = dbState;
+
+  const requiredSKPs = Array.from(new Set(
+    newSchedule.unit_ids.map(uid => {
+      const unit = units.find(u => u.id === uid);
+      return unit ? unit.required_skp : '';
+    }).filter(Boolean)
+  ));
+
+  const checkOverlap = (start1: string, end1: string, start2: string, end2: string) => {
+    return start1 <= end2 && end1 >= start2;
+  };
+
+  const eligibleExperts = manpower.filter(m => {
+    return m.skp.some(license => requiredSKPs.includes(license));
+  });
+
+  if (eligibleExperts.length === 0) {
+    return {
+      recommendedLeadExpertId: '',
+      recommendedSupportIds: [],
+      rescheduleAdvice: 'Tidak ada ahli internal maupun eksternal dengan SKP yang sesuai untuk unit ini.',
+      reasoning: 'System could not find any manpower with matching SKP in the database.'
+    };
+  }
+
+  const availableExperts = eligibleExperts.filter(expert => {
+    const hasConflict = schedules.some(s => {
+      if (s.status === 'Cancelled') return false;
+      const isBooked = s.lead_expert_id === expert.id || s.support_ids.includes(expert.id);
+      return isBooked && checkOverlap(s.start_date, s.end_date, newSchedule.start_date, newSchedule.end_date);
+    });
+    return !hasConflict;
+  });
+
+  let recommendedLeadId = '';
+  let advice = '';
+  let reason = '';
+
+  if (availableExperts.length > 0) {
+    recommendedLeadId = availableExperts[0].id;
+    advice = `Menyarankan ${availableExperts[0].name} sebagai Lead Expert karena memiliki SKP yang sesuai (${availableExperts[0].skp.join(', ')}) dan tersedia pada tanggal tersebut.`;
+    reason = 'Found available qualified lead expert deterministically.';
+  } else {
+    const p3Schedules = schedules.filter(s => s.priority === 'P3' && s.status !== 'Cancelled');
+    const overlappingP3 = p3Schedules.find(s => {
+      const isLeadEligible = eligibleExperts.some(e => e.id === s.lead_expert_id);
+      return isLeadEligible && checkOverlap(s.start_date, s.end_date, newSchedule.start_date, newSchedule.end_date);
+    });
+
+    if (overlappingP3) {
+      recommendedLeadId = overlappingP3.lead_expert_id;
+      const expertName = manpower.find(m => m.id === recommendedLeadId)?.name || 'Ahli';
+      advice = `[SARAN PENJADWALAN ULANG] Semua ahli dengan SKP yang sesuai sedang bertugas. Direkomendasikan untuk menjadwalkan ulang proyek P3/Medium "${overlappingP3.client_name}" (${overlappingP3.start_date} s/d ${overlappingP3.end_date}) untuk membebaskan Lead Expert ${expertName}.`;
+      reason = 'Determined conflict but resolved by suggesting reschedule of P3 project.';
+    } else {
+      recommendedLeadId = eligibleExperts[0].id;
+      advice = `Semua ahli dengan SKP yang sesuai sedang bertugas dan tidak ada proyek prioritas rendah (P3) yang bisa dikorbankan. Anda harus menjadwalkan ulang proyek darurat ini atau menghubungi ahli eksternal tambahan. Ahli internal yang cocok adalah ${eligibleExperts[0].name}.`;
+      reason = 'All experts booked, no low priority project available for swap.';
+    }
+  }
+
+  const availableSupport = manpower.filter(m => {
+    if (m.id === recommendedLeadId) return false;
+    const hasConflict = schedules.some(s => {
+      if (s.status === 'Cancelled') return false;
+      const isBooked = s.lead_expert_id === m.id || s.support_ids.includes(m.id);
+      return isBooked && checkOverlap(s.start_date, s.end_date, newSchedule.start_date, newSchedule.end_date);
+    });
+    return !hasConflict;
+  });
+
+  const sortedSupport = [...availableSupport].sort((a, b) => {
+    const scoreA = a.skp.length === 0 ? 2 : 1;
+    const scoreB = b.skp.length === 0 ? 2 : 1;
+    return scoreB - scoreA;
+  });
+
+  const recommendedSupportIds = sortedSupport.slice(0, 2).map(s => s.id);
+
+  return {
+    recommendedLeadExpertId: recommendedLeadId,
+    recommendedSupportIds,
+    rescheduleAdvice: advice,
+    reasoning: `${reason} (Deterministic Fallback)`
+  };
+}
+
+export async function getAiSchedulePlot(
+  newSchedule: {
+    client_name: string;
+    pic_name: string;
+    start_date: string;
+    end_date: string;
+    unit_ids: string[];
+    priority: 'P1' | 'P2' | 'P3';
+  },
+  dbState: DBState
+) {
+  if (!isGeminiConfigured()) {
+    return localDeterministicPlotter(newSchedule, dbState);
+  }
+
+  try {
+    const ai = getAIClient();
+
+    const prompt = `
+Anda adalah Resource Manager AI bernama AksaraSync AI.
+Tugas Anda adalah merencanakan plot manpower secara cerdas untuk proyek inspeksi keselamatan (PJK3) baru.
+
+DATA PROYEK BARU:
+- Nama Klien: ${newSchedule.client_name}
+- PIC: ${newSchedule.pic_name}
+- Tanggal Mulai: ${newSchedule.start_date}
+- Tanggal Selesai: ${newSchedule.end_date}
+- ID Unit yang diinspeksi: ${JSON.stringify(newSchedule.unit_ids)}
+- Prioritas Proyek: ${newSchedule.priority}
+
+DATA UTAMA DATABASE:
+1. Daftar Manpower (Ahli dan Support):
+${JSON.stringify(dbState.manpower, null, 2)}
+
+2. Daftar Unit dan SKP yang dibutuhkan:
+${JSON.stringify(dbState.units, null, 2)}
+
+3. Jadwal Eksisting Saat Ini:
+${JSON.stringify(dbState.schedules.filter(s => s.status !== 'Cancelled'), null, 2)}
+
+ATURAN BISNIS PLOTTING:
+1. Lead Expert WAJIB memiliki lisensi SKP yang cocok dengan 'required_skp' dari unit yang diinspeksi. Cocokkan unit_ids proyek baru dengan daftar unit untuk menemukan required_skp.
+2. Cek ketersediaan (availability): Seseorang dianggap sibuk jika dia bertugas sebagai Lead Expert atau berada di daftar Support pada tanggal yang tumpang tindih (overlap) dengan tanggal proyek baru (${newSchedule.start_date} s/d ${newSchedule.end_date}).
+3. Tim Support: Rekomendasikan 1 s/d 2 orang support yang tersedia (bisa Helper/Teknisi/Support yang SKP-nya kosong seperti Ajay, Arya, atau Riyan).
+4. ATURAN PENJADWALAN ULANG (CRITICAL):
+   Jika semua ahli yang memiliki SKP yang cocok sedang sibuk pada tanggal tersebut:
+   - Evaluasi proyek eksisting yang tumpang tindih.
+   - Jika ada proyek eksisting dengan prioritas 'P3' (Medium), Anda dapat menyarankan untuk "mengorbankan" / menjadwalkan ulang proyek P3 tersebut guna membebaskan ahlinya untuk proyek darurat/baru ini.
+   - Jelaskan saran penjadwal ulang ini secara detail dalam properti 'rescheduleAdvice'. Sebutkan nama klien P3 yang harus dijadwalkan ulang.
+
+Berikan output dalam format JSON sesuai dengan skema yang diberikan.
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: 'Anda adalah asisten perencana manpower profesional yang sangat teliti dalam memeriksa jadwal dan SKP.',
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            recommendedLeadExpertId: {
+              type: Type.STRING,
+              description: 'ID dari Lead Expert yang direkomendasikan.'
+            },
+            recommendedSupportIds: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: 'Array ID tim support yang direkomendasikan (1-2 orang).'
+            },
+            rescheduleAdvice: {
+              type: Type.STRING,
+              description: 'Saran dalam bahasa Indonesia tentang plot ini. Jika terjadi konflik jadwal, berikan solusi konkret tentang proyek P3 mana yang harus ditunda.'
+            },
+            reasoning: {
+              type: Type.STRING,
+              description: 'Alasan teknis singkat atas pemilihan manpower ini berdasarkan kecocokan SKP dan ketersediaan.'
+            }
+          },
+          required: ['recommendedLeadExpertId', 'recommendedSupportIds', 'rescheduleAdvice', 'reasoning']
+        }
+      }
+    });
+
+    const resultText = response.text || '';
+    return JSON.parse(resultText);
+  } catch (error: any) {
+    console.warn('[AI Warn] Gemini Smart Plotter exception caught, falling back:', error?.message || error);
+    return localDeterministicPlotter(newSchedule, dbState);
+  }
+}
+
+function localDeterministicSummary(dbState: DBState): string {
+  const activeSchedules = dbState.schedules.filter(s => s.status !== 'Cancelled');
+  const scheduledCount = activeSchedules.filter(s => s.status === 'Scheduled').length;
+  const draftCount = activeSchedules.filter(s => s.status === 'Draft').length;
+  
+  const expertCounts: Record<string, number> = {};
+  activeSchedules.forEach(s => {
+    if (s.lead_expert_id) {
+      expertCounts[s.lead_expert_id] = (expertCounts[s.lead_expert_id] || 0) + 1;
+    }
+  });
+  
+  let busiestExpertName = '';
+  let maxCount = 0;
+  Object.entries(expertCounts).forEach(([id, count]) => {
+    if (count > maxCount) {
+      maxCount = count;
+      const exp = dbState.manpower.find(m => m.id === id);
+      if (exp) {
+        busiestExpertName = exp.name;
+      }
+    }
+  });
+
+  const p1Count = activeSchedules.filter(s => s.priority === 'P1').length;
+
+  let text = `Saat ini terdapat ${activeSchedules.length} kegiatan riksa uji aktif (${scheduledCount} terplot, ${draftCount} draf rencana). `;
+  if (busiestExpertName) {
+    text += `Ahli keselamatan dengan penugasan terbanyak saat ini adalah ${busiestExpertName} (${maxCount} proyek). `;
+  }
+  if (p1Count > 0) {
+    text += `Terdapat ${p1Count} agenda berprioritas tinggi (P1/Critical) yang memerlukan perhatian khusus untuk memastikan kelancaran inspeksi lapangan. `;
+  } else {
+    text += `Semua agenda terpantau berjalan kondusif dengan tingkat risiko operasional yang terkendali. `;
+  }
+  text += `Rencana penjadwalan personil terdistribusi optimal untuk mendukung kepatuhan regulasi keselamatan kerja di semua klien PJK3.`;
+  return text;
+}
+
+export async function getAiDashboardSummary(dbState: DBState): Promise<string> {
+  if (!isGeminiConfigured()) {
+    return 'Ringkasan Operasional (Lokal): ' + localDeterministicSummary(dbState) + ' (Hubungkan GEMINI_API_KEY di panel Secrets untuk analisis bertenaga AI)';
+  }
+
+  try {
+    const ai = getAIClient();
+
+    const prompt = `
+Analisis data penjadwalan dan manpower berikut. Berikan ringkasan eksekutif mingguan yang singkat, profesional, dan informatif dalam Bahasa Indonesia.
+
+DATA PENJADWALAN:
+Schedules: ${JSON.stringify(dbState.schedules, null, 2)}
+Manpower: ${JSON.stringify(dbState.manpower, null, 2)}
+
+POIN YANG HARUS DIANGKAT (MAKSIMAL 3-4 KALIMAT):
+1. Jumlah total riksa uji yang dijadwalkan/aktif.
+2. Siapa ahli (Lead Expert) dengan beban kerja tertinggi minggu ini.
+3. Apakah ada potensi konflik atau masalah kapasitas tim (misal proyek P1 yang kritis).
+4. Nada bicara: Optimis, profesional, berorientasi solusi manajemen operasi.
+
+Tulis ringkasannya langsung tanpa pengantar seperti "Berikut adalah ringkasan...".
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: 'Anda adalah Direktur Operasional PJK3 yang merangkum status jadwal kerja tim riksa uji.',
+      }
+    });
+
+    return response.text?.trim() || 'Gagal menghasilkan ringkasan AI.';
+  } catch (error: any) {
+    console.warn('[AI Warn] Exception caught in generating AI summary, using fallback:', error?.message || error);
+    return 'Ringkasan Operasional (Analisis Lokal - Koneksi Terbatas): ' + localDeterministicSummary(dbState);
+  }
+}
+
+// --- Express App Setup ---
+const app = express();
+app.use(express.json());
+
+// --- API Routes ---
+
+// Get current state / status of the system
+app.get('/api/status', (req, res) => {
+  res.json({
+    supabase: dbManager.isSupabaseConnected(),
+    gemini: isGeminiConfigured()
+  });
+});
+
+// App users endpoint
+app.get('/api/app_users', async (req, res) => {
+  try {
+    const users = await dbManager.getAppUsers();
+    res.json(users);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Manpower endpoints
+app.get('/api/manpower', async (req, res) => {
+  try {
+    const manpower = await dbManager.getManpower();
+    res.json(manpower);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Units endpoints
+app.get('/api/units', async (req, res) => {
+  try {
+    const units = await dbManager.getUnits();
+    res.json(units);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Schedules endpoints
+app.get('/api/schedules', async (req, res) => {
+  try {
+    const schedules = await dbManager.getSchedules();
+    res.json(schedules);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/schedules', async (req, res) => {
+  try {
+    const newSchedule = await dbManager.addSchedule(req.body);
+    res.status(201).json(newSchedule);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/schedules/:id', async (req, res) => {
+  try {
+    const updated = await dbManager.updateSchedule(req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/schedules/:id', async (req, res) => {
+  try {
+    const success = await dbManager.deleteSchedule(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AI-Powered Sudden Schedule Plotter endpoint
+app.post('/api/ai-plotter', async (req, res) => {
+  try {
+    const { client_name, pic_name, start_date, end_date, unit_ids, priority } = req.body;
+    if (!start_date || !end_date || !unit_ids || unit_ids.length === 0) {
+      return res.status(400).json({ error: 'Missing required parameters: start_date, end_date, unit_ids' });
+    }
+
+    const dbState = await dbManager.getFullState();
+
+    const plotRecommendation = await getAiSchedulePlot({
+      client_name: client_name || 'Sudden Inspection',
+      pic_name: pic_name || 'Operational PIC',
+      start_date,
+      end_date,
+      unit_ids,
+      priority: priority || 'P1'
+    }, dbState);
+
+    res.json(plotRecommendation);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AI Daily/Weekly Summary endpoint
+app.get('/api/ai-summary', async (req, res) => {
+  try {
+    const dbState = await dbManager.getFullState();
+    const summary = await getAiDashboardSummary(dbState);
+    res.json({ summary });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export { app };
 export default app;

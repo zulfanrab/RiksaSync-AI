@@ -28,10 +28,10 @@ export default function Navbar({
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Brand Logo & Name */}
         <div className="flex items-center gap-3">
-          <Logo className="h-9 w-9" />
+          <Logo className="h-12 w-12" />
           <div>
             <h1 className="font-sans font-bold text-lg text-slate-800 tracking-tight leading-none">
-              RiksaSync <span className="text-emerald-600 font-mono text-xs uppercase font-semibold">AI</span>
+              AksaraSync <span className="text-emerald-600 font-mono text-xs uppercase font-semibold">AI</span>
             </h1>
             <p className="text-[10px] text-slate-400 mt-1 font-sans font-medium uppercase tracking-widest">Manpower & Inspection Engine</p>
           </div>

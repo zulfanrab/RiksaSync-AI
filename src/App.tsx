@@ -673,7 +673,7 @@ ON CONFLICT (id) DO NOTHING;`;
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-5 text-center text-[10px] text-slate-400 font-medium tracking-wide mt-auto">
-        <p>© 2026 RiksaSync AI. Hak Cipta Dilindungi Undang-Undang.</p>
+        <p>© 2026 AksaraSync AI. Hak Cipta Dilindungi Undang-Undang.</p>
         <p className="mt-1 text-slate-500">Dikembangkan khusus sebagai Solusi Manajemen Sumber Daya PJK3</p>
       </footer>
     </div>
