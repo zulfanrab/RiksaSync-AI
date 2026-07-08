@@ -11,6 +11,7 @@ import SummaryWidget from './components/SummaryWidget';
 import CalendarView from './components/CalendarView';
 import ManpowerGrid from './components/ManpowerGrid';
 import ScheduleForm from './components/ScheduleForm';
+import ManpowerManagement from './components/ManpowerManagement';
 import { Manpower, Unit, Schedule } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
@@ -23,8 +24,9 @@ const INITIAL_MANPOWER: Manpower[] = [
   { id: 'm4', name: 'Fauzan', role: 'Ahli Spesialis', status: 'internal', skp: ['Instalasi Listrik', 'PAA'] },
   { id: 'm5', name: 'Katez', role: 'Ahli Eksternal', status: 'external', skp: ['Angkur TKPK'] },
   { id: 'm6', name: 'Riyan', role: 'Helper & Teknisi', status: 'external', skp: [] },
-  { id: 'm7', name: 'Ajay', role: 'Support Staff', status: 'internal', skp: [] },
-  { id: 'm8', name: 'Arya', role: 'Support Staff', status: 'internal', skp: [] }
+  { id: 'm7', name: 'Ajay', status: 'internal', role: 'Support Staff', skp: [] },
+  { id: 'm8', name: 'Arya', status: 'internal', role: 'Support Staff', skp: [] },
+  { id: 'm9', name: 'Zulfan', status: 'internal', role: 'Support Staff', skp: [] }
 ];
 
 const INITIAL_UNITS: Unit[] = [
@@ -179,7 +181,8 @@ INSERT INTO manpower (id, name, role, status, skp) VALUES
   ('m5', 'Katez', 'Ahli Eksternal', 'external', ARRAY['Angkur TKPK']),
   ('m6', 'Riyan', 'Helper & Teknisi', 'external', ARRAY[]::TEXT[]),
   ('m7', 'Ajay', 'Support Staff', 'internal', ARRAY[]::TEXT[]),
-  ('m8', 'Arya', 'Support Staff', 'internal', ARRAY[]::TEXT[])
+  ('m8', 'Arya', 'Support Staff', 'internal', ARRAY[]::TEXT[]),
+  ('m9', 'Zulfan', 'Support Staff', 'internal', ARRAY[]::TEXT[])
 ON CONFLICT (id) DO NOTHING;
 
 -- 7. Seed units
@@ -204,6 +207,7 @@ ON CONFLICT (id) DO NOTHING;`;
   // App UI state
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isManpowerMgmtOpen, setIsManpowerMgmtOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [summaryTrigger, setSummaryTrigger] = useState(0);
@@ -248,7 +252,8 @@ ON CONFLICT (id) DO NOTHING;`;
           { id: 'm5', name: 'Katez', role: 'Ahli Eksternal', status: 'external', skp: ['Angkur TKPK'] },
           { id: 'm6', name: 'Riyan', role: 'Helper & Teknisi', status: 'external', skp: [] },
           { id: 'm7', name: 'Ajay', role: 'Support Staff', status: 'internal', skp: [] },
-          { id: 'm8', name: 'Arya', role: 'Support Staff', status: 'internal', skp: [] }
+          { id: 'm8', name: 'Arya', role: 'Support Staff', status: 'internal', skp: [] },
+          { id: 'm9', name: 'Zulfan', role: 'Support Staff', status: 'internal', skp: [] }
         ];
         const { data: seeded, error: err } = await supabase.from('manpower').insert(initialManpower).select();
         if (!err && seeded) {
@@ -521,16 +526,26 @@ ON CONFLICT (id) DO NOTHING;`;
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              setEditingSchedule(null);
-              setIsFormOpen(true);
-            }}
-            className="flex items-center justify-center gap-2 bg-[#D4AF37] hover:bg-[#B8860B] text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="h-4 w-4 text-white" />
-            Tambah Plotting Baru
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setIsManpowerMgmtOpen(true)}
+              className="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <Users className="h-4 w-4 text-emerald-600 animate-pulse" />
+              Kelola Manpower
+            </button>
+
+            <button
+              onClick={() => {
+                setEditingSchedule(null);
+                setIsFormOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 bg-[#D4AF37] hover:bg-[#B8860B] text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+            >
+              <Plus className="h-4 w-4 text-white" />
+              Tambah Plotting Baru
+            </button>
+          </div>
         </div>
 
         {/* Dashboard Analytics & Summary Bento Row */}
@@ -632,6 +647,24 @@ ON CONFLICT (id) DO NOTHING;`;
                   setIsFormOpen(false);
                   setEditingSchedule(null);
                 }}
+              />
+            </motion.div>
+          </div>
+        )}
+
+        {isManpowerMgmtOpen && (
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-5xl relative flex justify-center"
+            >
+              <ManpowerManagement
+                manpowerList={manpowerList}
+                onRefreshAll={loadAllData}
+                onClose={() => setIsManpowerMgmtOpen(false)}
               />
             </motion.div>
           </div>

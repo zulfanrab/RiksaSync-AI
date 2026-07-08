@@ -1,23 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = ((import.meta as any).env.VITE_SUPABASE_URL || '').trim();
-const supabaseKey = ((import.meta as any).env.VITE_SUPABASE_ANON_KEY || '').trim();
+let rawUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
-// Ensure the URL is valid, non-placeholder, and starts with https://
+if (rawUrl) {
+  if (!rawUrl.startsWith('http')) {
+    rawUrl = 'https://' + rawUrl;
+  }
+  if (rawUrl.endsWith('/rest/v1/')) {
+    rawUrl = rawUrl.replace('/rest/v1/', '');
+  } else if (rawUrl.endsWith('/rest/v1')) {
+    rawUrl = rawUrl.replace('/rest/v1', '');
+  }
+}
+
 export const isSupabaseConfigured = !!(
-  supabaseUrl &&
-  supabaseKey &&
-  supabaseUrl.startsWith('https://') &&
-  !supabaseUrl.includes('YOUR_') &&
-  !supabaseUrl.includes('MY_') &&
-  supabaseUrl !== 'undefined' &&
-  supabaseUrl !== 'null' &&
-  supabaseKey !== 'undefined' &&
-  supabaseKey !== 'null'
+  rawUrl && 
+  rawUrl.startsWith('https://') &&
+  supabaseKey && 
+  supabaseKey.length > 20 &&
+  !rawUrl.includes('YOUR_')
 );
 
-// Safely initialize the Supabase client
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseKey)
+  ? createClient(rawUrl, supabaseKey)
   : null;
-
