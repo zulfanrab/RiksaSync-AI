@@ -53,6 +53,14 @@ export interface AppUser {
   role: string;
 }
 
+export interface ManpowerAbsence {
+  id: string;
+  manpower_id: string;
+  date: string; // YYYY-MM-DD
+  absence_type: 'Sakit' | 'Cuti' | 'Izin';
+  reason?: string;
+}
+
 export interface DBState {
   manpower: Manpower[];
   units: Unit[];

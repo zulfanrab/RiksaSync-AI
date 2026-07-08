@@ -4,15 +4,17 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
+import OperationalInsight from './components/OperationalInsight';
 import CalendarView from './components/CalendarView';
 import ManpowerGrid from './components/ManpowerGrid';
 import ScheduleForm from './components/ScheduleForm';
 import ManpowerManagement from './components/ManpowerManagement';
-import { Manpower, Unit, Schedule } from './types';
+import WhatsappDispatcher from './components/WhatsappDispatcher';
+import { Manpower, Unit, Schedule, ManpowerAbsence } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -106,7 +108,9 @@ export default function App() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [clients, setClients] = useState<{ id: string; client_name: string; pic_name: string; pic_phone: string }[]>([]);
+  const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // System status
   const [supabaseConnected, setSupabaseConnected] = useState(false);
@@ -142,6 +146,16 @@ CREATE TABLE IF NOT EXISTS clients (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 2c. Create manpower_absences table
+CREATE TABLE IF NOT EXISTS manpower_absences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  manpower_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  absence_type TEXT NOT NULL CHECK (absence_type IN ('Sakit', 'Cuti', 'Izin')),
+  reason TEXT,
+  UNIQUE(manpower_id, date)
+);
+
 -- 3. Create units table
 CREATE TABLE IF NOT EXISTS units (
   id TEXT PRIMARY KEY,
@@ -172,6 +186,21 @@ CREATE TABLE IF NOT EXISTS schedules (
   is_until_finished BOOLEAN DEFAULT false,
   location TEXT
 );
+
+-- 4b. Migration Fallback: Ensure all columns exist on existing schedules table
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS agenda_type TEXT DEFAULT 'Riksa Uji';
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS manual_agenda TEXT;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS is_until_finished BOOLEAN DEFAULT false;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS unit_descriptions TEXT[] DEFAULT '{}';
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS updated_by TEXT;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS unit_ids TEXT[] DEFAULT '{}';
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS lead_expert_id TEXT;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS support_ids TEXT[] DEFAULT '{}';
+
+-- 4c. Migration Fallback: Ensure all columns exist on existing manpower table
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS skp TEXT[] NOT NULL DEFAULT '{}';
 
 -- 5. Seed app_users
 INSERT INTO app_users (id, username, role) VALUES
@@ -237,13 +266,20 @@ ON CONFLICT (id) DO NOTHING;`;
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes, clientsRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
         supabase.from('schedules').select('*'),
         (async () => {
           try {
             return await supabase.from('clients').select('*');
+          } catch (e) {
+            return { data: [], error: e } as any;
+          }
+        })(),
+        (async () => {
+          try {
+            return await supabase.from('manpower_absences').select('*');
           } catch (e) {
             return { data: [], error: e } as any;
           }
@@ -304,18 +340,36 @@ ON CONFLICT (id) DO NOTHING;`;
 
       const clientsData = clientsRes && !clientsRes.error ? (clientsRes.data || []) : [];
 
+      let absencesData = absencesRes && !absencesRes.error ? (absencesRes.data || []) : [];
+      if (!absencesRes || absencesRes.error) {
+        const local = localStorage.getItem('local_manpower_absences');
+        if (local) {
+          try {
+            absencesData = JSON.parse(local);
+          } catch (e) {}
+        }
+      }
+
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
       setClients(clientsData);
+      setAbsences(absencesData as ManpowerAbsence[]);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
-      console.warn('[Supabase Warning] Direct data fetching failed:', exceptionMsg);
+      console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
       setDbError(exceptionMsg);
-      setManpowerList([]);
-      setUnits([]);
-      setSchedules([]);
+      // Load local fallbacks so the app remains fully interactive!
+      setManpowerList(INITIAL_MANPOWER);
+      setUnits(INITIAL_UNITS);
+      setSchedules(getLocalSchedules());
       setClients([]);
+      const localAbs = localStorage.getItem('local_manpower_absences');
+      if (localAbs) {
+        try {
+          setAbsences(JSON.parse(localAbs));
+        } catch (e) {}
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -329,6 +383,7 @@ ON CONFLICT (id) DO NOTHING;`;
   const handleSaveSchedule = async (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => {
     try {
       setIsRefreshing(true);
+      setActionError(null);
       if (!isSupabaseConfigured || !supabase) {
         throw new Error('Supabase client is not configured. Cannot save schedule.');
       }
@@ -355,7 +410,7 @@ ON CONFLICT (id) DO NOTHING;`;
         }
       }
 
-      if (editingSchedule && editingSchedule.id) {
+      if (editingSchedule && editingSchedule.id && !editingSchedule.id.startsWith('local-')) {
         // Edit flow
         const updatedData = {
           ...scheduleData,
@@ -372,7 +427,7 @@ ON CONFLICT (id) DO NOTHING;`;
         setIsFormOpen(false);
         setEditingSchedule(null);
       } else {
-        // Add flow
+        // Add flow (or edit local flow)
         const newData = {
           ...scheduleData,
           created_by: activeUser || undefined
@@ -392,8 +447,34 @@ ON CONFLICT (id) DO NOTHING;`;
       }
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
-      console.error('[Supabase Error] Saving schedule failed:', exceptionMsg);
-      setDbError(exceptionMsg);
+      console.warn('[Supabase Warning] Direct saving failed, falling back to LocalStorage:', exceptionMsg);
+      
+      // Local fallback saving
+      try {
+        const localSchedules = getLocalSchedules();
+        if (editingSchedule && editingSchedule.id) {
+          const updated = localSchedules.map(s => 
+            s.id === editingSchedule.id ? { ...s, ...scheduleData, updated_by: activeUser || undefined } : s
+          );
+          saveLocalSchedules(updated);
+          setSchedules(updated);
+        } else {
+          const newLocalSchedule: Schedule = {
+            ...scheduleData,
+            id: 'local-' + Date.now(),
+            created_by: activeUser || undefined
+          };
+          const updated = [newLocalSchedule, ...localSchedules];
+          saveLocalSchedules(updated);
+          setSchedules(updated);
+        }
+        setActionError(`Penyimpanan ke Supabase gagal (${exceptionMsg}). Namun jangan khawatir, jadwal Anda TELAH BERHASIL DISIMPAN SECARA LOKAL di browser Anda sehingga data Anda aman! Untuk memperbaiki sinkronisasi Supabase secara permanen, silakan salin dan jalankan script migrasi SQL melalui tombol "Perbaiki Struktur Supabase" di bawah.`);
+        setIsFormOpen(false);
+        setEditingSchedule(null);
+        setSummaryTrigger(p => p + 1);
+      } catch (localErr) {
+        setActionError(`Gagal menyimpan jadwal: ${exceptionMsg}`);
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -404,6 +485,12 @@ ON CONFLICT (id) DO NOTHING;`;
     if (!confirm('Apakah Anda yakin ingin menghapus agenda plotting ini?')) return;
     try {
       setIsRefreshing(true);
+      setActionError(null);
+      
+      if (id.startsWith('local-')) {
+        throw new Error('Local schedule. Deleting locally.');
+      }
+
       if (!isSupabaseConfigured || !supabase) {
         throw new Error('Supabase client is not configured. Cannot delete schedule.');
       }
@@ -417,8 +504,17 @@ ON CONFLICT (id) DO NOTHING;`;
       setSummaryTrigger(p => p + 1); // trigger AI Summary update
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
-      console.error('[Supabase Error] Deleting schedule failed:', exceptionMsg);
-      setDbError(exceptionMsg);
+      console.warn('[Supabase Warning] Direct deletion failed, deleting from LocalStorage:', exceptionMsg);
+      try {
+        const localSchedules = getLocalSchedules();
+        const updated = localSchedules.filter(s => s.id !== id);
+        saveLocalSchedules(updated);
+        setSchedules(updated);
+        setActionError(`Penghapusan dari Supabase gagal (${exceptionMsg}). Namun, jadwal telah berhasil dihapus dari browser lokal Anda.`);
+        setSummaryTrigger(p => p + 1);
+      } catch (localErr) {
+        setActionError(`Gagal menghapus jadwal: ${exceptionMsg}`);
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -555,6 +651,44 @@ ON CONFLICT (id) DO NOTHING;`;
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6 space-y-6">
+
+        {/* Action Error alert banner with SQL solution */}
+        {actionError && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 px-5 py-4 rounded-2xl shadow-sm space-y-3 relative overflow-hidden animate-fadeIn">
+            <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500" />
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                    Masalah Sinkronisasi Database
+                  </h3>
+                  <p className="text-xs text-amber-750 leading-relaxed mt-1 whitespace-pre-wrap">
+                    {actionError}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActionError(null)}
+                className="text-amber-500 hover:text-amber-700 font-bold text-xs p-1 rounded-lg hover:bg-amber-100 transition-all cursor-pointer shrink-0"
+              >
+                Tutup
+              </button>
+            </div>
+            <div className="flex items-center gap-3 pt-2 border-t border-amber-150">
+              <button
+                onClick={handleCopySql}
+                className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg shadow-sm transition-all active:scale-95 cursor-pointer shrink-0"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                {isCopied ? 'Tersalin!' : 'Salin SQL Migrasi'}
+              </button>
+              <span className="text-[10px] text-amber-650 font-medium font-sans">
+                Lalu jalankan di dashboard Supabase SQL Editor untuk memperbarui struktur tabel schedules secara instan.
+              </span>
+            </div>
+          </div>
+        )}
         
         {/* Welcome Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
@@ -595,56 +729,61 @@ ON CONFLICT (id) DO NOTHING;`;
 
         {/* Dashboard Analytics & Summary Bento Row */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Quick Stats Grid - Left 5 columns */}
-          <div className="lg:col-span-5 grid grid-cols-2 gap-4">
+          {/* Quick Stats Grid - Left 4 columns */}
+          <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
             {/* Stat 1 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
-                <CalendarDays className="h-5 w-5" />
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
+                  <CalendarDays className="h-4 w-4" />
+                </div>
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Inspeksi Aktif</span>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Inspeksi Aktif</span>
-                <p className="text-lg font-black font-mono text-slate-850 mt-0.5">{stats.activeCount}</p>
-              </div>
+              <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none mt-1">{stats.activeCount}</p>
             </div>
 
             {/* Stat 2 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="bg-red-50 border border-red-100 p-2 rounded-lg text-red-600">
-                <Shield className="h-5 w-5" />
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-red-50 border border-red-100 p-2 rounded-lg text-red-600">
+                  <Shield className="h-4 w-4" />
+                </div>
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
-                <p className="text-lg font-black font-mono text-red-600 mt-0.5">{stats.p1Count}</p>
-              </div>
+              <p className="text-xl font-black font-mono text-red-600 tracking-tight leading-none mt-1">{stats.p1Count}</p>
             </div>
 
             {/* Stat 3 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="bg-amber-50 border border-amber-100 p-2 rounded-lg text-amber-600">
-                <Plus className="h-5 w-5" />
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-amber-50 border border-amber-100 p-2 rounded-lg text-amber-600">
+                  <Plus className="h-4 w-4" />
+                </div>
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Klien</span>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Klien Terdaftar</span>
-                <p className="text-lg font-black font-mono text-amber-600 mt-0.5">{stats.uniqueClients}</p>
-              </div>
+              <p className="text-xl font-black font-mono text-amber-600 tracking-tight leading-none mt-1">{stats.uniqueClients}</p>
             </div>
 
             {/* Stat 4 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
-                <CheckCircle2 className="h-5 w-5" />
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
+                  <CheckCircle2 className="h-4 w-4" />
+                </div>
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Selesai Riksa</span>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Selesai Riksa</span>
-                <p className="text-lg font-black font-mono text-emerald-600 mt-0.5">{stats.completedCount}</p>
-              </div>
+              <p className="text-xl font-black font-mono text-emerald-600 tracking-tight leading-none mt-1">{stats.completedCount}</p>
             </div>
           </div>
 
-          {/* AI summary widget - Right 7 columns */}
-          <div className="lg:col-span-7">
-            <SummaryWidget refreshTrigger={summaryTrigger} />
+          {/* AI summary chatbot widget - Middle 4 columns */}
+          <div className="lg:col-span-4">
+            <SummaryWidget />
+          </div>
+
+          {/* Operational Insight widget - Right 4 columns */}
+          <div className="lg:col-span-4">
+            <OperationalInsight />
           </div>
         </div>
 
@@ -655,6 +794,7 @@ ON CONFLICT (id) DO NOTHING;`;
             schedules={schedules}
             units={units}
             manpowerList={manpowerList}
+            absences={absences}
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
             onEditSchedule={handleEditTrigger}
@@ -662,12 +802,26 @@ ON CONFLICT (id) DO NOTHING;`;
             onQuickAddSchedule={handleQuickAddSchedule}
           />
 
-          {/* Manpower Directory Directory status card */}
-          <ManpowerGrid
-            manpowerList={manpowerList}
-            schedules={schedules}
-            selectedDate={selectedDate}
-          />
+          {/* Manpower & WhatsApp Dispatcher Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8">
+              <ManpowerGrid
+                manpowerList={manpowerList}
+                schedules={schedules}
+                absences={absences}
+                selectedDate={selectedDate}
+              />
+            </div>
+            <div className="lg:col-span-4">
+              <WhatsappDispatcher
+                schedules={schedules}
+                units={units}
+                manpowerList={manpowerList}
+                absences={absences}
+                selectedDate={selectedDate}
+              />
+            </div>
+          </div>
         </div>
       </main>
 
@@ -688,6 +842,7 @@ ON CONFLICT (id) DO NOTHING;`;
                 units={units}
                 schedules={schedules}
                 clients={clients}
+                absences={absences}
                 onSave={handleSaveSchedule}
                 onCancel={() => {
                   setIsFormOpen(false);
@@ -709,6 +864,7 @@ ON CONFLICT (id) DO NOTHING;`;
             >
               <ManpowerManagement
                 manpowerList={manpowerList}
+                absences={absences}
                 onRefreshAll={loadAllData}
                 onClose={() => setIsManpowerMgmtOpen(false)}
               />

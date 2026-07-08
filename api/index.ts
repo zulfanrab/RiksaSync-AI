@@ -245,6 +245,7 @@ function localDeterministicPlotter(
     end_date: string;
     unit_ids: string[];
     priority: 'P1' | 'P2' | 'P3';
+    agenda_type?: string;
   },
   dbState: DBState
 ): {
@@ -254,21 +255,24 @@ function localDeterministicPlotter(
   reasoning: string;
 } {
   const { manpower, units, schedules } = dbState;
-
-  const requiredSKPs = Array.from(new Set(
-    newSchedule.unit_ids.map(uid => {
-      const unit = units.find(u => u.id === uid);
-      return unit ? unit.required_skp : '';
-    }).filter(Boolean)
-  ));
+  const isRiksaUji = !newSchedule.agenda_type || newSchedule.agenda_type === 'Riksa Uji';
 
   const checkOverlap = (start1: string, end1: string, start2: string, end2: string) => {
     return start1 <= end2 && end1 >= start2;
   };
 
-  const eligibleExperts = manpower.filter(m => {
-    return m.skp.some(license => requiredSKPs.includes(license));
-  });
+  let eligibleExperts = manpower;
+  if (isRiksaUji) {
+    const requiredSKPs = Array.from(new Set(
+      (newSchedule.unit_ids || []).map(uid => {
+        const unit = units.find(u => u.id === uid);
+        return unit ? unit.required_skp : '';
+      }).filter(Boolean)
+    ));
+    eligibleExperts = manpower.filter(m => {
+      return m.skp.some(license => requiredSKPs.includes(license));
+    });
+  }
 
   if (eligibleExperts.length === 0) {
     return {
@@ -282,7 +286,7 @@ function localDeterministicPlotter(
   const availableExperts = eligibleExperts.filter(expert => {
     const hasConflict = schedules.some(s => {
       if (s.status === 'Cancelled') return false;
-      const isBooked = s.lead_expert_id === expert.id || s.support_ids.includes(expert.id);
+      const isBooked = s.lead_expert_id === expert.id || (s.support_ids || []).includes(expert.id);
       return isBooked && checkOverlap(s.start_date, s.end_date, newSchedule.start_date, newSchedule.end_date);
     });
     return !hasConflict;
@@ -294,8 +298,10 @@ function localDeterministicPlotter(
 
   if (availableExperts.length > 0) {
     recommendedLeadId = availableExperts[0].id;
-    advice = `Menyarankan ${availableExperts[0].name} sebagai Lead Expert karena memiliki SKP yang sesuai (${availableExperts[0].skp.join(', ')}) dan tersedia pada tanggal tersebut.`;
-    reason = 'Found available qualified lead expert deterministically.';
+    advice = isRiksaUji
+      ? `Menyarankan ${availableExperts[0].name} sebagai Lead Expert karena memiliki SKP yang sesuai (${availableExperts[0].skp.join(', ')}) dan tersedia pada tanggal tersebut.`
+      : `Menyarankan ${availableExperts[0].name} sebagai penanggung jawab/peserta utama karena tidak memiliki bentrokan jadwal.`;
+    reason = 'Menemukan personil yang tersedia sesuai dengan jadwal kosong.';
   } else {
     const p3Schedules = schedules.filter(s => s.priority === 'P3' && s.status !== 'Cancelled');
     const overlappingP3 = p3Schedules.find(s => {
@@ -304,14 +310,14 @@ function localDeterministicPlotter(
     });
 
     if (overlappingP3) {
-      recommendedLeadId = overlappingP3.lead_expert_id;
+      recommendedLeadId = overlappingP3.lead_expert_id || '';
       const expertName = manpower.find(m => m.id === recommendedLeadId)?.name || 'Ahli';
-      advice = `[SARAN PENJADWALAN ULANG] Semua ahli dengan SKP yang sesuai sedang bertugas. Direkomendasikan untuk menjadwalkan ulang proyek P3/Medium "${overlappingP3.client_name}" (${overlappingP3.start_date} s/d ${overlappingP3.end_date}) untuk membebaskan Lead Expert ${expertName}.`;
-      reason = 'Determined conflict but resolved by suggesting reschedule of P3 project.';
+      advice = `[SARAN PENJADWALAN ULANG] Semua personil yang cocok sedang bertugas. Direkomendasikan untuk menjadwalkan ulang proyek P3/Medium "${overlappingP3.client_name}" (${overlappingP3.start_date} s/d ${overlappingP3.end_date}) untuk membebaskan ${expertName}.`;
+      reason = 'Terjadi konflik jadwal dengan proyek prioritas rendah (P3) yang bisa disesuaikan.';
     } else {
       recommendedLeadId = eligibleExperts[0].id;
-      advice = `Semua ahli dengan SKP yang sesuai sedang bertugas dan tidak ada proyek prioritas rendah (P3) yang bisa dikorbankan. Anda harus menjadwalkan ulang proyek darurat ini atau menghubungi ahli eksternal tambahan. Ahli internal yang cocok adalah ${eligibleExperts[0].name}.`;
-      reason = 'All experts booked, no low priority project available for swap.';
+      advice = `Semua personil yang memenuhi kriteria sedang bertugas dan tidak ada proyek prioritas rendah (P3) yang bisa ditunda. Disarankan menjadwalkan ulang agenda baru ini.`;
+      reason = 'Semua personil penuh atau sibuk.';
     }
   }
 
@@ -319,7 +325,7 @@ function localDeterministicPlotter(
     if (m.id === recommendedLeadId) return false;
     const hasConflict = schedules.some(s => {
       if (s.status === 'Cancelled') return false;
-      const isBooked = s.lead_expert_id === m.id || s.support_ids.includes(m.id);
+      const isBooked = s.lead_expert_id === m.id || (s.support_ids || []).includes(m.id);
       return isBooked && checkOverlap(s.start_date, s.end_date, newSchedule.start_date, newSchedule.end_date);
     });
     return !hasConflict;
@@ -349,6 +355,7 @@ export async function getAiSchedulePlot(
     end_date: string;
     unit_ids: string[];
     priority: 'P1' | 'P2' | 'P3';
+    agenda_type?: string;
   },
   dbState: DBState
 ) {
@@ -361,14 +368,15 @@ export async function getAiSchedulePlot(
 
     const prompt = `
 Anda adalah Resource Manager AI bernama AksaraSync AI.
-Tugas Anda adalah merencanakan plot manpower secara cerdas untuk proyek inspeksi keselamatan (PJK3) baru.
+Tugas Anda adalah merencanakan plot manpower secara cerdas untuk proyek baru.
 
-DATA PROYEK BARU:
+DATA AGENDA/PROYEK BARU:
 - Nama Klien: ${newSchedule.client_name}
 - PIC: ${newSchedule.pic_name}
 - Tanggal Mulai: ${newSchedule.start_date}
 - Tanggal Selesai: ${newSchedule.end_date}
-- ID Unit yang diinspeksi: ${JSON.stringify(newSchedule.unit_ids)}
+- Jenis Agenda: ${newSchedule.agenda_type || 'Riksa Uji'}
+- ID Unit yang diinspeksi (jika ada): ${JSON.stringify(newSchedule.unit_ids || [])}
 - Prioritas Proyek: ${newSchedule.priority}
 
 DATA UTAMA DATABASE:
@@ -382,14 +390,16 @@ ${JSON.stringify(dbState.units, null, 2)}
 ${JSON.stringify(dbState.schedules.filter(s => s.status !== 'Cancelled'), null, 2)}
 
 ATURAN BISNIS PLOTTING:
-1. Lead Expert WAJIB memiliki lisensi SKP yang cocok dengan 'required_skp' dari unit yang diinspeksi. Cocokkan unit_ids proyek baru dengan daftar unit untuk menemukan required_skp.
-2. Cek ketersediaan (availability): Seseorang dianggap sibuk jika dia bertugas sebagai Lead Expert atau berada di daftar Support pada tanggal yang tumpang tindih (overlap) dengan tanggal proyek baru (${newSchedule.start_date} s/d ${newSchedule.end_date}).
-3. Tim Support: Rekomendasikan 1 s/d 2 orang support yang tersedia (bisa Helper/Teknisi/Support yang SKP-nya kosong seperti Ajay, Arya, atau Riyan).
-4. ATURAN PENJADWALAN ULANG (CRITICAL):
-   Jika semua ahli yang memiliki SKP yang cocok sedang sibuk pada tanggal tersebut:
+1. Jika Jenis Agenda adalah 'Riksa Uji':
+   Lead Expert WAJIB memiliki lisensi SKP yang cocok dengan 'required_skp' dari unit yang diinspeksi. Cocokkan unit_ids proyek baru dengan daftar unit untuk menemukan required_skp.
+2. Jika Jenis Agenda BUKAN 'Riksa Uji' (misalnya 'Meeting', 'Survey', atau 'Lainnya'):
+   TIDAK PERLU mengecek kecocokan SKP. Rekomendasikan personel (Lead Expert dan Support) murni berdasarkan siapa saja yang jadwalnya sedang KOSONG (tidak bertugas) pada rentang tanggal tersebut.
+3. Cek ketersediaan (availability): Seseorang dianggap sibuk jika dia bertugas sebagai Lead Expert atau berada di daftar Support pada tanggal yang tumpang tindih (overlap) dengan tanggal proyek baru (${newSchedule.start_date} s/d ${newSchedule.end_date}).
+4. Tim Support / Peserta: Rekomendasikan 1 s/d 2 orang support/peserta tambahan yang tersedia pada tanggal tersebut.
+5. ATURAN PENJADWALAN ULANG (CRITICAL):
+   Jika semua personil yang memenuhi kriteria sedang sibuk pada tanggal tersebut:
    - Evaluasi proyek eksisting yang tumpang tindih.
-   - Jika ada proyek eksisting dengan prioritas 'P3' (Medium), Anda dapat menyarankan untuk "mengorbankan" / menjadwalkan ulang proyek P3 tersebut guna membebaskan ahlinya untuk proyek darurat/baru ini.
-   - Jelaskan saran penjadwal ulang ini secara detail dalam properti 'rescheduleAdvice'. Sebutkan nama klien P3 yang harus dijadwalkan ulang.
+   - Jika ada proyek eksisting dengan prioritas 'P3' (Medium), Anda dapat menyarankan untuk menjadwalkan ulang proyek P3 tersebut guna membebaskan ahlinya untuk agenda prioritas lebih tinggi ini. Sebutkan nama klien P3 secara detail dalam properti 'rescheduleAdvice'.
 
 Berikan output dalam format JSON sesuai dengan skema yang diberikan.
 `;
@@ -398,19 +408,19 @@ Berikan output dalam format JSON sesuai dengan skema yang diberikan.
       model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
-        systemInstruction: 'Anda adalah asisten perencana manpower profesional yang sangat teliti dalam memeriksa jadwal dan SKP.',
+        systemInstruction: 'Anda adalah asisten perencana manpower profesional yang sangat teliti dalam memeriksa jadwal, SKP, dan jenis agenda kerja lapangan.',
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             recommendedLeadExpertId: {
               type: Type.STRING,
-              description: 'ID dari Lead Expert yang direkomendasikan.'
+              description: 'ID dari Lead Expert atau peserta utama yang direkomendasikan.'
             },
             recommendedSupportIds: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: 'Array ID tim support yang direkomendasikan (1-2 orang).'
+              description: 'Array ID tim support/peserta yang direkomendasikan (1-2 orang).'
             },
             rescheduleAdvice: {
               type: Type.STRING,
@@ -418,7 +428,7 @@ Berikan output dalam format JSON sesuai dengan skema yang diberikan.
             },
             reasoning: {
               type: Type.STRING,
-              description: 'Alasan teknis singkat atas pemilihan manpower ini berdasarkan kecocokan SKP dan ketersediaan.'
+              description: 'Alasan teknis singkat atas pemilihan manpower ini berdasarkan kecocokan SKP (jika Riksa Uji) atau ketersediaan jadwal kosong.'
             }
           },
           required: ['recommendedLeadExpertId', 'recommendedSupportIds', 'rescheduleAdvice', 'reasoning']
@@ -429,7 +439,17 @@ Berikan output dalam format JSON sesuai dengan skema yang diberikan.
     const resultText = response.text || '';
     return JSON.parse(resultText);
   } catch (error: any) {
-    console.warn('[AI Warn] Gemini Smart Plotter exception caught, falling back:', error?.message || error);
+    const errMsg = error?.message || String(error);
+    const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
+    const isBusy = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('demand');
+    
+    if (isQuota) {
+      console.log('[AI Info] Gemini Smart Plotter quota limit reached. Using local deterministic fallback.');
+    } else if (isBusy) {
+      console.log('[AI Info] Gemini Smart Plotter model is temporarily busy. Using local deterministic fallback.');
+    } else {
+      console.log('[AI Info] Gemini Smart Plotter is temporarily unavailable. Using local deterministic fallback.');
+    }
     return localDeterministicPlotter(newSchedule, dbState);
   }
 }
@@ -507,8 +527,20 @@ Tulis ringkasannya langsung tanpa pengantar seperti "Berikut adalah ringkasan...
 
     return response.text?.trim() || 'Gagal menghasilkan ringkasan AI.';
   } catch (error: any) {
-    console.warn('[AI Warn] Exception caught in generating AI summary, using fallback:', error?.message || error);
-    return 'Ringkasan Operasional (Analisis Lokal - Koneksi Terbatas): ' + localDeterministicSummary(dbState);
+    const errMsg = error?.message || String(error);
+    const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
+    const isBusy = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('demand');
+    
+    if (isQuota) {
+      console.log('[AI Info] Gemini Dashboard Summary quota limit reached. Using local deterministic fallback.');
+      return 'Ringkasan Operasional (Analisis Lokal - Quota AI Terbatas): ' + localDeterministicSummary(dbState);
+    } else if (isBusy) {
+      console.log('[AI Info] Gemini Dashboard Summary model is temporarily busy. Using local deterministic fallback.');
+      return 'Ringkasan Operasional (Analisis Lokal - Model Sangat Sibuk): ' + localDeterministicSummary(dbState);
+    } else {
+      console.log('[AI Info] Gemini Dashboard Summary is temporarily unavailable. Using local deterministic fallback.');
+      return 'Ringkasan Operasional (Analisis Lokal - Koneksi Terbatas): ' + localDeterministicSummary(dbState);
+    }
   }
 }
 
@@ -602,9 +634,14 @@ app.delete('/api/schedules/:id', async (req, res) => {
 // AI-Powered Sudden Schedule Plotter endpoint
 app.post('/api/ai-plotter', async (req, res) => {
   try {
-    const { client_name, pic_name, start_date, end_date, unit_ids, priority } = req.body;
-    if (!start_date || !end_date || !unit_ids || unit_ids.length === 0) {
-      return res.status(400).json({ error: 'Missing required parameters: start_date, end_date, unit_ids' });
+    const { client_name, pic_name, start_date, end_date, unit_ids, priority, agenda_type } = req.body;
+    const isRiksaUji = !agenda_type || agenda_type === 'Riksa Uji';
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({ error: 'Missing required parameters: start_date, end_date' });
+    }
+    if (isRiksaUji && (!unit_ids || unit_ids.length === 0)) {
+      return res.status(400).json({ error: 'Agenda Riksa Uji memerlukan minimal 1 Unit.' });
     }
 
     const dbState = await dbManager.getFullState();
@@ -614,8 +651,9 @@ app.post('/api/ai-plotter', async (req, res) => {
       pic_name: pic_name || 'Operational PIC',
       start_date,
       end_date,
-      unit_ids,
-      priority: priority || 'P1'
+      unit_ids: unit_ids || [],
+      priority: priority || 'P1',
+      agenda_type: agenda_type || 'Riksa Uji'
     }, dbState);
 
     res.json(plotRecommendation);
@@ -624,12 +662,119 @@ app.post('/api/ai-plotter', async (req, res) => {
   }
 });
 
-// AI Daily/Weekly Summary endpoint
+// AI Daily/Weekly Summary endpoint (maintained for compatibility, upgraded to utilize full analytical power)
 app.get('/api/ai-summary', async (req, res) => {
   try {
     const dbState = await dbManager.getFullState();
     const summary = await getAiDashboardSummary(dbState);
     res.json({ summary });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AI Interactive Chatbot endpoint (ON-DEMAND & CHAT-BASED)
+app.post('/api/ai-chat', async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required.' });
+    }
+
+    const dbState = await dbManager.getFullState();
+
+    if (!isGeminiConfigured()) {
+      return res.json({
+        reply: `Halo Zulfan! (Koneksi AI Lokal): Saya menerima pertanyaan Anda: "${message}". Untuk mendapatkan analisis cerdas, hubungkan GEMINI_API_KEY di Secrets panel.`
+      });
+    }
+
+    const ai = getAIClient();
+
+    // Map frontend history to Gemini content structure
+    const contents: any[] = [];
+    if (history && Array.isArray(history)) {
+      history.forEach((h: any) => {
+        contents.push({
+          role: h.role === 'model' ? 'model' : 'user',
+          parts: [{ text: h.text }]
+        });
+      });
+    }
+    contents.push({
+      role: 'user',
+      parts: [{ text: message }]
+    });
+
+    const systemInstruction = `
+Anda adalah AksaraSync AI, asisten manajemen operasional PJK3 (Perusahaan Jasa Keselamatan dan Kesehatan Kerja) cerdas.
+Pengguna saat ini adalah Zulfan (IT Staff / Support Staff). Sapa dia dengan hangat dan sopan (seperti "Halo Zulfan") ketika memulai percakapan pertama kali.
+
+DATA OPERASIONAL SAAT INI (REAL-TIME DARI DATABASE SUPABASE):
+1. Daftar Manpower (Karyawan Ahli & Support):
+${JSON.stringify(dbState.manpower, null, 2)}
+
+2. Daftar Unit Alat Teknis K3:
+${JSON.stringify(dbState.units, null, 2)}
+
+3. Daftar Jadwal/Agenda Kerja Aktif:
+${JSON.stringify(dbState.schedules.filter(s => s.status !== 'Cancelled'), null, 2)}
+
+Tugas Anda:
+- Jawab pertanyaan pengguna dengan akurat, tajam, profesional, dan langsung ke intinya berdasarkan data riil di atas.
+- Jika pengguna meminta ringkasan (harian, mingguan, atau bulanan), buatlah analisis operasional yang mendalam, berbobot, terstruktur, serta tunjukkan poin-poin krusial (seperti proyek berprioritas tinggi P1, personil yang sibuk atau tumpang tindih, dll.).
+- Nada bicara: Optimis, profesional, solutif, amanah, dan berorientasi pada kelancaran operasi K3 di lapangan.
+- Gunakan bahasa Indonesia yang baik dan profesional.
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: contents,
+      config: {
+        systemInstruction: systemInstruction
+      }
+    });
+
+    res.json({ reply: response.text || 'Maaf, saya tidak dapat merumuskan jawaban.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AI Operational Insight endpoint (Weather & Holiday Analyzer)
+app.get('/api/ai-operational-insight', async (req, res) => {
+  try {
+    const dbState = await dbManager.getFullState();
+
+    if (!isGeminiConfigured()) {
+      return res.json({
+        insight: "### Operational Insight (Lokal)\n\n- **Analisis Cuaca**: Harap waspadai curah hujan yang tinggi bagi tim lapangan yang bertugas di luar ruangan (outdoor). Pastikan personil membawa jas hujan, sepatu safety, dan pelindung alat ukur listrik.\n- **Tanggal Merah**: Hindari memplot jadwal penting pada hari libur nasional resmi Indonesia untuk mencegah bentrokan dengan jadwal pabrik klien.\n\n*(Hubungkan GEMINI_API_KEY di Secrets untuk analisis cerdas Gemini)*"
+      });
+    }
+
+    const ai = getAIClient();
+    const prompt = `
+Analisis rentang tanggal dari jadwal kegiatan aktif berikut di Indonesia:
+Schedules: ${JSON.stringify(dbState.schedules.filter(s => s.status !== 'Cancelled'), null, 2)}
+
+Tugas Anda:
+1. Analisis tanggal-tanggal proyek aktif tersebut.
+2. Berikan analisis perkiraan cuaca taktis (misal: kondisi umum iklim/cuaca wilayah tropis Indonesia di rentang bulan-bulan tersebut, kesiapan menghadapi hujan badai, cuaca ekstrem, atau panas terik) dan dampaknya bagi inspektur lapangan.
+3. Berikan informasi potensi hari libur nasional atau tanggal merah penting di Indonesia yang perlu diwaspadai agar tidak mengganggu operasional klien atau tim lapangan.
+4. Berikan rekomendasi operasional konkret dan tajam (misal: "Siapkan jas hujan & pelindung alat kelistrikan", "Konfirmasi ulang operasional pabrik jika jatuh di akhir pekan", dll.).
+
+Format output: Berikan penjelasan yang rapi menggunakan Markdown, langsung ke pokok bahasan operasional lapangan secara berbobot, tanpa basa-basi pembuka. Gunakan nada bicara asisten operasional senior K3.
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: 'Anda adalah Manajer Keselamatan Lapangan & Analis Risiko Operasional K3 senior.'
+      }
+    });
+
+    res.json({ insight: response.text?.trim() || 'Tidak ada insight operasional yang dihasilkan.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

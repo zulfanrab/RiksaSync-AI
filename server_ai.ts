@@ -239,16 +239,17 @@ Berikan output dalam format JSON sesuai dengan skema yang diberikan.
     const resultText = response.text || '';
     return JSON.parse(resultText);
   } catch (error: any) {
-    const isQuotaError = error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('RESOURCE_EXHAUSTED');
-    const isUnavailableError = error?.message?.includes('503') || error?.message?.includes('UNAVAILABLE') || error?.message?.includes('demand');
-    if (isQuotaError) {
-      console.warn('[AI Quota Limit] Gemini API free tier limit reached for Smart Plotter. Utilizing beautiful local deterministic plotter fallback.');
-    } else if (isUnavailableError) {
-      console.warn('[AI Temp Limit] Gemini API model is experiencing temporary high demand for Smart Plotter. Utilizing local deterministic plotter fallback.');
+    const errMsg = error?.message || String(error);
+    const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
+    const isBusy = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('demand');
+    
+    if (isQuota) {
+      console.log('[AI Info] Gemini Smart Plotter quota limit reached. Using local deterministic fallback.');
+    } else if (isBusy) {
+      console.log('[AI Info] Gemini Smart Plotter model is temporarily busy. Using local deterministic fallback.');
     } else {
-      console.warn('[AI Warn] Gemini Smart Plotter exception caught, falling back:', error?.message || error);
+      console.log('[AI Info] Gemini Smart Plotter is temporarily unavailable. Using local deterministic fallback.');
     }
-    // Graceful fallback to deterministic local plotter on API failure
     return localDeterministicPlotter(newSchedule, dbState);
   }
 }
@@ -329,16 +330,19 @@ Tulis ringkasannya langsung tanpa pengantar seperti "Berikut adalah ringkasan...
 
     return response.text?.trim() || 'Gagal menghasilkan ringkasan AI.';
   } catch (error: any) {
-    const isQuotaError = error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('RESOURCE_EXHAUSTED');
-    const isUnavailableError = error?.message?.includes('503') || error?.message?.includes('UNAVAILABLE') || error?.message?.includes('demand');
-    if (isQuotaError) {
-      console.warn('[AI Quota Limit] Gemini API free tier limit reached. Utilizing beautiful local deterministic analysis.');
+    const errMsg = error?.message || String(error);
+    const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
+    const isBusy = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('demand');
+    
+    if (isQuota) {
+      console.log('[AI Info] Gemini Dashboard Summary quota limit reached. Using local deterministic fallback.');
       return 'Ringkasan Operasional (Analisis Lokal - Quota AI Terbatas): ' + localDeterministicSummary(dbState);
-    } else if (isUnavailableError) {
-      console.warn('[AI Temp Limit] Gemini API model is experiencing temporary high demand. Utilizing local deterministic analysis.');
+    } else if (isBusy) {
+      console.log('[AI Info] Gemini Dashboard Summary model is temporarily busy. Using local deterministic fallback.');
       return 'Ringkasan Operasional (Analisis Lokal - Model Sangat Sibuk): ' + localDeterministicSummary(dbState);
+    } else {
+      console.log('[AI Info] Gemini Dashboard Summary is temporarily unavailable. Using local deterministic fallback.');
+      return 'Ringkasan Operasional (Analisis Lokal - Koneksi Terbatas): ' + localDeterministicSummary(dbState);
     }
-    console.warn('[AI Warn] Exception caught in generating AI summary, using fallback:', error?.message || error);
-    return 'Ringkasan Operasional (Analisis Lokal - Koneksi Terbatas): ' + localDeterministicSummary(dbState);
   }
 }

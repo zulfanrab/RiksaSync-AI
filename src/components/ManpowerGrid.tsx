@@ -4,16 +4,17 @@
  */
 
 import React from 'react';
-import { User, ShieldCheck, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { Manpower, Schedule } from '../types';
+import { User, ShieldCheck, Clock, CheckCircle2, AlertTriangle, CalendarDays } from 'lucide-react';
+import { Manpower, Schedule, ManpowerAbsence } from '../types';
 
 interface ManpowerGridProps {
   manpowerList: Manpower[];
   schedules: Schedule[];
+  absences: ManpowerAbsence[];
   selectedDate: string; // YYYY-MM-DD
 }
 
-export default function ManpowerGrid({ manpowerList, schedules, selectedDate }: ManpowerGridProps) {
+export default function ManpowerGrid({ manpowerList, schedules, absences = [], selectedDate }: ManpowerGridProps) {
   // Check if a person is booked on a specific date
   const getBookingStatus = (manId: string, dateStr: string): { status: 'Free' | 'Booked'; clientName?: string; isLead?: boolean } => {
     const activeSchedules = schedules.filter(s => s.status !== 'Cancelled');
@@ -40,7 +41,10 @@ export default function ManpowerGrid({ manpowerList, schedules, selectedDate }: 
           <h3 className="font-bold text-slate-800 text-sm tracking-tight">Status Manpower & Direktori SKP</h3>
           <p className="text-xs text-slate-500">Status penugasan tim pada tanggal <span className="text-emerald-600 font-mono font-semibold">{selectedDate}</span></p>
         </div>
-        <div className="flex gap-2 text-[10px]">
+        <div className="flex flex-wrap gap-2 text-[10px]">
+          <span className="flex items-center gap-1.5 bg-rose-50 text-rose-600 px-2.5 py-1 rounded-full border border-rose-100 font-medium">
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" /> Absen/Izin
+          </span>
           <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full border border-emerald-100 font-medium">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" /> Tersedia
           </span>
@@ -54,12 +58,17 @@ export default function ManpowerGrid({ manpowerList, schedules, selectedDate }: 
         {manpowerList.map((person) => {
           const booking = getBookingStatus(person.id, selectedDate);
           const isBooked = booking.status === 'Booked';
+          
+          const dayAbsence = absences.find(a => a.manpower_id === person.id && a.date === selectedDate);
+          const isAbsent = !!dayAbsence;
 
           return (
             <div
               key={person.id}
               className={`p-3 rounded-xl border transition-all ${
-                isBooked
+                isAbsent
+                  ? 'bg-rose-50/10 border-rose-100 opacity-80 hover:opacity-100'
+                  : isBooked
                   ? 'bg-amber-50/30 border-amber-200 hover:border-amber-300'
                   : 'bg-slate-50/50 border-slate-200 hover:bg-slate-50/80 hover:border-slate-300'
               }`}
@@ -67,7 +76,9 @@ export default function ManpowerGrid({ manpowerList, schedules, selectedDate }: 
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <div className={`p-1.5 rounded-lg border ${
-                    isBooked 
+                    isAbsent
+                      ? 'bg-rose-100/40 border-rose-200 text-rose-700'
+                      : isBooked 
                       ? 'bg-amber-100/40 border-amber-200 text-amber-700' 
                       : 'bg-emerald-100/40 border-emerald-200 text-emerald-700'
                   }`}>
@@ -90,7 +101,18 @@ export default function ManpowerGrid({ manpowerList, schedules, selectedDate }: 
 
                 {/* Booking status badge */}
                 <div className="text-right">
-                  {isBooked ? (
+                  {isAbsent && dayAbsence ? (
+                    <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded border ${
+                      dayAbsence.absence_type === 'Sakit'
+                        ? 'text-rose-700 bg-rose-50 border-rose-200'
+                        : dayAbsence.absence_type === 'Cuti'
+                        ? 'text-indigo-700 bg-indigo-50 border-indigo-200'
+                        : 'text-amber-700 bg-amber-50 border-amber-200'
+                    }`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse shrink-0" />
+                      {dayAbsence.absence_type}
+                    </span>
+                  ) : isBooked ? (
                     <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                       <Clock className="h-2.5 w-2.5" /> Sibuk
                     </span>
@@ -121,15 +143,29 @@ export default function ManpowerGrid({ manpowerList, schedules, selectedDate }: 
                 )}
               </div>
 
-              {/* Assignment detail if booked */}
-              {isBooked && (
+              {/* Leave detail if absent / Assignment detail if booked */}
+              {isAbsent && dayAbsence ? (
+                <div className={`mt-2 text-[10px] px-2.5 py-1.5 rounded-lg border flex items-start gap-1.5 font-medium ${
+                  dayAbsence.absence_type === 'Sakit'
+                    ? 'bg-rose-50/50 text-rose-800 border-rose-100'
+                    : dayAbsence.absence_type === 'Cuti'
+                    ? 'bg-indigo-50/50 text-indigo-800 border-indigo-100'
+                    : 'bg-amber-50/50 text-amber-800 border-amber-100'
+                }`}>
+                  <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0 mt-0.5" />
+                  <span>
+                    Berhalangan hadir: <strong className="font-extrabold">{dayAbsence.absence_type}</strong>
+                    {dayAbsence.reason ? ` - "${dayAbsence.reason}"` : ''}
+                  </span>
+                </div>
+              ) : isBooked ? (
                 <div className="mt-2 text-[10px] bg-amber-50 text-amber-800 px-2.5 py-1.5 rounded-lg border border-amber-200 flex items-start gap-1.5 font-medium">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
                   <span className="truncate">
                     {booking.isLead ? 'Lead Expert' : 'Support'} di <strong className="text-amber-900 font-bold">"{booking.clientName}"</strong>
                   </span>
                 </div>
-              )}
+              ) : null}
             </div>
           );
         })}

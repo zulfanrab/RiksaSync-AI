@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Sparkles, Calendar, User, Save, X, AlertTriangle, Info, HelpCircle, Plus, Trash2, Check, Phone, MapPin } from 'lucide-react';
-import { Schedule, Manpower, Unit } from '../types';
+import { Sparkles, Calendar, User, Save, X, AlertTriangle, Info, HelpCircle, Plus, Trash2, Check, Phone, MapPin, Copy } from 'lucide-react';
+import { Schedule, Manpower, Unit, ManpowerAbsence } from '../types';
 
 interface ScheduleFormProps {
   initialSchedule?: Schedule | null;
@@ -13,9 +13,56 @@ interface ScheduleFormProps {
   units: Unit[];
   schedules: Schedule[]; // for checking overlap conflicts
   clients: { id: string; client_name: string; pic_name: string; pic_phone: string }[];
+  absences?: ManpowerAbsence[];
   onSave: (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => void;
   onCancel: () => void;
 }
+
+const HEAVY_EQUIPMENT_DICT = [
+  // --- KATEGORI PAA (PESAWAT ANGKAT DAN ANGKUT) ---
+  "Forklift", "Mobile Crane", "Overhead Crane", "Tower Crane", "Truck Mounted Crane",
+  "Gantry Crane", "Excavator", "Dump Truck", "Wheel Loader", "Bulldozer", "Hoist Crane",
+  "Belt Conveyor", "Reach Stacker", "Passenger Hoist", "Tractor", "Motor Grader", 
+  "Skid Steer Loader", "Crawler Crane", "Jib Crane", "Monorail Crane", "Pedestal Crane", 
+  "Portal Crane", "Bucket Elevator", "Screw Conveyor", "Pneumatic Conveyor", 
+  "Roller Conveyor", "Chain Conveyor", "Hand Pallet", "Pallet Mover", "Reach Truck", 
+  "Bobcat", "Backhoe Loader", "Scraper", "Compactor", "Tandem Roller", "Asphalt Finisher",
+
+  // --- KATEGORI PTP (PESAWAT TENAGA DAN PRODUKSI) ---
+  "Genset (Generator Set)", "Mesin Bubut", "Mesin Press", "Mesin CNC", "Mesin Milling",
+  "Mesin Kompresor", "Mesin Pemecah Batu (Crusher)", "Mesin Tenun", "Mesin Plong", 
+  "Mesin Potong (Cutting Machine)", "Mesin Las (Welding Machine)", "Mesin Bor (Drilling Machine)", 
+  "Mesin Gerinda", "Mesin Gergaji (Saw Machine)", "Mesin Cetak (Printing Press)", 
+  "Mesin Kemas (Packaging Machine)", "Mesin Mixer", "Mesin Penggiling (Grinding)", 
+  "Mesin Injeksi Plastik (Injection Molding)", "Mesin Sentrifugal", "Furnace (Tungku Peleburan)", 
+  "Turbin Uap", "Turbin Gas", "Kincir Angin", "Pompa Air (Water Pump)",
+
+  // --- KATEGORI PUBT (PESAWAT UAP DAN BEJANA TEKAN) ---
+  "Boiler", "Ketel Uap", "Bejana Tekan", "Tangki Timbun", "Air Compressor Tank",
+  "Sterilizer", "Autoclave", "Tangki LPG", "Silo", "Pemanas Air (Water Heater)",
+  "Heat Exchanger", "Tangki Reaktor", "Tangki Oksigen", "Tangki Nitrogen", 
+  "Tangki Amoniak", "Accumulator", "Dearator", "Evaporator", "Separator", 
+  "Jacketed Vessel", "Pipanisasi Bertekanan", "Tangki Solar (Fuel Storage Tank)",
+
+  // --- KATEGORI ELEVATOR & ESKALATOR ---
+  "Lift Penumpang (Passenger Elevator)", "Lift Barang (Freight Elevator)", 
+  "Eskalator", "Travelator (Moving Walk)", "Dumbwaiter", "Lift Rumah Sakit (Bed Elevator)", 
+  "Lift Panorama (Panoramic Elevator)", "Lift Servis (Service Elevator)", "Platform Lift",
+
+  // --- KATEGORI INSTALASI LISTRIK & PENYALUR PETIR ---
+  "Panel Listrik (MDP/SDP/LVMDP)", "Transformator (Trafo)", "Instalasi Penyalur Petir", 
+  "Sistem Grounding (Pembumian)", "Kabel Feeder", "Panel Kapasitor Bank", 
+  "Genset Control Panel (AMF/ATS)", "UPS (Uninterruptible Power Supply)", 
+  "Instalasi Listrik Gedung", "Gardu Hubung", "Panel Sinkron",
+
+  // --- KATEGORI PROTEKSI KEBAKARAN (HYDRANT & ALARM) ---
+  "Fire Alarm System", "Instalasi Hydrant", "Sprinkler System", "APAR (Alat Pemadam Api Ringan)", 
+  "Pompa Diesel Hydrant", "Pompa Elektrik Hydrant", "Jockey Pump", "FM200 Suppression System",
+
+  // --- KATEGORI TKPK & LINGKUNGAN KERJA KETINGGIAN ---
+  "Angkur (Anchor Point)", "Gondola (Temporary Suspended Platform)", "Scaffolding (Perancah)", 
+  "Lifeline System", "Fall Arrester", "Safety Net"
+];
 
 export default function ScheduleForm({
   initialSchedule,
@@ -23,6 +70,7 @@ export default function ScheduleForm({
   units,
   schedules,
   clients,
+  absences = [],
   onSave,
   onCancel
 }: ScheduleFormProps) {
@@ -52,6 +100,13 @@ export default function ScheduleForm({
   const [showClientSuggestions, setShowClientSuggestions] = useState(false);
   const [activeDescIndex, setActiveDescIndex] = useState<number | null>(null);
   const [showDescSuggestions, setShowDescSuggestions] = useState(false);
+  const [historyTerms, setHistoryTerms] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('equipment_history') || '[]');
+    } catch {
+      return [];
+    }
+  });
 
   // Sync end date with start date if isUntilFinished is true
   useEffect(() => {
@@ -134,21 +189,37 @@ export default function ScheduleForm({
   const descSuggestions = useMemo(() => {
     if (activeDescIndex === null) return [];
     const val = unitDescriptions[activeDescIndex] || '';
+    if (!val.trim()) return [];
+
     const words = val.split(/\s+/);
     const lastWord = words[words.length - 1] || '';
-    if (!lastWord) return [];
+    if (!lastWord || lastWord.trim().length === 0) return [];
 
-    const char = lastWord.toLowerCase();
-    
-    // Exact requested matches: Forklift, Furnace, Crane, Compressor, Boiler, Bejana Tekan, Genset
-    const k3ToolsList = ["Forklift", "Furnace", "Crane", "Compressor", "Boiler", "Bejana Tekan", "Genset"];
-    
-    // Filter suggestions that match or start with the typed suffix
-    return k3ToolsList.filter(tool => 
-      tool.toLowerCase().startsWith(char) || 
-      (char.length === 1 && tool.toLowerCase().startsWith(char))
-    );
-  }, [activeDescIndex, unitDescriptions]);
+    const searchStr = lastWord.toLowerCase();
+
+    // Combine static dictionary, dynamic history, and units
+    const unitsList = (units || []).map(u => u.unit_name);
+    const combinedList = Array.from(new Set([...HEAVY_EQUIPMENT_DICT, ...historyTerms, ...unitsList]));
+
+    // Match case-insensitive anywhere in the word. Prioritize prefix matches.
+    const matches = combinedList.filter(item => {
+      return item.toLowerCase().includes(searchStr);
+    });
+
+    // Sort: Prefix matches first, then internal matches.
+    matches.sort((a, b) => {
+      const aLower = a.toLowerCase();
+      const bLower = b.toLowerCase();
+      const aStarts = aLower.startsWith(searchStr);
+      const bStarts = bLower.startsWith(searchStr);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return a.localeCompare(b);
+    });
+
+    // Limit to top 15 suggestions
+    return matches.slice(0, 15);
+  }, [activeDescIndex, unitDescriptions, historyTerms, units]);
 
   // Apply K3 autocomplete recommendation to the current focused description input
   const selectDescSuggestion = (suggestion: string) => {
@@ -195,6 +266,24 @@ export default function ScheduleForm({
         return [...prev, unitId];
       }
     });
+  };
+
+  // Check if manpower is absent within the selected date range
+  const getAbsenceInDateRange = (manId: string): { date: string; type: string; reason?: string }[] => {
+    if (!absences || absences.length === 0 || !startDate || !endDate) return [];
+    try {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const dateList: string[] = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        dateList.push(d.toISOString().split('T')[0]);
+      }
+      return absences
+        .filter(a => a.manpower_id === manId && dateList.includes(a.date))
+        .map(a => ({ date: a.date, type: a.absence_type, reason: a.reason }));
+    } catch (e) {
+      return [];
+    }
   };
 
   // Find required SKPs based on selected units
@@ -285,6 +374,29 @@ export default function ScheduleForm({
     return map;
   }, [selectedSupportIds, bookingsForCurrentDates]);
 
+  // Support list & Toggle Bulk Select Helpers
+  const availableSupportList = useMemo(() => {
+    return manpowerList.filter(m => agendaType !== 'Riksa Uji' || m.id !== leadExpertId);
+  }, [manpowerList, agendaType, leadExpertId]);
+
+  const areAllSupportSelected = useMemo(() => {
+    if (availableSupportList.length === 0) return false;
+    return availableSupportList.every(m => selectedSupportIds.includes(m.id));
+  }, [availableSupportList, selectedSupportIds]);
+
+  const handleToggleSelectAllSupport = () => {
+    if (areAllSupportSelected) {
+      const displayedIds = availableSupportList.map(m => m.id);
+      setSelectedSupportIds(prev => prev.filter(id => !displayedIds.includes(id)));
+    } else {
+      setSelectedSupportIds(prev => {
+        const currentSet = new Set(prev);
+        availableSupportList.forEach(m => currentSet.add(m.id));
+        return Array.from(currentSet);
+      });
+    }
+  };
+
   // AI Sudden Plotter action
   const handleAiAutoPlot = async () => {
     if (!startDate || !endDate || selectedUnitIds.length === 0) {
@@ -335,6 +447,15 @@ export default function ScheduleForm({
     setUnitDescriptions(prev => [...prev, '']);
   };
 
+  const handleDuplicateDescriptionRow = (index: number) => {
+    setUnitDescriptions(prev => {
+      const updated = [...prev];
+      const valToDuplicate = updated[index] || '';
+      updated.splice(index + 1, 0, valToDuplicate);
+      return updated;
+    });
+  };
+
   const handleDescriptionChange = (index: number, value: string) => {
     setUnitDescriptions(prev => {
       const updated = [...prev];
@@ -363,6 +484,19 @@ export default function ScheduleForm({
     if (agendaType === 'Riksa Uji') {
       if (selectedUnitIds.length === 0) return alert('Mohon pilih minimal satu unit untuk Riksa Uji');
       if (!leadExpertId) return alert('Mohon tentukan Lead Expert');
+    }
+
+    // Save to local storage history on submit
+    const newItems = unitDescriptions.filter(val => val.trim() !== '');
+    if (newItems.length > 0) {
+      try {
+        const currentHist = JSON.parse(localStorage.getItem('equipment_history') || '[]');
+        const updatedHist = Array.from(new Set([...newItems, ...currentHist])).slice(0, 100);
+        localStorage.setItem('equipment_history', JSON.stringify(updatedHist));
+        setHistoryTerms(updatedHist);
+      } catch (err) {
+        console.error(err);
+      }
     }
 
     onSave({
@@ -758,69 +892,84 @@ export default function ScheduleForm({
               </div>
 
               <div className="space-y-2 bg-slate-50/50 p-3 rounded-xl border border-slate-200">
-                {unitDescriptions.map((desc, index) => (
-                  <div key={index} className="flex items-center gap-2 relative">
-                    <div className="flex-1 relative">
-                      <input
-                        type="text"
-                        value={desc}
-                        onChange={e => handleDescriptionChange(index, e.target.value)}
-                        onKeyDown={e => handleDescKeyDown(e, index)}
-                        onFocus={() => {
-                          setActiveDescIndex(index);
-                          setShowDescSuggestions(true);
-                        }}
-                        onBlur={() => {
-                          // delay slightly so mouse clicks can trigger selectDescSuggestion
-                          setTimeout(() => {
-                            setShowDescSuggestions(false);
-                          }, 250);
-                        }}
-                        placeholder={`Contoh: Forklift No. Ser_09${index + 1} atau Boiler`}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 placeholder-slate-400 font-medium h-10"
-                      />
+                <div className="space-y-2">
+                  {unitDescriptions.map((desc, index) => (
+                    <div key={index} className="flex items-center gap-2 relative">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          value={desc}
+                          onChange={e => handleDescriptionChange(index, e.target.value)}
+                          onKeyDown={e => handleDescKeyDown(e, index)}
+                          onFocus={() => {
+                            setActiveDescIndex(index);
+                            setShowDescSuggestions(true);
+                          }}
+                          onBlur={() => {
+                            // delay slightly so mouse clicks can trigger selectDescSuggestion
+                            setTimeout(() => {
+                              setShowDescSuggestions(false);
+                            }, 250);
+                          }}
+                          placeholder={`Contoh: Forklift No. Ser_09${index + 1} atau Boiler`}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 placeholder-slate-400 font-medium h-10"
+                        />
 
-                      {/* Floating Autocomplete recommendation for specified K3 tools */}
-                      {activeDescIndex === index && showDescSuggestions && descSuggestions.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-40 overflow-y-auto divide-y divide-slate-55">
-                          {descSuggestions.map(tool => (
-                            <button
-                              key={tool}
-                              type="button"
-                              onMouseDown={() => selectDescSuggestion(tool)}
-                              className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-slate-800 text-xs font-bold transition-colors flex items-center justify-between"
-                            >
-                              <span>{tool}</span>
-                              <span className="text-[8px] text-emerald-600 bg-emerald-50 px-1 rounded uppercase font-mono tracking-wider">K3 Tool</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    
-                    {index === 0 ? (
+                        {/* Floating Autocomplete recommendation for specified K3 tools */}
+                        {activeDescIndex === index && showDescSuggestions && descSuggestions.length > 0 && (
+                          <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-40 overflow-y-auto divide-y divide-slate-50">
+                            {descSuggestions.map(tool => (
+                              <button
+                                key={tool}
+                                type="button"
+                                onMouseDown={() => selectDescSuggestion(tool)}
+                                className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-slate-800 text-xs font-bold transition-colors flex items-center justify-between"
+                              >
+                                <span>{tool}</span>
+                                <span className="text-[8px] text-emerald-600 bg-emerald-50 px-1 rounded uppercase font-mono tracking-wider">K3 Tool</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Duplicate Button */}
                       <button
                         type="button"
-                        onClick={handleAddDescriptionRow}
-                        title="Tambah Baris"
-                        className="p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all shadow-sm flex items-center justify-center shrink-0 h-10 w-10 active:scale-95"
+                        onClick={() => handleDuplicateDescriptionRow(index)}
+                        title="Duplikat Baris"
+                        className="p-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 rounded-lg transition-all flex items-center justify-center shrink-0 h-10 w-10 active:scale-95"
                       >
-                        <Plus className="h-4.5 w-4.5" />
+                        <Copy className="h-4 w-4" />
                       </button>
-                    ) : (
+
+                      {/* Trash Button */}
                       <button
                         type="button"
                         onClick={() => handleRemoveDescriptionRow(index)}
                         title="Hapus Baris"
                         className="p-2.5 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 rounded-lg transition-all flex items-center justify-center shrink-0 h-10 w-10 active:scale-95"
                       >
-                        <Trash2 className="h-4.5 w-4.5" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
-                    )}
-                  </div>
-                ))}
-                <p className="text-[10px] text-slate-400 italic font-sans leading-tight mt-1">
-                  Ketik huruf 'F', 'C', 'B' atau 'G' untuk memunculkan rekomendasi nama alat teknis spesifik K3 (e.g. Forklift, Furnace, Crane, Boiler, Genset). Tekan <strong>Enter</strong> atau <strong>Tab</strong> untuk auto-fill cepat.
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add Row Button at the bottom */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleAddDescriptionRow}
+                    className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-emerald-300 text-emerald-700 bg-emerald-50/20 hover:bg-emerald-50 hover:border-emerald-500 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer select-none h-10"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Tambah Unit / Baris Baru</span>
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-slate-400 italic font-sans leading-tight mt-2.5">
+                  Ketik nama alat teknis K3 (e.g. Forklift, Crane, Boiler, Genset, Panel, Hydrant) untuk memunculkan autocomplete cerdas dari database & kamus K3. Tekan <strong>Enter</strong> atau <strong>Tab</strong> untuk memilih.
                 </p>
               </div>
             </div>
@@ -891,12 +1040,40 @@ export default function ScheduleForm({
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
               >
                 <option value="">-- Pilih Lead Expert (Disaring Berdasarkan SKP) --</option>
-                {filteredLeadExperts.map(expert => (
-                  <option key={expert.id} value={expert.id}>
-                    {expert.name} ({expert.role}) - SKP: {expert.skp.join(', ')}
-                  </option>
-                ))}
+                {filteredLeadExperts.map(expert => {
+                  const rangeAbsences = getAbsenceInDateRange(expert.id);
+                  const prefix = rangeAbsences.length > 0 
+                    ? `[🔴 ABSEN: ${rangeAbsences.map(ra => ra.type).join(',')}] ` 
+                    : '';
+                  return (
+                    <option key={expert.id} value={expert.id}>
+                      {prefix}{expert.name} ({expert.role}) - SKP: {expert.skp.join(', ')}
+                    </option>
+                  );
+                })}
               </select>
+
+              {/* Warning Badge if Selected Lead Expert is Absent */}
+              {(() => {
+                if (!leadExpertId) return null;
+                const rangeAbsences = getAbsenceInDateRange(leadExpertId);
+                if (rangeAbsences.length === 0) return null;
+                return (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs p-2.5 rounded-lg flex items-start gap-2 mt-1 font-medium animate-pulse">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
+                    <div>
+                      <span className="font-extrabold">⚠️ Peringatan Manpower Absen/Izin:</span> {manpowerList.find(m => m.id === leadExpertId)?.name} tercatat berhalangan hadir pada tanggal berikut:
+                      <ul className="list-disc list-inside mt-1 font-bold">
+                        {rangeAbsences.map((ra, idx) => (
+                          <li key={idx}>
+                            {ra.date}: {ra.type} {ra.reason ? `("${ra.reason}")` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Warning Badge if Lead Expert has Schedule Conflict */}
               {leadExpertConflict && (
@@ -913,53 +1090,76 @@ export default function ScheduleForm({
 
         {/* Support Team Selection / Participants Selector - Different Labels depending on Riksa Uji / Meeting-Survey */}
         <div className="space-y-2">
-          <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
-            {agendaType === 'Riksa Uji' 
-              ? 'Daftar Tim Support (Rekomendasi 1-3 orang)' 
-              : 'Daftar Peserta / Personel yang Ditugaskan'}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+              {agendaType === 'Riksa Uji' 
+                ? 'Daftar Tim Support (Rekomendasi 1-3 orang)' 
+                : 'Daftar Peserta / Personel yang Ditugaskan'}
+            </label>
+            {availableSupportList.length > 0 && (
+              <button
+                type="button"
+                onClick={handleToggleSelectAllSupport}
+                className={`text-[10px] font-extrabold px-2.5 py-1 rounded-md border transition-all active:scale-95 flex items-center gap-1 cursor-pointer select-none shrink-0 ${
+                  areAllSupportSelected
+                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                }`}
+              >
+                {areAllSupportSelected ? 'Batalkan Semua' : 'Pilih Semua'}
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50/50 p-3 rounded-xl border border-slate-200">
-            {manpowerList
-              .filter(m => agendaType !== 'Riksa Uji' || m.id !== leadExpertId) // Lead expert hidden from support only if Riksa Uji
-              .map(support => {
-                const isChecked = selectedSupportIds.includes(support.id);
-                const conflict = supportConflictsMap.get(support.id);
-                return (
-                  <div
-                    key={support.id}
-                    className={`p-2.5 rounded-lg border flex flex-col justify-between transition-all ${
-                      isChecked
-                        ? 'bg-emerald-50/40 border-emerald-300'
-                        : 'bg-slate-100/40 border-slate-200 hover:bg-slate-100/80'
-                    }`}
-                  >
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          setSelectedSupportIds(prev =>
-                            isChecked ? prev.filter(id => id !== support.id) : [...prev, support.id]
-                          );
-                        }}
-                        className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer shrink-0"
-                      />
-                      <div className="text-[11px]">
-                        <span className="font-bold text-slate-800 block leading-tight">{support.name}</span>
-                        <span className="text-[9px] text-slate-500 block mt-1 font-medium">
-                          {support.role} {support.skp.length > 0 ? `- SKP: ${support.skp.join(', ')}` : ''}
-                        </span>
-                      </div>
-                    </label>
-
-                    {conflict && (
-                      <span className="text-[8px] text-amber-700 font-bold bg-amber-50 border border-amber-150 px-1.5 py-0.5 rounded mt-1.5 block truncate" title={`Bentrok di ${conflict.clientName}`}>
-                        ⚠️ Bentrok di {conflict.clientName}
+            {availableSupportList.map(support => {
+              const isChecked = selectedSupportIds.includes(support.id);
+              const conflict = supportConflictsMap.get(support.id);
+              return (
+                <div
+                  key={support.id}
+                  className={`p-2.5 rounded-lg border flex flex-col justify-between transition-all ${
+                    isChecked
+                      ? 'bg-emerald-50/40 border-emerald-300'
+                      : 'bg-slate-100/40 border-slate-200 hover:bg-slate-100/80'
+                  }`}
+                >
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {
+                        setSelectedSupportIds(prev =>
+                          isChecked ? prev.filter(id => id !== support.id) : [...prev, support.id]
+                        );
+                      }}
+                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer shrink-0"
+                    />
+                    <div className="text-[11px]">
+                      <span className="font-bold text-slate-800 block leading-tight">{support.name}</span>
+                      <span className="text-[9px] text-slate-500 block mt-1 font-medium">
+                        {support.role} {support.skp.length > 0 ? `- SKP: ${support.skp.join(', ')}` : ''}
                       </span>
-                    )}
-                  </div>
-                );
-              })}
+                    </div>
+                  </label>
+
+                  {(() => {
+                    const rangeAbsences = getAbsenceInDateRange(support.id);
+                    if (rangeAbsences.length === 0) return null;
+                    return (
+                      <span className="text-[8px] text-rose-750 font-bold bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-1.5 block leading-normal" title="Berhalangan hadir">
+                        🔴 Absen: {rangeAbsences.map(ra => `${ra.type} (${ra.date})`).join(', ')}
+                      </span>
+                    );
+                  })()}
+
+                  {conflict && (
+                    <span className="text-[8px] text-amber-700 font-bold bg-amber-50 border border-amber-150 px-1.5 py-0.5 rounded mt-1.5 block truncate" title={`Bentrok di ${conflict.clientName}`}>
+                      ⚠️ Bentrok di {conflict.clientName}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
