@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList, Database, Code, Copy, X } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList, Database, Code, Copy, X, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
@@ -254,10 +254,18 @@ ON CONFLICT (id) DO NOTHING;`;
   const [isManpowerMgmtOpen, setIsManpowerMgmtOpen] = useState(false);
   const [isSqlEditorOpen, setIsSqlEditorOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
   const [customSql, setCustomSql] = useState(SQL_SEED_SCRIPT);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [summaryTrigger, setSummaryTrigger] = useState(0);
+
+  useEffect(() => {
+    const hasSeen = localStorage.getItem('aksara_welcome_seen');
+    if (!hasSeen && activeUser) {
+      setShowWelcomeBanner(true);
+    }
+  }, [activeUser]);
 
   // Fetch all initial data directly from Supabase
   const loadAllData = async () => {
@@ -658,6 +666,51 @@ ON CONFLICT (id) DO NOTHING;`;
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6 space-y-6">
+
+        {/* New user welcome and guide recommendation banner */}
+        {showWelcomeBanner && (
+          <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-md border border-emerald-500/20 relative overflow-hidden flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 animate-fadeIn">
+            {/* Dynamic Glow */}
+            <div className="absolute -top-20 -left-20 w-48 h-48 bg-emerald-400/20 rounded-full blur-2xl pointer-events-none" />
+            
+            <div className="space-y-1 relative z-10">
+              <div className="flex items-center gap-1.5 bg-emerald-700/40 px-2.5 py-0.5 rounded-full border border-emerald-500/20 w-fit">
+                <Sparkles className="h-3 w-3 text-emerald-250 animate-pulse" />
+                <span className="text-[9px] uppercase font-bold tracking-widest text-emerald-100">Selamat & Selamat Datang!</span>
+              </div>
+              <h3 className="text-xs font-black tracking-tight md:text-sm">
+                Aplikasi AksaraSync AI Berhasil Terkonfigurasi! 🎉
+              </h3>
+              <p className="text-[10px] text-emerald-150 leading-relaxed max-w-2xl font-medium">
+                Selamat, database Supabase dan integrasi lokal Anda telah terhubung secara real-time. Sebagai pengguna baru, kami sangat menyarankan Anda membaca <strong>Buku Panduan Penggunaan</strong> terlebih dahulu agar dapat memanfaatkan fitur AI Plotter, Absensi, dan WhatsApp Dispatcher secara maksimal!
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 relative z-10 w-full sm:w-auto shrink-0">
+              <button
+                onClick={() => {
+                  setIsGuideOpen(true);
+                  localStorage.setItem('aksara_welcome_seen', 'true');
+                  setShowWelcomeBanner(false);
+                }}
+                className="w-full sm:w-auto bg-white hover:bg-slate-50 text-emerald-700 font-extrabold text-[10px] px-3.5 py-2 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer border-0 flex items-center justify-center gap-1 shrink-0"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                <span>Lihat Panduan</span>
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.setItem('aksara_welcome_seen', 'true');
+                  setShowWelcomeBanner(false);
+                }}
+                className="p-2 bg-emerald-700/40 hover:bg-emerald-700/60 rounded-xl text-emerald-100 hover:text-white transition-colors cursor-pointer border-0 flex items-center justify-center shrink-0"
+                title="Tutup & Jangan Tampilkan Lagi"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Action Error alert banner with SQL solution */}
         {actionError && (
