@@ -84,6 +84,10 @@ const playNotificationSound = (soundType: string) => {
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.22);
+    } else if (soundType === 'custom') {
+      // Play a custom mp3/wav file placed in the public directory
+      const audio = new Audio('/custom-notification.mp3');
+      audio.play().catch(e => console.warn('Custom notification audio blocked or file not found:', e));
     }
   } catch (e) {
     console.warn('AudioContext blocked by autoplay policy or unsupported:', e);
@@ -364,18 +368,18 @@ export default function NotificationCenter() {
                       Nada Notifikasi
                     </span>
                   </div>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {['chime', 'echo', 'alert', 'none'].map((type) => (
+                  <div className="grid grid-cols-5 gap-1">
+                    {['chime', 'echo', 'alert', 'custom', 'none'].map((type) => (
                       <button
                         key={type}
                         onClick={() => handleSoundChange(type)}
-                        className={`py-1.5 px-1 rounded-lg border text-[10px] font-bold capitalize transition-all cursor-pointer text-center ${
+                        className={`py-1.5 px-0.5 rounded-lg border text-[9px] font-bold capitalize transition-all cursor-pointer text-center ${
                           soundType === type
                             ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                             : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
                         }`}
                       >
-                        {type === 'none' ? 'Bisu' : type}
+                        {type === 'none' ? 'Bisu' : type === 'custom' ? 'Kustom' : type}
                       </button>
                     ))}
                   </div>
