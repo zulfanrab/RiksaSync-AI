@@ -52,10 +52,19 @@ export interface AppUser {
   role: string;
 }
 
+export interface ManpowerAbsence {
+  id: string;
+  manpower_id: string;
+  date: string; // YYYY-MM-DD
+  absence_type: 'Sakit' | 'Cuti' | 'Izin';
+  reason?: string;
+}
+
 export interface DBState {
   manpower: Manpower[];
   units: Unit[];
   schedules: Schedule[];
+  absences: ManpowerAbsence[];
 }
 
 // --- Database Manager ---
@@ -196,13 +205,52 @@ export class DatabaseManager {
     return data as AppUser[];
   }
 
+  // --- Absences API ---
+  async getAbsences(): Promise<ManpowerAbsence[]> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('manpower_absences').select('*');
+    if (error) {
+      console.warn(`Error fetching manpower_absences: ${error.message}`);
+      return [];
+    }
+    return data as ManpowerAbsence[];
+  }
+
+  async addAbsence(absence: Omit<ManpowerAbsence, 'id'>): Promise<ManpowerAbsence> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { data, error } = await this.supabase.from('manpower_absences').insert([absence]).select();
+    if (error) {
+      throw new Error(`Error adding absence: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      throw new Error('Failed to insert absence: No data returned');
+    }
+    return data[0] as ManpowerAbsence;
+  }
+
+  async deleteAbsence(manpowerId: string, date: string): Promise<boolean> {
+    if (!this.supabase) {
+      throw new Error('Supabase is not configured on the backend.');
+    }
+    const { error } = await this.supabase.from('manpower_absences').delete().match({ manpower_id: manpowerId, date });
+    if (error) {
+      throw new Error(`Error deleting absence: ${error.message}`);
+    }
+    return true;
+  }
+
   async getFullState(): Promise<DBState> {
-    const [manpower, units, schedules] = await Promise.all([
+    const [manpower, units, schedules, absences] = await Promise.all([
       this.getManpower(),
       this.getUnits(),
-      this.getSchedules()
+      this.getSchedules(),
+      this.getAbsences().catch(() => [] as ManpowerAbsence[])
     ]);
-    return { manpower, units, schedules };
+    return { manpower, units, schedules, absences };
   }
 
   isSupabaseConnected(): boolean {
@@ -573,6 +621,38 @@ app.get('/api/manpower', async (req, res) => {
   try {
     const manpower = await dbManager.getManpower();
     res.json(manpower);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Absences endpoints
+app.get('/api/absences', async (req, res) => {
+  try {
+    const absences = await dbManager.getAbsences();
+    res.json(absences);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/absences', async (req, res) => {
+  try {
+    const newAbsence = await dbManager.addAbsence(req.body);
+    res.status(201).json(newAbsence);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/absences', async (req, res) => {
+  try {
+    const { manpower_id, date } = req.body;
+    if (!manpower_id || !date) {
+      return res.status(400).json({ error: 'Missing manpower_id or date' });
+    }
+    await dbManager.deleteAbsence(manpower_id, date);
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

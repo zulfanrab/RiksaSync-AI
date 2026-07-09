@@ -729,7 +729,7 @@ export default function ScheduleForm({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <span className="text-[9px] font-extrabold text-slate-400 block uppercase">Mulai</span>
               <input
@@ -773,7 +773,7 @@ export default function ScheduleForm({
         {/* Jam Kerja */}
         <div className="bg-slate-50/50 p-3.5 rounded-xl border border-slate-200/60 space-y-2">
           <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">Jam Kerja / Operasional</span>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Jam Mulai</label>
               <input
@@ -798,7 +798,7 @@ export default function ScheduleForm({
         </div>
 
         {/* Priority & Status Controls */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Prioritas Riksa</label>
             <select

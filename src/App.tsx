@@ -4,11 +4,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList, Database, Code, Copy, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
-import OperationalInsight from './components/OperationalInsight';
 import CalendarView from './components/CalendarView';
 import ManpowerGrid from './components/ManpowerGrid';
 import ScheduleForm from './components/ScheduleForm';
@@ -121,7 +120,10 @@ export default function App() {
 
   const dbErrorCombined = dbError || authError;
 
-  const SQL_SEED_SCRIPT = `-- 1. Create app_users table
+  const SQL_SEED_SCRIPT = `-- 0. Enable UUID extension (Required for gen_random_uuid())
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- 1. Create app_users table
 CREATE TABLE IF NOT EXISTS app_users (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
@@ -249,6 +251,8 @@ ON CONFLICT (id) DO NOTHING;`;
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isManpowerMgmtOpen, setIsManpowerMgmtOpen] = useState(false);
+  const [isSqlEditorOpen, setIsSqlEditorOpen] = useState(false);
+  const [customSql, setCustomSql] = useState(SQL_SEED_SCRIPT);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [summaryTrigger, setSummaryTrigger] = useState(0);
@@ -715,6 +719,14 @@ ON CONFLICT (id) DO NOTHING;`;
             </button>
 
             <button
+              onClick={() => setIsSqlEditorOpen(true)}
+              className="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <Database className="h-4 w-4 text-amber-600" />
+              SQL Editor Supabase
+            </button>
+
+            <button
               onClick={() => {
                 setEditingSchedule(null);
                 setIsFormOpen(true);
@@ -776,14 +788,9 @@ ON CONFLICT (id) DO NOTHING;`;
             </div>
           </div>
 
-          {/* AI summary chatbot widget - Middle 4 columns */}
-          <div className="lg:col-span-4">
+          {/* RiksaSync AI Assistant Unified Panel - Right 8 columns */}
+          <div className="lg:col-span-8">
             <SummaryWidget />
-          </div>
-
-          {/* Operational Insight widget - Right 4 columns */}
-          <div className="lg:col-span-4">
-            <OperationalInsight />
           </div>
         </div>
 
@@ -868,6 +875,119 @@ ON CONFLICT (id) DO NOTHING;`;
                 onRefreshAll={loadAllData}
                 onClose={() => setIsManpowerMgmtOpen(false)}
               />
+            </motion.div>
+          </div>
+        )}
+
+        {isSqlEditorOpen && (
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col text-slate-100 overflow-hidden max-h-[92vh] md:max-h-[85vh]"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-950">
+                <div className="flex items-center gap-2">
+                  <div className="bg-amber-500/15 border border-amber-500/30 p-1.5 rounded-lg text-amber-500">
+                    <Database className="h-4.5 w-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-100 text-sm md:text-base tracking-tight uppercase flex items-center gap-2">
+                      <span>Supabase SQL Schema & Editor</span>
+                      <span className="text-[9px] bg-emerald-500/10 text-emerald-400 font-mono font-bold px-1.5 py-0.5 rounded border border-emerald-500/20 uppercase tracking-widest">v2.0</span>
+                    </h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Konfigurasi struktur tabel database dan seed data</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSqlEditorOpen(false)}
+                  className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition-all cursor-pointer border-0 bg-transparent"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 overflow-y-auto space-y-4">
+                <div className="bg-amber-500/5 border border-amber-500/10 p-4 rounded-xl space-y-1.5 text-xs">
+                  <div className="flex items-center gap-2 text-amber-500 font-bold">
+                    <Info className="h-4 w-4" />
+                    <span>Petunjuk Penggunaan SQL Editor</span>
+                  </div>
+                  <p className="text-slate-300 leading-relaxed">
+                    Sistem menggunakan Supabase sebagai database cloud. Jika Anda menambahkan fitur absensi baru (<code className="font-mono bg-slate-950 px-1 py-0.5 rounded text-emerald-400">manpower_absences</code>) atau memperbarui kolom jadwal, Anda perlu memastikan struktur tabel tersebut sudah dibuat di dashboard Supabase Anda.
+                  </p>
+                  <ol className="list-decimal pl-4 space-y-1 mt-2 text-slate-400 font-medium">
+                    <li>Salin script SQL di bawah ini menggunakan tombol <strong className="text-slate-200">Salin Script SQL</strong>.</li>
+                    <li>Buka dashboard proyek Anda di <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline inline-flex items-center gap-0.5 font-bold">Supabase Console ↗</a>.</li>
+                    <li>Pilih menu <strong>SQL Editor</strong> di bilah sisi kiri.</li>
+                    <li>Klik <strong>New Query</strong>, paste script yang telah disalin, lalu klik tombol <strong className="text-emerald-400">Run</strong>.</li>
+                  </ol>
+                </div>
+
+                {/* SQL Code Block Editor Panel */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Script SQL Generator (Dapat Diedit/Disalin)</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (navigator.clipboard) {
+                          navigator.clipboard.writeText(customSql);
+                          setIsCopied(true);
+                          setTimeout(() => setIsCopied(false), 2000);
+                        }
+                      }}
+                      className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-all active:scale-95 cursor-pointer border-0"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {isCopied ? 'Script Tersalin!' : 'Salin Script SQL'}
+                    </button>
+                  </div>
+
+                  <div className="relative border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
+                    {/* Fake Editor Window Rail */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        <span className="text-[10px] font-mono font-medium text-slate-400 ml-2">initialize_pjk3_schema.sql</span>
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">postgres / sql</span>
+                    </div>
+
+                    <textarea
+                      value={customSql}
+                      onChange={(e) => setCustomSql(e.target.value)}
+                      spellCheck={false}
+                      className="w-full h-80 bg-slate-950 p-4 font-mono text-xs text-emerald-400 focus:outline-none resize-none leading-relaxed overflow-y-auto selection:bg-slate-800 selection:text-white border-0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end gap-3 bg-slate-950 border-t border-slate-800 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setCustomSql(SQL_SEED_SCRIPT)}
+                  className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-slate-200 transition-all cursor-pointer bg-transparent border-0"
+                >
+                  Reset ke Default
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSqlEditorOpen(false)}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95 cursor-pointer border-0"
+                >
+                  Selesai
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
