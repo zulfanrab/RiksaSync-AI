@@ -632,7 +632,7 @@ export default function ScheduleForm({
         {/* Jenis Agenda */}
         <div className="space-y-1.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/60">
           <label className="text-[11px] font-extrabold text-slate-450 uppercase tracking-wider block">Jenis Agenda Kegiatan</label>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { id: 'Riksa Uji', label: 'Riksa Uji' },
               { id: 'Meeting', label: 'Meeting' },
@@ -1166,22 +1166,22 @@ export default function ScheduleForm({
       </div>
 
       {/* STICKY FOOTER */}
-      <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 z-10">
+      <div className="grid grid-cols-2 sm:flex sm:justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 z-10 w-full">
         <button
           id="btn_cancel_form_footer"
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-all shadow-sm h-10"
+          className="w-full sm:w-auto px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-all shadow-sm h-10 flex items-center justify-center cursor-pointer"
         >
           Batalkan
         </button>
         <button
           id="btn_submit_form"
           type="submit"
-          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md active:scale-95 h-10"
+          className="w-full sm:w-auto px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 h-10 cursor-pointer"
         >
           <Save className="h-4 w-4" />
-          Simpan Jadwal Plotting
+          <span>Simpan Jadwal Plotting</span>
         </button>
       </div>
     </form>

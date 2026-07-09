@@ -421,7 +421,7 @@ export default function CalendarView({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
             {/* Tampilan Toggle Buttons */}
             <div className="flex p-0.5 bg-slate-100 rounded-lg border border-slate-200">
               <button
@@ -448,18 +448,18 @@ export default function CalendarView({
               </button>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 justify-end">
               <button
                 onClick={handleExportPDF}
-                className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg border border-emerald-700 transition-all mr-1 font-bold flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                className="text-[10px] sm:text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-emerald-700 transition-all mr-1 font-bold flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
                 title="Ekspor Jadwal Operasional Aktif ke PDF (Laporan Resmi Landscape)"
               >
                 <FileDown className="h-3.5 w-3.5" />
-                <span>Ekspor PDF</span>
+                <span>PDF</span>
               </button>
               <button
                 onClick={goToToday}
-                className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 transition-all mr-1 font-bold"
+                className="text-[10px] sm:text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-200 transition-all mr-1 font-bold"
               >
                 Hari Ini
               </button>
@@ -554,20 +554,34 @@ export default function CalendarView({
 
                     {/* Schedule Indicators */}
                     <div className="space-y-0.5 mt-1 max-h-[44px] overflow-hidden">
-                      {daySchedules.slice(0, 2).map((s) => (
-                        <div
-                          key={s.id}
-                          className={`text-[8px] font-bold px-1 py-0.2 rounded border truncate ${getPriorityColor(s.priority)}`}
-                          title={`${s.client_name} (${s.priority})`}
-                        >
-                          {s.client_name}
-                        </div>
-                      ))}
-                      {daySchedules.length > 2 && (
-                        <div className="text-[7px] text-slate-400 text-center font-medium">
-                          +{daySchedules.length - 2} lagi
-                        </div>
-                      )}
+                      {/* For Mobile: simple dots/indicators row */}
+                      <div className="flex flex-wrap gap-0.5 justify-center sm:hidden">
+                        {daySchedules.map((s) => (
+                          <span
+                            key={s.id}
+                            className={`w-1.5 h-1.5 rounded-full ${getPriorityDot(s.priority)}`}
+                            title={`${s.client_name} (${s.priority})`}
+                          />
+                        ))}
+                      </div>
+
+                      {/* For Desktop: full text badges */}
+                      <div className="hidden sm:block space-y-0.5">
+                        {daySchedules.slice(0, 2).map((s) => (
+                          <div
+                            key={s.id}
+                            className={`text-[8px] font-bold px-1 py-0.2 rounded border truncate ${getPriorityColor(s.priority)}`}
+                            title={`${s.client_name} (${s.priority})`}
+                          >
+                            {s.client_name}
+                          </div>
+                        ))}
+                        {daySchedules.length > 2 && (
+                          <div className="text-[7px] text-slate-400 text-center font-medium">
+                            +{daySchedules.length - 2} lagi
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

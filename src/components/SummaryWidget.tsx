@@ -254,8 +254,8 @@ export default function SummaryWidget() {
               className="flex flex-col gap-3 h-full"
             >
               {/* Compact Weather Status Bar (Non-AI Up-to-Date Report) */}
-              <div className="bg-slate-900/50 border border-emerald-800/20 p-2.5 rounded-2xl flex items-center gap-3 shrink-0">
-                <div className="bg-sky-950 p-2 rounded-xl border border-sky-900 text-sky-400">
+              <div className="bg-slate-900/50 border border-emerald-800/20 p-2.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 shrink-0">
+                <div className="bg-sky-950 p-2 rounded-xl border border-sky-900 text-sky-400 shrink-0">
                   <CloudSun className="h-4 w-4" />
                 </div>
                 <div className="flex-1 text-[11px] leading-relaxed">
@@ -380,21 +380,21 @@ export default function SummaryWidget() {
         <button
           onClick={() => handleQuickQuestion('Siapa ahli/personil yang kosong atau tersedia minggu ini?')}
           disabled={loadingChat}
-          className="bg-emerald-900/50 hover:bg-emerald-800/80 border border-emerald-800/60 text-[10px] text-emerald-300 hover:text-white px-2.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+          className="flex-grow sm:flex-none bg-emerald-900/50 hover:bg-emerald-800/80 border border-emerald-800/60 text-[10px] text-emerald-300 hover:text-white px-2.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 cursor-pointer active:scale-95 text-center truncate"
         >
           🔍 Cek Personil Kosong
         </button>
         <button
           onClick={() => handleQuickQuestion('Bagaimana prakiraan cuaca lapangan untuk proyek aktif saat ini?')}
           disabled={loadingChat}
-          className="bg-emerald-900/50 hover:bg-emerald-800/80 border border-emerald-800/60 text-[10px] text-emerald-300 hover:text-white px-2.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+          className="flex-grow sm:flex-none bg-emerald-900/50 hover:bg-emerald-800/80 border border-emerald-800/60 text-[10px] text-emerald-300 hover:text-white px-2.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 cursor-pointer active:scale-95 text-center truncate"
         >
           🌦️ Analisis Cuaca Kerja
         </button>
         <button
           onClick={() => handleQuickQuestion('Adakah saran reschedule proyek prioritas rendah (P3) jika jadwal bentrok?')}
           disabled={loadingChat}
-          className="bg-emerald-900/50 hover:bg-emerald-800/80 border border-emerald-800/60 text-[10px] text-emerald-300 hover:text-white px-2.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+          className="flex-grow sm:flex-none bg-emerald-900/50 hover:bg-emerald-800/80 border border-emerald-800/60 text-[10px] text-emerald-300 hover:text-white px-2.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 cursor-pointer active:scale-95 text-center truncate"
         >
           🔄 Saran Reschedule P3
         </button>

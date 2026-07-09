@@ -406,10 +406,10 @@ export default function ManpowerManagement({
       </div>
 
       {/* Tabs Navigation */}
-      <div className="bg-white border-b border-slate-200 flex px-6 shrink-0">
+      <div className="bg-white border-b border-slate-200 flex overflow-x-auto flex-nowrap px-6 shrink-0 scrollbar-thin">
         <button
           onClick={() => { setActiveTab('manpower'); setError(null); setSuccessMsg(null); }}
-          className={`py-3.5 px-4 font-bold text-xs tracking-tight border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+          className={`py-3.5 px-4 font-bold text-xs tracking-tight border-b-2 transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
             activeTab === 'manpower' 
               ? 'border-emerald-600 text-emerald-750' 
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -420,7 +420,7 @@ export default function ManpowerManagement({
         </button>
         <button
           onClick={() => { setActiveTab('absences'); setError(null); setSuccessMsg(null); }}
-          className={`py-3.5 px-4 font-bold text-xs tracking-tight border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+          className={`py-3.5 px-4 font-bold text-xs tracking-tight border-b-2 transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
             activeTab === 'absences' 
               ? 'border-emerald-600 text-emerald-750' 
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -431,7 +431,7 @@ export default function ManpowerManagement({
         </button>
         <button
           onClick={() => { setActiveTab('login_profiles'); setError(null); setSuccessMsg(null); }}
-          className={`py-3.5 px-4 font-bold text-xs tracking-tight border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+          className={`py-3.5 px-4 font-bold text-xs tracking-tight border-b-2 transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
             activeTab === 'login_profiles' 
               ? 'border-emerald-600 text-emerald-750' 
               : 'border-transparent text-slate-500 hover:text-slate-800'
