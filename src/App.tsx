@@ -17,6 +17,7 @@ import { Manpower, Unit, Schedule, ManpowerAbsence } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import GuideModal from './components/GuideModal';
 
 const INITIAL_MANPOWER: Manpower[] = [
   { id: 'm1', name: 'Angga', role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
@@ -252,6 +253,7 @@ ON CONFLICT (id) DO NOTHING;`;
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isManpowerMgmtOpen, setIsManpowerMgmtOpen] = useState(false);
   const [isSqlEditorOpen, setIsSqlEditorOpen] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [customSql, setCustomSql] = useState(SQL_SEED_SCRIPT);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -651,6 +653,7 @@ ON CONFLICT (id) DO NOTHING;`;
         geminiConnected={geminiConnected}
         onRefreshAll={loadAllData}
         isRefreshing={isRefreshing}
+        onOpenGuide={() => setIsGuideOpen(true)}
       />
 
       {/* Main Container */}
@@ -716,14 +719,6 @@ ON CONFLICT (id) DO NOTHING;`;
             >
               <Users className="h-4 w-4 text-emerald-600 animate-pulse" />
               Kelola Manpower
-            </button>
-
-            <button
-              onClick={() => setIsSqlEditorOpen(true)}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm transition-all active:scale-95 cursor-pointer"
-            >
-              <Database className="h-4 w-4 text-amber-600" />
-              SQL Editor Supabase
             </button>
 
             <button
@@ -834,6 +829,9 @@ ON CONFLICT (id) DO NOTHING;`;
 
       {/* Modal Slideover for Creating/Modifying Plotting */}
       <AnimatePresence>
+        {isGuideOpen && (
+          <GuideModal onClose={() => setIsGuideOpen(false)} />
+        )}
         {isFormOpen && (
           <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
             <motion.div

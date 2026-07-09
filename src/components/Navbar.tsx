@@ -13,13 +13,15 @@ interface NavbarProps {
   geminiConnected: boolean;
   onRefreshAll: () => void;
   isRefreshing: boolean;
+  onOpenGuide: () => void;
 }
 
 export default function Navbar({
   supabaseConnected,
   geminiConnected,
   onRefreshAll,
-  isRefreshing
+  isRefreshing,
+  onOpenGuide
 }: NavbarProps) {
   const { activeUser, activeUserRole, logout } = useUser();
 
@@ -38,40 +40,22 @@ export default function Navbar({
         </div>
 
         {/* Integration Status & Actions */}
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-3">
-            {/* Supabase Status */}
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono border ${
-                supabaseConnected
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800 bg-opacity-10'
-                  : 'bg-slate-100 border-slate-200 text-slate-500'
-              }`}
-              title={supabaseConnected ? 'Supabase Database Connected' : 'Supabase Offline (Using local JSON backup)'}
-            >
-              <Database className="h-3 w-3" />
-              <span>Supabase: {supabaseConnected ? 'ONLINE' : 'FALLBACK'}</span>
-            </div>
-
-            {/* Gemini Status */}
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono border ${
-                geminiConnected
-                  ? 'bg-amber-500/10 border-amber-300 text-[#B8860B]'
-                  : 'bg-slate-100 border-slate-200 text-slate-500'
-              }`}
-              title={geminiConnected ? 'Gemini AI Active' : 'Gemini Offline (Using local smart planner)'}
-            >
-              <Cpu className="h-3 w-3" />
-              <span>Gemini AI: {geminiConnected ? 'ACTIVE' : 'FALLBACK'}</span>
-            </div>
-          </div>
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Guide Button */}
+          <button
+            onClick={onOpenGuide}
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-all cursor-pointer shadow-xs active:scale-95"
+            title="Buku Panduan Penggunaan Aplikasi"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+            <span>Panduan</span>
+          </button>
 
           {/* Quick Action Button */}
           <button
             onClick={onRefreshAll}
             disabled={isRefreshing}
-            className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-semibold text-xs px-3 py-1.5 rounded-lg border border-slate-200 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-semibold text-xs px-3 py-1.5 rounded-lg border border-slate-200 transition-all disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
             <span className="hidden xs:inline">Sync Data</span>
