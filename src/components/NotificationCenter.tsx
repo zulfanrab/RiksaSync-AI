@@ -76,8 +76,9 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
 
+    const channelId = `riksasync_notif_${isFloating ? 'floating' : 'navbar'}_${Math.random().toString(36).substring(2, 11)}`;
     const channel = supabase
-      .channel('public:riksasync_notifications')
+      .channel(channelId)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'schedules' },
