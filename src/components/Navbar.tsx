@@ -43,7 +43,7 @@ export default function Navbar({
         {/* Integration Status & Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Notification Center */}
-          <NotificationCenter />
+          <NotificationCenter className="hidden md:block" />
 
           {/* Guide Button */}
           <button

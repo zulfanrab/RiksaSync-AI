@@ -12,6 +12,11 @@ export interface AppNotification {
   priority?: 'P1' | 'P2' | 'P3';
 }
 
+interface NotificationCenterProps {
+  isFloating?: boolean;
+  className?: string;
+}
+
 // Play the custom audio file placed in the public directory
 const playNotificationSound = () => {
   try {
@@ -22,7 +27,7 @@ const playNotificationSound = () => {
   }
 };
 
-export default function NotificationCenter() {
+export default function NotificationCenter({ isFloating = false, className = '' }: NotificationCenterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
@@ -197,22 +202,31 @@ export default function NotificationCenter() {
   };
 
   return (
-    <div className="relative" ref={popoverRef}>
+    <div 
+      className={isFloating ? `fixed bottom-6 right-6 z-40 ${className}` : `relative ${className}`} 
+      ref={popoverRef}
+    >
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+        className={isFloating
+          ? "p-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full shadow-2xl flex items-center justify-center cursor-pointer active:scale-95 transition-all border-0 focus:outline-none"
+          : "relative p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+        }
         title="Pusat Notifikasi Real-time"
       >
         {unreadCount > 0 ? (
           <>
-            <BellRing className="h-5 w-5 text-emerald-600 animate-pulse" />
-            <span className="absolute top-0 right-0 h-4 w-4 bg-rose-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white shadow-sm">
+            <BellRing className={isFloating ? "h-6 w-6 text-white animate-pulse" : "h-5 w-5 text-emerald-600 animate-pulse"} />
+            <span className={isFloating
+              ? "absolute top-0 right-0 h-5 w-5 bg-rose-500 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-bold text-white shadow-sm"
+              : "absolute top-0 right-0 h-4 w-4 bg-rose-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white shadow-sm"
+            }>
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           </>
         ) : (
-          <Bell className="h-5 w-5" />
+          <Bell className={isFloating ? "h-6 w-6 text-white" : "h-5 w-5"} />
         )}
       </button>
 
@@ -220,11 +234,20 @@ export default function NotificationCenter() {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            initial={isFloating 
+              ? { opacity: 0, y: 20, scale: 0.95 }
+              : { opacity: 0, y: -10, scale: 0.95 }
+            }
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            exit={isFloating 
+              ? { opacity: 0, y: 20, scale: 0.95 }
+              : { opacity: 0, y: -10, scale: 0.95 }
+            }
             transition={{ duration: 0.15 }}
-            className="absolute top-full right-0 mt-3 w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 origin-top-right text-left"
+            className={isFloating
+              ? "fixed bottom-22 right-4 left-4 max-w-md md:absolute md:bottom-auto md:top-full md:right-0 md:left-auto md:w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 text-left"
+              : "absolute top-full right-0 mt-3 w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 origin-top-right text-left"
+            }
           >
             {/* Header */}
             <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
@@ -236,7 +259,7 @@ export default function NotificationCenter() {
                 {unreadCount > 0 && (
                   <button
                     onClick={markAllAsRead}
-                    className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
+                    className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer border-0 bg-transparent"
                     title="Tandai Semua Telah Dibaca"
                   >
                     <Check className="h-3.5 w-3.5" />
@@ -244,7 +267,7 @@ export default function NotificationCenter() {
                 )}
                 <button
                   onClick={clearAll}
-                  className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                  className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer border-0 bg-transparent"
                   title="Bersihkan Semua"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -253,7 +276,7 @@ export default function NotificationCenter() {
             </div>
 
             {/* Notification List */}
-            <div className="max-h-[50vh] overflow-y-auto scrollbar-thin bg-white flex-1 p-0">
+            <div className="max-h-[45vh] overflow-y-auto scrollbar-thin bg-white flex-1 p-0">
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-slate-400">
                   <Inbox className="h-8 w-8 mb-2 opacity-20" />

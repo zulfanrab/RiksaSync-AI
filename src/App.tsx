@@ -18,6 +18,7 @@ import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import GuideModal from './components/GuideModal';
+import NotificationCenter from './components/NotificationCenter';
 
 const INITIAL_MANPOWER: Manpower[] = [
   { id: 'm1', name: 'Angga', role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
@@ -1049,6 +1050,9 @@ ON CONFLICT (id) DO NOTHING;`;
         <p>© 2026 AksaraSync AI. Hak Cipta Dilindungi Undang-Undang.</p>
         <p className="mt-1 text-slate-500">Dikembangkan khusus sebagai Solusi Manajemen Sumber Daya PJK3</p>
       </footer>
+
+      {/* Floating Mobile Notification Center */}
+      <NotificationCenter isFloating={true} className="md:hidden" />
     </div>
   );
 }
