@@ -7,6 +7,7 @@ import React from 'react';
 import { Database, Cpu, HelpCircle, RefreshCw, LogOut } from 'lucide-react';
 import Logo from './Logo';
 import { useUser } from '../context/UserContext';
+import NotificationCenter from './NotificationCenter';
 
 interface NavbarProps {
   supabaseConnected: boolean;
@@ -41,6 +42,9 @@ export default function Navbar({
 
         {/* Integration Status & Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Notification Center */}
+          <NotificationCenter />
+
           {/* Guide Button */}
           <button
             onClick={onOpenGuide}
