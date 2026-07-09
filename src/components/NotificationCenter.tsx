@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, X, BellRing, Inbox } from 'lucide-react';
+import { Bell, Check, X, BellRing, Inbox, Volume2, VolumeX, Settings } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -12,28 +12,127 @@ export interface AppNotification {
   priority?: 'P1' | 'P2' | 'P3';
 }
 
+// Web Audio API Synthesized Sounds
+const playNotificationSound = (soundType: string) => {
+  if (soundType === 'none') return;
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+    
+    if (soundType === 'chime') {
+      // Chime: Soft high-pitched double ding (Ding-Ding)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(880, now); // A5 note
+      gain1.gain.setValueAtTime(0, now);
+      gain1.gain.linearRampToValueAtTime(0.15, now + 0.03);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.5);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1318.51, now + 0.08); // E6 note
+      gain2.gain.setValueAtTime(0, now + 0.08);
+      gain2.gain.linearRampToValueAtTime(0.12, now + 0.11);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.6);
+    } 
+    else if (soundType === 'echo') {
+      // Echo: Upward arpeggio (C5 -> E5 -> G5 -> C6)
+      const notes = [523.25, 659.25, 783.99, 1046.50];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+        gain.gain.setValueAtTime(0, now + idx * 0.08);
+        gain.gain.linearRampToValueAtTime(0.1, now + idx * 0.08 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.35);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.08);
+        osc.stop(now + idx * 0.08 + 0.35);
+      });
+    } 
+    else if (soundType === 'alert') {
+      // Alert: High-tech futuristic swipe / quick warning pulse
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, now); // D5
+      osc.frequency.exponentialRampToValueAtTime(1174.66, now + 0.15); // D6
+      
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    }
+  } catch (e) {
+    console.warn('AudioContext blocked by autoplay policy or unsupported:', e);
+  }
+};
+
 export default function NotificationCenter() {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [soundType, setSoundType] = useState<string>('chime');
+  const [showSettings, setShowSettings] = useState(false);
+  
   const popoverRef = useRef<HTMLDivElement>(null);
+  const soundTypeRef = useRef(soundType);
 
-  // Load from local storage on mount
+  // Sync ref with soundType to prevent closures in real-time callbacks
   useEffect(() => {
-    const saved = localStorage.getItem('aksara_notifications');
-    if (saved) {
+    soundTypeRef.current = soundType;
+  }, [soundType]);
+
+  // Load configuration from local storage on mount
+  useEffect(() => {
+    const savedNotifs = localStorage.getItem('aksara_notifications');
+    if (savedNotifs) {
       try {
-        setNotifications(JSON.parse(saved));
+        setNotifications(JSON.parse(savedNotifs));
       } catch (e) {
         console.error('Error parsing notifications', e);
       }
     }
+    
+    const savedSound = localStorage.getItem('aksara_notif_sound_type');
+    if (savedSound) {
+      setSoundType(savedSound);
+    }
   }, []);
 
-  // Sync to local storage whenever notifications change
+  // Sync notifications to local storage
   useEffect(() => {
     localStorage.setItem('aksara_notifications', JSON.stringify(notifications));
   }, [notifications]);
+
+  // Sync sound configuration to local storage
+  const handleSoundChange = (newType: string) => {
+    setSoundType(newType);
+    localStorage.setItem('aksara_notif_sound_type', newType);
+    playNotificationSound(newType); // Play a quick preview
+  };
 
   // Request browser notification permission
   useEffect(() => {
@@ -50,6 +149,7 @@ export default function NotificationCenter() {
     const handleClickOutside = (event: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setShowSettings(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -62,7 +162,6 @@ export default function NotificationCenter() {
 
     const channel = supabase
       .channel('public:riksasync_notifications')
-      // Listen to both INSERT (new plotting) and UPDATE (reschedule/status changes) on schedules
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'schedules' },
@@ -80,8 +179,6 @@ export default function NotificationCenter() {
             title = '📅 Agenda Baru Masuk!';
             message = `[${schedule.agenda_type || 'Riksa Uji'}] ${schedule.client_name || 'Klien Baru'} oleh ${schedule.pic_name || 'Tim'}.`;
           } else if (eventType === 'UPDATE') {
-            const oldSchedule = payload.old;
-            // Let's customize message slightly if it's Completed or Cancelled
             if (schedule.status === 'Completed') {
               title = '✅ Agenda Selesai!';
               message = `Pengerjaan untuk ${schedule.client_name} telah selesai dilaksanakan.`;
@@ -95,8 +192,7 @@ export default function NotificationCenter() {
               message = `Jadwal ${schedule.client_name} (${schedule.agenda_type || 'Riksa Uji'}) diperbarui ke tanggal ${schedule.start_date}.`;
             }
           } else {
-            // IGNORE deletes for push notifications
-            return;
+            return; // Ignore deletes
           }
 
           const notif: AppNotification = {
@@ -110,7 +206,10 @@ export default function NotificationCenter() {
 
           setNotifications(prev => [notif, ...prev]);
 
-          // Trigger native notification
+          // Play Sound
+          playNotificationSound(soundTypeRef.current);
+
+          // Native notification
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification(notif.title, {
               body: notif.message,
@@ -118,7 +217,6 @@ export default function NotificationCenter() {
           }
         }
       )
-      // Listen to INSERT on manpower_absences for sick leaves or permissions
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'manpower_absences' },
@@ -126,7 +224,6 @@ export default function NotificationCenter() {
           const absence = payload.new;
           if (!absence) return;
 
-          // Fetch manpower name asynchronously to display a helpful notification message
           supabase
             .from('manpower')
             .select('name')
@@ -145,7 +242,10 @@ export default function NotificationCenter() {
 
               setNotifications(prev => [notif, ...prev]);
 
-              // Trigger native notification
+              // Play Sound
+              playNotificationSound(soundTypeRef.current);
+
+              // Native notification
               if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(notif.title, {
                   body: notif.message,
@@ -153,7 +253,7 @@ export default function NotificationCenter() {
               }
             })
             .catch(err => {
-              console.error('Error fetching manpower for absence notification', err);
+              console.error('Error retrieving manpower name for absency', err);
             });
         }
       )
@@ -221,7 +321,15 @@ export default function NotificationCenter() {
                 <Bell className="h-4 w-4 text-slate-700" />
                 <h3 className="text-xs font-bold text-slate-800">Pusat Notifikasi</h3>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
+                {/* Mute/Unmute toggle indicator */}
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className={`p-1.5 rounded transition-colors cursor-pointer ${showSettings ? 'bg-slate-200 text-slate-800' : 'hover:bg-slate-200 text-slate-500'}`}
+                  title="Pengaturan Suara"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
                 {unreadCount > 0 && (
                   <button
                     onClick={markAllAsRead}
@@ -241,8 +349,42 @@ export default function NotificationCenter() {
               </div>
             </div>
 
+            {/* Config Subpanel / Settings */}
+            <AnimatePresence>
+              {showSettings && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="bg-slate-50/80 px-4 py-3 border-b border-slate-150 shrink-0 text-xs flex flex-col gap-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-700 flex items-center gap-1">
+                      {soundType === 'none' ? <VolumeX className="h-3.5 w-3.5 text-rose-500" /> : <Volume2 className="h-3.5 w-3.5 text-emerald-600" />}
+                      Nada Notifikasi
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {['chime', 'echo', 'alert', 'none'].map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => handleSoundChange(type)}
+                        className={`py-1.5 px-1 rounded-lg border text-[10px] font-bold capitalize transition-all cursor-pointer text-center ${
+                          soundType === type
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        {type === 'none' ? 'Bisu' : type}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Notification List */}
-            <div className="max-h-[50vh] overflow-y-auto scrollbar-thin bg-white flex-1 p-0">
+            <div className="max-h-[45vh] overflow-y-auto scrollbar-thin bg-white flex-1 p-0">
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-slate-400">
                   <Inbox className="h-8 w-8 mb-2 opacity-20" />
