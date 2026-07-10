@@ -230,48 +230,46 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
 
-    // Fetch missed notifications: only fetch once (not both instances), only fetch NEW ones since last visit
+    // Fetch missed notifications: only run on navbar instance, fetch last 24h, deduplicate by id
     const fetchMissedNotifications = async () => {
-      // Only the navbar instance (not floating) triggers the fetch to avoid double-load
-      if (isFloating) return;
+      if (isFloating) return; // Only one instance fetches
 
       try {
-        const lastFetched = localStorage.getItem('aksara_last_notif_fetch') || '1970-01-01T00:00:00Z';
-        const now = new Date().toISOString();
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // last 24 hours
 
         const { data, error } = await supabase
           .from('notifications_log')
           .select('*')
-          .gt('created_at', lastFetched)  // Only NEW notifications since last visit
+          .gt('created_at', since)
           .order('created_at', { ascending: false })
           .limit(20);
-
-        // Save timestamp immediately so re-mounts don't re-fetch same rows
-        localStorage.setItem('aksara_last_notif_fetch', now);
 
         if (error || !data || data.length === 0) return;
 
         setNotifications(prev => {
-          const merged = [...prev];
-          data.forEach(dbNotif => {
-            if (!merged.some(n => n.id === `db_${dbNotif.id}`)) {
-              merged.unshift({
-                id: `db_${dbNotif.id}`,
-                title: dbNotif.title,
-                message: dbNotif.message,
-                timestamp: dbNotif.created_at,
-                read: false,
-                priority: dbNotif.priority as 'P1' | 'P2' | 'P3'
-              });
-            }
-          });
+          // Build a set of existing IDs to avoid duplicates
+          const existingIds = new Set(prev.map(n => n.id));
+          const newOnes = data
+            .filter(dbNotif => !existingIds.has(`db_${dbNotif.id}`))
+            .map(dbNotif => ({
+              id: `db_${dbNotif.id}`,
+              title: dbNotif.title,
+              message: dbNotif.message,
+              timestamp: dbNotif.created_at,
+              read: false,
+              priority: dbNotif.priority as 'P1' | 'P2' | 'P3'
+            }));
+
+          if (newOnes.length === 0) return prev;
+
+          const merged = [...newOnes, ...prev];
           merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          
+          // Play sound for new entries
+          playNotificationSound();
+          
           return merged.slice(0, 50);
         });
-
-        // Play sound only if there are truly new notifications
-        if (data.length > 0) playNotificationSound();
-
       } catch (err) {
         console.warn('Failed to fetch missed notifications:', err);
       }
