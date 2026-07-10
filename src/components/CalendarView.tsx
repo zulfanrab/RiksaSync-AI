@@ -19,6 +19,7 @@ interface CalendarViewProps {
   onEditSchedule: (schedule: Schedule) => void;
   onDeleteSchedule: (id: string) => void;
   onQuickAddSchedule?: (dateStr: string) => void;
+  scheduleFiles?: any[];
 }
 
 export default function CalendarView({
@@ -30,7 +31,8 @@ export default function CalendarView({
   onSelectDate,
   onEditSchedule,
   onDeleteSchedule,
-  onQuickAddSchedule
+  onQuickAddSchedule,
+  scheduleFiles = []
 }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'monthly' | 'weekly'>('monthly');
@@ -818,6 +820,33 @@ export default function CalendarView({
                           </span>
                         </div>
                       </div>
+
+                      {/* Google Drive Linked Files */}
+                      {(() => {
+                        const files = (scheduleFiles || []).filter(f => f.schedule_id === s.id);
+                        if (files.length === 0) return null;
+                        return (
+                          <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                            <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-wider block">Dokumen Google Drive:</span>
+                            <div className="grid grid-cols-1 gap-1">
+                              {files.map(file => (
+                                <a
+                                  key={file.id}
+                                  href={file.google_drive_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1.5 p-1 bg-emerald-50/50 hover:bg-emerald-100/50 text-[10px] text-emerald-800 font-semibold border border-emerald-100 rounded-lg truncate transition-all active:scale-95"
+                                  title={`${file.file_name} (${file.category})`}
+                                >
+                                  <span className="shrink-0 text-xs">📁</span>
+                                  <span className="truncate flex-1 text-[9px]">{file.file_name}</span>
+                                  <span className="text-[7px] bg-emerald-100 text-emerald-800 px-1 rounded uppercase font-bold shrink-0">{file.category}</span>
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Log creator/updater */}
                       {(s.created_by || s.updated_by) && (

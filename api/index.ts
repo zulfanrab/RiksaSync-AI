@@ -8,6 +8,34 @@ import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI, Type } from '@google/genai';
 import webpush from 'web-push';
+import { google } from 'googleapis';
+import { Readable } from 'stream';
+
+// ── Google Drive API Setup ─────────────────────────────────────────────────
+const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL || '';
+const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY || '';
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
+
+let driveConfigStatus = 'Not Configured';
+let googleAuth: any = null;
+
+if (GOOGLE_CLIENT_EMAIL && GOOGLE_PRIVATE_KEY) {
+  try {
+    const formattedKey = GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+    googleAuth = new google.auth.JWT({
+      email: GOOGLE_CLIENT_EMAIL,
+      key: formattedKey,
+      scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
+    });
+    driveConfigStatus = 'Configured Successfully';
+    console.log('[Google Drive] Authenticated successfully with Service Account.');
+  } catch (err: any) {
+    driveConfigStatus = `Error: ${err.message}`;
+    console.error('[Google Drive] Configuration failed:', err.message);
+  }
+} else {
+  console.warn('[Google Drive] Credentials not set. Drive uploads will be disabled.');
+}
 
 // ── VAPID Setup for Web Push ───────────────────────────────────────────────
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
@@ -624,7 +652,8 @@ app.get('/api/status', (req, res) => {
   res.json({
     supabase: dbManager.isSupabaseConnected(),
     gemini: isGeminiConfigured(),
-    push: pushConfigStatus
+    push: pushConfigStatus,
+    drive: driveConfigStatus
   });
 });
 
@@ -1037,6 +1066,242 @@ app.post('/api/push-send', async (req, res) => {
     res.json({ success: true, sent: successCount, total: subscriptions.length });
   } catch (err: any) {
     console.error('[Push] push-send error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Google Drive API Helper Functions ────────────────────────────────────────
+
+function bufferToStream(buffer: Buffer) {
+  const stream = new Readable();
+  stream.push(buffer);
+  stream.push(null);
+  return stream;
+}
+
+async function findOrCreateFolder(folderName: string, parentId?: string): Promise<string> {
+  const drive = google.drive({ version: 'v3', auth: googleAuth });
+  
+  let query = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  if (parentId) {
+    query += ` and '${parentId}' in parents`;
+  }
+  
+  const response = await drive.files.list({
+    q: query,
+    fields: 'files(id)',
+    spaces: 'drive',
+  });
+  
+  if (response.data.files && response.data.files.length > 0) {
+    return response.data.files[0].id!;
+  }
+  
+  // Create folder if not exists
+  const fileMetadata: any = {
+    name: folderName,
+    mimeType: 'application/vnd.google-apps.folder',
+  };
+  if (parentId) {
+    fileMetadata.parents = [parentId];
+  }
+  
+  const folder = await drive.files.create({
+    requestBody: fileMetadata,
+    fields: 'id',
+  });
+  
+  return folder.data.id!;
+}
+
+async function uploadToGoogleDrive(
+  fileName: string,
+  mimeType: string,
+  base64Data: string,
+  clientName: string,
+  category: string
+): Promise<{ fileId: string; webViewLink: string }> {
+  const drive = google.drive({ version: 'v3', auth: googleAuth });
+  
+  // Find or Create Client Folder
+  const clientFolderId = await findOrCreateFolder(clientName, GOOGLE_DRIVE_FOLDER_ID || undefined);
+  
+  // Find or Create Category Folder
+  const categoryFolderId = await findOrCreateFolder(category, clientFolderId);
+  
+  // Upload File
+  const base64Body = base64Data.substring(base64Data.indexOf(',') + 1);
+  const buffer = Buffer.from(base64Body, 'base64');
+  
+  const media = {
+    mimeType: mimeType,
+    body: bufferToStream(buffer),
+  };
+  
+  const fileMetadata = {
+    name: fileName,
+    parents: [categoryFolderId],
+  };
+  
+  const file = await drive.files.create({
+    requestBody: fileMetadata,
+    media: media,
+    fields: 'id, webViewLink',
+  });
+  
+  const fileId = file.data.id!;
+  
+  // Set permission to anyone with link can view
+  await drive.permissions.create({
+    fileId: fileId,
+    requestBody: {
+      role: 'reader',
+      type: 'anyone',
+    },
+  });
+  
+  // Get updated file info (with public webViewLink)
+  const fileInfo = await drive.files.get({
+    fileId: fileId,
+    fields: 'webViewLink',
+  });
+  
+  return {
+    fileId,
+    webViewLink: fileInfo.data.webViewLink!,
+  };
+}
+
+async function deleteFromGoogleDrive(fileId: string): Promise<void> {
+  const drive = google.drive({ version: 'v3', auth: googleAuth });
+  await drive.files.delete({
+    fileId: fileId,
+  });
+}
+
+// ── Google Drive API Endpoints ──────────────────────────────────────────────
+
+// Get linked files for a schedule
+app.get('/api/schedule-files/:scheduleId', async (req, res) => {
+  try {
+    const { scheduleId } = req.params;
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase not configured on server.' });
+    }
+
+    const supa = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supa
+      .from('schedule_files')
+      .select('*')
+      .eq('schedule_id', scheduleId)
+      .order('uploaded_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    res.json(data || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upload file to Google Drive and log in Supabase
+app.post('/api/upload-drive', async (req, res) => {
+  try {
+    if (!googleAuth) {
+      return res.status(500).json({ error: 'Google Drive integration is not configured.' });
+    }
+
+    const { fileName, mimeType, base64Data, clientName, category, scheduleId } = req.body;
+    if (!fileName || !mimeType || !base64Data || !clientName || !category) {
+      return res.status(400).json({ error: 'Missing required parameters (fileName, mimeType, base64Data, clientName, category).' });
+    }
+
+    // 1. Upload to Google Drive
+    const uploadResult = await uploadToGoogleDrive(
+      fileName,
+      mimeType,
+      base64Data,
+      clientName,
+      category
+    );
+
+    // 2. Insert metadata into Supabase
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase not configured on server.' });
+    }
+
+    const supa = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supa.from('schedule_files').insert([{
+      schedule_id: scheduleId || null,
+      file_name: fileName,
+      file_size: Math.round((base64Data.length * 3) / 4),
+      category,
+      google_drive_link: uploadResult.webViewLink,
+      google_file_id: uploadResult.fileId
+    }]).select();
+
+    if (error) {
+      // Clean up Google Drive file if Supabase insertion fails
+      await deleteFromGoogleDrive(uploadResult.fileId).catch(() => {});
+      return res.status(500).json({ error: `Failed to insert file metadata: ${error.message}` });
+    }
+
+    res.json({ success: true, file: data[0] });
+  } catch (err: any) {
+    console.error('[Google Drive] Upload error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete file from Google Drive and Supabase
+app.post('/api/delete-drive', async (req, res) => {
+  try {
+    if (!googleAuth) {
+      return res.status(500).json({ error: 'Google Drive integration is not configured.' });
+    }
+
+    const { fileId } = req.body;
+    if (!fileId) {
+      return res.status(400).json({ error: 'Missing required parameter: fileId.' });
+    }
+
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase not configured on server.' });
+    }
+
+    const supa = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supa
+      .from('schedule_files')
+      .select('google_file_id')
+      .eq('id', fileId)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ error: 'File metadata not found in database.' });
+    }
+
+    // Delete from Google Drive
+    await deleteFromGoogleDrive(data.google_file_id);
+
+    // Delete from Supabase
+    const { error: deleteError } = await supa.from('schedule_files').delete().eq('id', fileId);
+    if (deleteError) {
+      return res.status(500).json({ error: `Failed to delete metadata: ${deleteError.message}` });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Google Drive] Delete error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

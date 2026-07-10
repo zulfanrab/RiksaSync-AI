@@ -13,6 +13,7 @@ import ManpowerGrid from './components/ManpowerGrid';
 import ScheduleForm from './components/ScheduleForm';
 import ManpowerManagement from './components/ManpowerManagement';
 import WhatsappDispatcher from './components/WhatsappDispatcher';
+import DriveView from './components/DriveView';
 import { Manpower, Unit, Schedule, ManpowerAbsence } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
@@ -110,6 +111,8 @@ export default function App() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [clients, setClients] = useState<{ id: string; client_name: string; pic_name: string; pic_phone: string }[]>([]);
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
+  const [scheduleFiles, setScheduleFiles] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'calendar' | 'drive'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -239,7 +242,19 @@ INSERT INTO units (id, unit_name, required_skp) VALUES
   ('u5', 'Instalasi Penyalur Petir', 'Instalasi Listrik'),
   ('u6', 'Angkur & TKPK', 'Angkur TKPK'),
   ('u7', 'Instalasi Listrik', 'Instalasi Listrik')
-ON CONFLICT (id) DO NOTHING;`;
+ON CONFLICT (id) DO NOTHING;
+
+-- 8. Create schedule_files table for Google Drive uploads
+CREATE TABLE IF NOT EXISTS schedule_files (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  schedule_id UUID REFERENCES schedules(id) ON DELETE CASCADE,
+  file_name TEXT NOT NULL,
+  file_size INTEGER NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('Sertifikat', 'Foto Lapangan', 'Laporan Riksa', 'Dokumen Pendukung', 'Lainnya')),
+  google_drive_link TEXT NOT NULL,
+  google_file_id TEXT NOT NULL,
+  uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);`;
 
   const handleCopySql = () => {
     if (navigator.clipboard) {
@@ -281,7 +296,7 @@ ON CONFLICT (id) DO NOTHING;`;
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, scheduleFilesRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
         supabase.from('schedules').select('*'),
@@ -295,6 +310,13 @@ ON CONFLICT (id) DO NOTHING;`;
         (async () => {
           try {
             return await supabase.from('manpower_absences').select('*');
+          } catch (e) {
+            return { data: [], error: e } as any;
+          }
+        })(),
+        (async () => {
+          try {
+            return await supabase.from('schedule_files').select('*');
           } catch (e) {
             return { data: [], error: e } as any;
           }
@@ -365,11 +387,14 @@ ON CONFLICT (id) DO NOTHING;`;
         }
       }
 
+      const filesData = scheduleFilesRes && !scheduleFilesRes.error ? (scheduleFilesRes.data || []) : [];
+
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
       setClients(clientsData);
       setAbsences(absencesData as ManpowerAbsence[]);
+      setScheduleFiles(filesData);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
@@ -440,7 +465,9 @@ ON CONFLICT (id) DO NOTHING;`;
         await loadAllData();
         setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
         setIsFormOpen(false);
+        const savedId = editingSchedule.id;
         setEditingSchedule(null);
+        return savedId;
       } else {
         // Add flow (or edit local flow)
         const newData = {
@@ -451,7 +478,7 @@ ON CONFLICT (id) DO NOTHING;`;
         const insertPayload = { ...newData };
         delete (insertPayload as any).id; // Auto-generate primary key on Supabase side
 
-        const { error } = await supabase.from('schedules').insert([insertPayload]);
+        const { data, error } = await supabase.from('schedules').insert([insertPayload]).select('id');
         if (error) {
           throw new Error(`Gagal menyimpan jadwal baru di Supabase: ${error.message}`);
         }
@@ -459,6 +486,7 @@ ON CONFLICT (id) DO NOTHING;`;
         await loadAllData();
         setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
         setIsFormOpen(false);
+        return data?.[0]?.id;
       }
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
@@ -788,97 +816,133 @@ ON CONFLICT (id) DO NOTHING;`;
           </div>
         </div>
 
-        {/* Dashboard Analytics & Summary Bento Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Quick Stats Grid - Left 4 columns */}
-          <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
-            {/* Stat 1 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
-                  <CalendarDays className="h-4 w-4" />
-                </div>
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Inspeksi Aktif</span>
-              </div>
-              <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none mt-1">{stats.activeCount}</p>
-            </div>
-
-            {/* Stat 2 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-red-50 border border-red-100 p-2 rounded-lg text-red-600">
-                  <Shield className="h-4 w-4" />
-                </div>
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
-              </div>
-              <p className="text-xl font-black font-mono text-red-600 tracking-tight leading-none mt-1">{stats.p1Count}</p>
-            </div>
-
-            {/* Stat 3 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-amber-50 border border-amber-100 p-2 rounded-lg text-amber-600">
-                  <Plus className="h-4 w-4" />
-                </div>
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Klien</span>
-              </div>
-              <p className="text-xl font-black font-mono text-amber-600 tracking-tight leading-none mt-1">{stats.uniqueClients}</p>
-            </div>
-
-            {/* Stat 4 */}
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
-                  <CheckCircle2 className="h-4 w-4" />
-                </div>
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Selesai Riksa</span>
-              </div>
-              <p className="text-xl font-black font-mono text-emerald-600 tracking-tight leading-none mt-1">{stats.completedCount}</p>
-            </div>
-          </div>
-
-          {/* RiksaSync AI Assistant Unified Panel - Right 8 columns */}
-          <div className="lg:col-span-8">
-            <SummaryWidget />
-          </div>
+        {/* Main Tab System */}
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-px">
+          <button
+            onClick={() => setActiveTab('calendar')}
+            className={`px-5 py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 ${
+              activeTab === 'calendar'
+                ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            🗓️ Kalender & Plotting
+          </button>
+          <button
+            onClick={() => setActiveTab('drive')}
+            className={`px-5 py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 ${
+              activeTab === 'drive'
+                ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            📁 RiksaSync Drive (Google Drive)
+          </button>
         </div>
 
-        {/* Central Calendar & Manpower Row */}
-        <div className="space-y-6">
-          {/* Main Calendar View with Selected Day Projects */}
-          <CalendarView
-            schedules={schedules}
-            units={units}
-            manpowerList={manpowerList}
-            absences={absences}
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-            onEditSchedule={handleEditTrigger}
-            onDeleteSchedule={handleDeleteSchedule}
-            onQuickAddSchedule={handleQuickAddSchedule}
-          />
+        {activeTab === 'calendar' ? (
+          <>
+            {/* Dashboard Analytics & Summary Bento Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              {/* Quick Stats Grid - Left 4 columns */}
+              <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
+                {/* Stat 1 */}
+                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
+                      <CalendarDays className="h-4 w-4" />
+                    </div>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Inspeksi Aktif</span>
+                  </div>
+                  <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none mt-1">{stats.activeCount}</p>
+                </div>
 
-          {/* Manpower & WhatsApp Dispatcher Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8">
-              <ManpowerGrid
-                manpowerList={manpowerList}
-                schedules={schedules}
-                absences={absences}
-                selectedDate={selectedDate}
-              />
+                {/* Stat 2 */}
+                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="bg-red-50 border border-red-100 p-2 rounded-lg text-red-600">
+                      <Shield className="h-4 w-4" />
+                    </div>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
+                  </div>
+                  <p className="text-xl font-black font-mono text-red-600 tracking-tight leading-none mt-1">{stats.p1Count}</p>
+                </div>
+
+                {/* Stat 3 */}
+                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="bg-amber-50 border border-amber-100 p-2 rounded-lg text-amber-600">
+                      <Plus className="h-4 w-4" />
+                    </div>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Klien</span>
+                  </div>
+                  <p className="text-xl font-black font-mono text-amber-600 tracking-tight leading-none mt-1">{stats.uniqueClients}</p>
+                </div>
+
+                {/* Stat 4 */}
+                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </div>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Selesai Riksa</span>
+                  </div>
+                  <p className="text-xl font-black font-mono text-emerald-600 tracking-tight leading-none mt-1">{stats.completedCount}</p>
+                </div>
+              </div>
+
+              {/* RiksaSync AI Assistant Unified Panel - Right 8 columns */}
+              <div className="lg:col-span-8">
+                <SummaryWidget />
+              </div>
             </div>
-            <div className="lg:col-span-4">
-              <WhatsappDispatcher
+
+            {/* Central Calendar & Manpower Row */}
+            <div className="space-y-6">
+              {/* Main Calendar View with Selected Day Projects */}
+              <CalendarView
                 schedules={schedules}
                 units={units}
                 manpowerList={manpowerList}
                 absences={absences}
                 selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                onEditSchedule={handleEditTrigger}
+                onDeleteSchedule={handleDeleteSchedule}
+                onQuickAddSchedule={handleQuickAddSchedule}
+                scheduleFiles={scheduleFiles}
               />
+
+              {/* Manpower & WhatsApp Dispatcher Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div className="lg:col-span-8">
+                  <ManpowerGrid
+                    manpowerList={manpowerList}
+                    schedules={schedules}
+                    absences={absences}
+                    selectedDate={selectedDate}
+                  />
+                </div>
+                <div className="lg:col-span-4">
+                  <WhatsappDispatcher
+                    schedules={schedules}
+                    units={units}
+                    manpowerList={manpowerList}
+                    absences={absences}
+                    selectedDate={selectedDate}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        ) : (
+          <DriveView
+            schedules={schedules}
+            clients={clients}
+            scheduleFiles={scheduleFiles}
+            onRefreshAll={loadAllData}
+          />
+        )}
       </main>
 
       {/* Modal Slideover for Creating/Modifying Plotting */}

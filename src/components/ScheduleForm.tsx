@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Sparkles, Calendar, User, Save, X, AlertTriangle, Info, HelpCircle, Plus, Trash2, Check, Phone, MapPin, Copy } from 'lucide-react';
+import { Sparkles, Calendar, User, Save, X, AlertTriangle, Info, HelpCircle, Plus, Trash2, Check, Phone, MapPin, Copy, FileUp, File, ExternalLink, Loader } from 'lucide-react';
 import { Schedule, Manpower, Unit, ManpowerAbsence } from '../types';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface ScheduleFormProps {
   initialSchedule?: Schedule | null;
@@ -14,7 +15,7 @@ interface ScheduleFormProps {
   schedules: Schedule[]; // for checking overlap conflicts
   clients: { id: string; client_name: string; pic_name: string; pic_phone: string }[];
   absences?: ManpowerAbsence[];
-  onSave: (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => void;
+  onSave: (scheduleData: Omit<Schedule, 'id'> & { id?: string }) => Promise<string | undefined>;
   onCancel: () => void;
 }
 
@@ -96,6 +97,13 @@ export default function ScheduleForm({
   const [isTodayChecked, setIsTodayChecked] = useState<boolean>(false);
   const [location, setLocation] = useState('');
 
+  // Google Drive File Upload States
+  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<{ name: string; type: string; size: number; category: string; base64: string }[]>([]);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileCategory, setFileCategory] = useState<'Sertifikat' | 'Foto Lapangan' | 'Laporan Riksa' | 'Dokumen Pendukung' | 'Lainnya'>('Dokumen Pendukung');
+  const [isSaving, setIsSaving] = useState(false);
+
   // Autocomplete & UI Helper States
   const [showClientSuggestions, setShowClientSuggestions] = useState(false);
   const [activeDescIndex, setActiveDescIndex] = useState<number | null>(null);
@@ -176,6 +184,114 @@ export default function ScheduleForm({
       setLocation('');
     }
   }, [initialSchedule]);
+
+  // Load linked Google Drive files if editing
+  useEffect(() => {
+    if (initialSchedule && initialSchedule.id && !initialSchedule.id.startsWith('local-')) {
+      const fetchLinkedFiles = async () => {
+        try {
+          const response = await fetch(`/api/schedule-files/${initialSchedule.id}`);
+          if (response.ok) {
+            const files = await response.json();
+            setUploadedFiles(files);
+          }
+        } catch (e) {
+          console.warn('[Google Drive] Failed to fetch linked files:', e);
+        }
+      };
+      fetchLinkedFiles();
+    } else {
+      setUploadedFiles([]);
+      setPendingFiles([]);
+    }
+  }, [initialSchedule]);
+
+  // Upload file immediately (for edit schedule flow)
+  const uploadFileImmediately = async (fileObj: { name: string; type: string; size: number; category: string; base64: string }) => {
+    setFileUploading(true);
+    try {
+      const response = await fetch('/api/upload-drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: fileObj.name,
+          mimeType: fileObj.type,
+          base64Data: fileObj.base64,
+          clientName: clientName.trim() || 'Umum',
+          category: fileObj.category,
+          scheduleId: initialSchedule?.id
+        })
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setUploadedFiles(prev => [result.file, ...prev]);
+      } else {
+        alert(`Gagal upload ke Google Drive: ${result.error || 'Server error'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Terjadi kesalahan koneksi saat upload ke Google Drive.');
+    } finally {
+      setFileUploading(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4.5 * 1024 * 1024) {
+      alert('Ukuran file melebihi batas 4.5 MB. Harap perkecil ukuran file atau kompres terlebih dahulu.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      const newPending = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        category: fileCategory,
+        base64
+      };
+
+      if (initialSchedule && initialSchedule.id && !initialSchedule.id.startsWith('local-')) {
+        uploadFileImmediately(newPending);
+      } else {
+        setPendingFiles(prev => [...prev, newPending]);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleRemoveFile = async (fileIdOrName: string, isPending: boolean) => {
+    if (isPending) {
+      setPendingFiles(prev => prev.filter(f => f.name !== fileIdOrName));
+    } else {
+      if (!confirm('Apakah Anda yakin ingin menghapus dokumen ini dari Google Drive?')) return;
+      setFileUploading(true);
+      try {
+        const response = await fetch('/api/delete-drive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId: fileIdOrName })
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+          setUploadedFiles(prev => prev.filter(f => f.id !== fileIdOrName));
+        } else {
+          alert(`Gagal menghapus file: ${result.error || 'Server error'}`);
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Terjadi kesalahan saat menghapus file.');
+      } finally {
+        setFileUploading(false);
+      }
+    }
+  };
 
   // Client Autocomplete List Filtering
   const filteredClients = useMemo(() => {
@@ -473,7 +589,7 @@ export default function ScheduleForm({
     });
   };
 
-  const handleSaveForm = (e: React.FormEvent) => {
+  const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim()) return alert('Mohon isi Nama Klien');
     if (!picPhone.trim()) return alert('Mohon isi Kontak PIC');
@@ -499,25 +615,60 @@ export default function ScheduleForm({
       }
     }
 
-    onSave({
-      client_name: clientName.trim(),
-      pic_name: picName.trim() || 'Staff PIC',
-      pic_phone: picPhone.trim(),
-      start_date: startDate,
-      end_date: endDate,
-      start_time: startTime || undefined,
-      end_time: isUntilFinished ? undefined : (endTime || undefined),
-      unit_ids: agendaType === 'Riksa Uji' ? selectedUnitIds : [],
-      unit_descriptions: agendaType === 'Riksa Uji' ? unitDescriptions.filter(val => val.trim() !== '') : [],
-      lead_expert_id: agendaType === 'Riksa Uji' ? leadExpertId : undefined,
-      support_ids: selectedSupportIds,
-      priority,
-      status,
-      agenda_type: agendaType,
-      manual_agenda: agendaType === 'Lainnya' ? manualAgenda : undefined,
-      is_until_finished: isUntilFinished,
-      location: location || undefined
-    });
+    setIsSaving(true);
+    try {
+      const savedId = await onSave({
+        client_name: clientName.trim(),
+        pic_name: picName.trim() || 'Staff PIC',
+        pic_phone: picPhone.trim(),
+        start_date: startDate,
+        end_date: endDate,
+        start_time: startTime || undefined,
+        end_time: isUntilFinished ? undefined : (endTime || undefined),
+        unit_ids: agendaType === 'Riksa Uji' ? selectedUnitIds : [],
+        unit_descriptions: agendaType === 'Riksa Uji' ? unitDescriptions.filter(val => val.trim() !== '') : [],
+        lead_expert_id: agendaType === 'Riksa Uji' ? leadExpertId : undefined,
+        support_ids: selectedSupportIds,
+        priority,
+        status,
+        agenda_type: agendaType,
+        manual_agenda: agendaType === 'Lainnya' ? manualAgenda : undefined,
+        is_until_finished: isUntilFinished,
+        location: location || undefined
+      });
+
+      // If new schedule had files queued, upload them to Google Drive now
+      if (savedId && pendingFiles.length > 0) {
+        setFileUploading(true);
+        for (const fileObj of pendingFiles) {
+          try {
+            const response = await fetch('/api/upload-drive', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileName: fileObj.name,
+                mimeType: fileObj.type,
+                base64Data: fileObj.base64,
+                clientName: clientName.trim() || 'Umum',
+                category: fileObj.category,
+                scheduleId: savedId
+              })
+            });
+            if (!response.ok) {
+              console.warn(`Failed to upload pending file to Google Drive: ${fileObj.name}`);
+            }
+          } catch (uploadErr) {
+            console.error('Pending upload error:', uploadErr);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Gagal menyimpan plotting: ${err.message || err}`);
+    } finally {
+      setIsSaving(false);
+      setFileUploading(false);
+    }
   };
 
   return (
@@ -1162,6 +1313,122 @@ export default function ScheduleForm({
             })}
           </div>
         </div>
+        {/* Optional Document Upload (Google Drive) */}
+        <div className="space-y-2.5 pt-2 border-t border-slate-100">
+          <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+            Dokumen & Arsip Google Drive (Opsional)
+          </label>
+          <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3">
+              {/* Category Select */}
+              <div className="w-full sm:w-1/3">
+                <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Kategori Dokumen</label>
+                <select
+                  value={fileCategory}
+                  disabled={fileUploading || isSaving}
+                  onChange={e => setFileCategory(e.target.value as any)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-emerald-500 font-semibold"
+                >
+                  <option value="Sertifikat">Sertifikat</option>
+                  <option value="Foto Lapangan">Foto Lapangan</option>
+                  <option value="Laporan Riksa">Laporan Riksa</option>
+                  <option value="Dokumen Pendukung">Dokumen Pendukung</option>
+                  <option value="Lainnya">Lainnya</option>
+                </select>
+              </div>
+
+              {/* File input button wrapper */}
+              <div className="w-full sm:w-2/3 flex flex-col justify-end">
+                <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Pilih File (Maks 4.5MB)</label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    onChange={handleFileChange}
+                    disabled={fileUploading || isSaving}
+                    className="hidden"
+                    id="drive-file-input"
+                  />
+                  <label
+                    htmlFor="drive-file-input"
+                    className={`w-full flex items-center justify-center gap-2 border border-slate-200 border-dashed rounded-lg py-2 text-xs text-slate-500 font-bold bg-white hover:bg-slate-50 transition-all cursor-pointer ${(fileUploading || isSaving) ? 'opacity-50 pointer-events-none' : ''}`}
+                  >
+                    {fileUploading ? (
+                      <>
+                        <Loader className="h-4 w-4 animate-spin text-emerald-600" />
+                        <span>Mengupload ke Drive...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileUp className="h-4 w-4 text-emerald-600" />
+                        <span>Pilih & Upload File</span>
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* List of Files (Pending + Uploaded) */}
+            {((uploadedFiles && uploadedFiles.length > 0) || pendingFiles.length > 0) && (
+              <div className="space-y-1.5 pt-2 border-t border-slate-200/60 max-h-40 overflow-y-auto">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">File Terlampir:</p>
+                
+                {/* Pending files (ready to be uploaded on save) */}
+                {pendingFiles.map((file, idx) => (
+                  <div key={`pending-${idx}`} className="flex items-center justify-between p-2 bg-amber-50/50 border border-amber-200 rounded-lg text-xs">
+                    <div className="flex items-center gap-2 font-medium truncate max-w-[80%]">
+                      <File className="h-4 w-4 text-amber-500 shrink-0" />
+                      <div className="truncate">
+                        <span className="font-bold text-slate-700 block truncate">{file.name}</span>
+                        <span className="text-[8px] text-amber-600 bg-amber-50 px-1 py-0.2 rounded font-semibold uppercase font-mono">{file.category} (Akan di-upload)</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => handleRemoveFile(file.name, true)}
+                      className="text-[10px] font-bold text-rose-500 hover:text-rose-700 bg-transparent border-0 px-2 cursor-pointer disabled:opacity-50"
+                    >
+                      Batal
+                    </button>
+                  </div>
+                ))}
+
+                {/* Already uploaded files */}
+                {uploadedFiles.map((file) => (
+                  <div key={file.id} className="flex items-center justify-between p-2 bg-emerald-50/20 border border-emerald-250/70 rounded-lg text-xs">
+                    <div className="flex items-center gap-2 font-medium truncate max-w-[80%]">
+                      <File className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <div className="truncate">
+                        <span className="font-bold text-slate-700 block truncate">{file.file_name}</span>
+                        <span className="text-[8px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded font-semibold uppercase font-mono">{file.category}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <a
+                        href={file.google_drive_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 bg-emerald-50 hover:bg-emerald-100/60 px-2 py-1 rounded"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        <span>Buka</span>
+                      </a>
+                      <button
+                        type="button"
+                        disabled={fileUploading || isSaving}
+                        onClick={() => handleRemoveFile(file.id, false)}
+                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded border border-rose-100/50 cursor-pointer disabled:opacity-50"
+                      >
+                        Hapus
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
       </div>
 
@@ -1170,18 +1437,29 @@ export default function ScheduleForm({
         <button
           id="btn_cancel_form_footer"
           type="button"
+          disabled={isSaving}
           onClick={onCancel}
-          className="w-full sm:w-auto px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-all shadow-sm h-10 flex items-center justify-center cursor-pointer"
+          className="w-full sm:w-auto px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-all shadow-sm h-10 flex items-center justify-center cursor-pointer disabled:opacity-50"
         >
           Batalkan
         </button>
         <button
           id="btn_submit_form"
           type="submit"
-          className="w-full sm:w-auto px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 h-10 cursor-pointer"
+          disabled={fileUploading || isSaving}
+          className="w-full sm:w-auto px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 h-10 cursor-pointer disabled:opacity-50"
         >
-          <Save className="h-4 w-4" />
-          <span>Simpan Jadwal Plotting</span>
+          {isSaving ? (
+            <>
+              <Loader className="h-4 w-4 animate-spin" />
+              <span>Menyimpan...</span>
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              <span>Simpan Jadwal Plotting</span>
+            </>
+          )}
         </button>
       </div>
     </form>
