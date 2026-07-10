@@ -21,11 +21,20 @@
     <meta name="apple-mobile-web-app-title" content="AksaraSync AI" />
     <meta name="theme-color" content="#10b981" />
 
-    <!-- Register Service Worker -->
+    <!-- Register Service Worker & Auto Update -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+
+        // Automatically reload app when a new Service Worker (app update) takes over
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
         });
       }
     </script>
