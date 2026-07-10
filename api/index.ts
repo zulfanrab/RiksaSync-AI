@@ -21,7 +21,16 @@ let googleAuth: any = null;
 
 if (GOOGLE_CLIENT_EMAIL && GOOGLE_PRIVATE_KEY) {
   try {
-    const formattedKey = GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+    let formattedKey = GOOGLE_PRIVATE_KEY.trim();
+    // Strip wrapping quotes if present
+    if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) {
+      formattedKey = formattedKey.substring(1, formattedKey.length - 1);
+    }
+    if (formattedKey.startsWith("'") && formattedKey.endsWith("'")) {
+      formattedKey = formattedKey.substring(1, formattedKey.length - 1);
+    }
+    formattedKey = formattedKey.replace(/\\n/g, '\n');
+
     googleAuth = new google.auth.JWT({
       email: GOOGLE_CLIENT_EMAIL,
       key: formattedKey,
@@ -643,7 +652,8 @@ Tulis ringkasannya langsung tanpa pengantar seperti "Berikut adalah ringkasan...
 
 // --- Express App Setup ---
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // --- API Routes ---
 
