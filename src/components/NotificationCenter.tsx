@@ -87,22 +87,19 @@ export default function NotificationCenter({ isFloating = false, className = '' 
     return () => window.removeEventListener('appinstalled', handler);
   }, []);
 
-  // Load notifications from local storage on mount
-  useEffect(() => {
-    const savedNotifs = localStorage.getItem('aksara_notifications');
-    if (savedNotifs) {
-      try {
-        setNotifications(JSON.parse(savedNotifs));
-      } catch (e) {
-        console.error('Error parsing notifications', e);
-      }
-    }
-  }, []);
+  // Load read status from localStorage (only read flags, not full notifications)
+  const getReadIds = (): Set<string> => {
+    try {
+      const saved = localStorage.getItem('aksara_read_ids');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  };
 
-  // Sync notifications to local storage
-  useEffect(() => {
-    localStorage.setItem('aksara_notifications', JSON.stringify(notifications));
-  }, [notifications]);
+  const saveReadIds = (ids: Set<string>) => {
+    try {
+      localStorage.setItem('aksara_read_ids', JSON.stringify([...ids]));
+    } catch {}
+  };
 
   // Handle install button click
   const handleInstallClick = async () => {
@@ -230,52 +227,56 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
 
-    // Fetch missed notifications: only run on navbar instance, fetch last 24h, deduplicate by id
-    const fetchMissedNotifications = async () => {
-      if (isFloating) return; // Only one instance fetches
+    // PRIMARY data source: load from Supabase DB on every app open
+    const loadNotificationsFromDB = async () => {
+      if (isFloating) return; // Only one instance loads
 
       try {
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // last 24 hours
+        const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(); // last 7 days
 
         const { data, error } = await supabase
           .from('notifications_log')
           .select('*')
           .gt('created_at', since)
           .order('created_at', { ascending: false })
-          .limit(20);
+          .limit(50);
 
-        if (error || !data || data.length === 0) return;
+        if (error || !data) return;
 
+        const readIds = getReadIds();
+
+        // Don't re-show notifications user already dismissed via clearAll
+        let dismissedIds: Set<string>;
+        try {
+          const dismissed = localStorage.getItem('aksara_dismissed_ids');
+          dismissedIds = dismissed ? new Set(JSON.parse(dismissed)) : new Set();
+        } catch { dismissedIds = new Set(); }
+
+        const dbNotifications = data
+          .filter(dbNotif => !dismissedIds.has(`db_${dbNotif.id}`))
+          .map(dbNotif => ({
+            id: `db_${dbNotif.id}`,
+            title: dbNotif.title,
+            message: dbNotif.message,
+            timestamp: dbNotif.created_at,
+            read: readIds.has(`db_${dbNotif.id}`),
+            priority: dbNotif.priority as 'P1' | 'P2' | 'P3'
+          }));
+
+        // Merge DB notifications with any in-app realtime notifications already in state
         setNotifications(prev => {
-          // Build a set of existing IDs to avoid duplicates
-          const existingIds = new Set(prev.map(n => n.id));
-          const newOnes = data
-            .filter(dbNotif => !existingIds.has(`db_${dbNotif.id}`))
-            .map(dbNotif => ({
-              id: `db_${dbNotif.id}`,
-              title: dbNotif.title,
-              message: dbNotif.message,
-              timestamp: dbNotif.created_at,
-              read: false,
-              priority: dbNotif.priority as 'P1' | 'P2' | 'P3'
-            }));
-
-          if (newOnes.length === 0) return prev;
-
-          const merged = [...newOnes, ...prev];
+          const realtimeOnly = prev.filter(n => !n.id.startsWith('db_')); // keep realtime notifs
+          const merged = [...dbNotifications, ...realtimeOnly];
           merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-          
-          // Play sound for new entries
-          playNotificationSound();
-          
           return merged.slice(0, 50);
         });
+
       } catch (err) {
-        console.warn('Failed to fetch missed notifications:', err);
+        console.warn('Failed to load notifications from DB:', err);
       }
     };
 
-    fetchMissedNotifications();
+    loadNotificationsFromDB();
 
     const channelId = `riksasync_notif_${isFloating ? 'floating' : 'navbar'}_${Math.random().toString(36).substring(2, 11)}`;
     const channel = supabase
@@ -372,15 +373,29 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   const unreadCount = notifications.filter(n => !n.read).length + (showInstallCard ? 1 : 0);
 
   const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      saveReadIds(new Set(updated.map(n => n.id)));
+      return updated;
+    });
   };
 
   const markAsRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, read: true } : n);
+      saveReadIds(new Set(updated.filter(n => n.read).map(n => n.id)));
+      return updated;
+    });
   };
   
   const clearAll = () => {
     if (confirm('Hapus seluruh riwayat notifikasi?')) {
+      // Mark all as read in localStorage (we can't delete from DB from client)
+      const readIds = getReadIds();
+      notifications.forEach(n => readIds.add(n.id));
+      saveReadIds(readIds);
+      // Store dismissed IDs so they don't re-appear from DB
+      try { localStorage.setItem('aksara_dismissed_ids', JSON.stringify([...readIds])); } catch {}
       setNotifications([]);
     }
   };
