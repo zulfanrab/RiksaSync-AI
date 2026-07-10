@@ -279,13 +279,6 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
           // Play custom sound
           playNotificationSound();
-
-          // Native notification
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(notif.title, {
-              body: notif.message,
-            });
-          }
         }
       )
       .on(
@@ -316,13 +309,6 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
               // Play custom sound
               playNotificationSound();
-
-              // Native notification
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification(notif.title, {
-                  body: notif.message,
-                });
-              }
             })
             .catch(err => {
               console.error('Error retrieving manpower name for absence', err);
