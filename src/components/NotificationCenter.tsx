@@ -230,45 +230,50 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
 
-    // [NEW] Fetch missed notifications that were logged while app was closed
+    // Fetch missed notifications: only fetch once (not both instances), only fetch NEW ones since last visit
     const fetchMissedNotifications = async () => {
+      // Only the navbar instance (not floating) triggers the fetch to avoid double-load
+      if (isFloating) return;
+
       try {
+        const lastFetched = localStorage.getItem('aksara_last_notif_fetch') || '1970-01-01T00:00:00Z';
+        const now = new Date().toISOString();
+
         const { data, error } = await supabase
           .from('notifications_log')
           .select('*')
+          .gt('created_at', lastFetched)  // Only NEW notifications since last visit
           .order('created_at', { ascending: false })
           .limit(20);
 
-        if (error || !data) return;
+        // Save timestamp immediately so re-mounts don't re-fetch same rows
+        localStorage.setItem('aksara_last_notif_fetch', now);
 
-        // Merge with existing notifications from localStorage
+        if (error || !data || data.length === 0) return;
+
         setNotifications(prev => {
           const merged = [...prev];
-          let changed = false;
           data.forEach(dbNotif => {
-            // Avoid duplicates
             if (!merged.some(n => n.id === `db_${dbNotif.id}`)) {
-              merged.push({
+              merged.unshift({
                 id: `db_${dbNotif.id}`,
                 title: dbNotif.title,
                 message: dbNotif.message,
                 timestamp: dbNotif.created_at,
-                read: dbNotif.is_read || false,
+                read: false,
                 priority: dbNotif.priority as 'P1' | 'P2' | 'P3'
               });
-              changed = true;
             }
           });
-          
-          if (changed) {
-            // Sort by latest
-            merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-            return merged.slice(0, 50); // Keep max 50
-          }
-          return prev;
+          merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          return merged.slice(0, 50);
         });
+
+        // Play sound only if there are truly new notifications
+        if (data.length > 0) playNotificationSound();
+
       } catch (err) {
-        console.warn('Failed to fetch missed notifications', err);
+        console.warn('Failed to fetch missed notifications:', err);
       }
     };
 
