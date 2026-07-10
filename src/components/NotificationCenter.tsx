@@ -123,13 +123,70 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   // Whether to show the install notification card
   const showInstallCard = !isAppInstalled && (installPrompt !== null || isIOS);
 
-  // Request browser notification permission
+  // Request browser notification permission + subscribe to Web Push
   useEffect(() => {
-    if ('Notification' in window) {
-      setPermission(Notification.permission);
-      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-        Notification.requestPermission().then(p => setPermission(p));
+    if (!('Notification' in window)) return;
+
+    const subscribeToWebPush = async () => {
+      try {
+        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+          console.warn('[Push] VITE_VAPID_PUBLIC_KEY not set. Web Push not available.');
+          return;
+        }
+
+        const registration = await navigator.serviceWorker.ready;
+
+        // Check if already subscribed
+        const existingSub = await registration.pushManager.getSubscription();
+        if (existingSub) {
+          // Already subscribed — sync to server (in case server lost it)
+          await fetch('/api/push-subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(existingSub.toJSON()),
+          }).catch(() => {});
+          return;
+        }
+
+        // Convert VAPID public key from base64 to Uint8Array
+        const urlBase64ToUint8Array = (base64String: string) => {
+          const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+          const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+          const rawData = window.atob(base64);
+          return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+        };
+
+        // Subscribe to push
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
+
+        // Send subscription to server
+        await fetch('/api/push-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(subscription.toJSON()),
+        });
+
+        console.log('[Push] Successfully subscribed to Web Push.');
+      } catch (err) {
+        console.warn('[Push] Web Push subscription failed:', err);
       }
+    };
+
+    setPermission(Notification.permission);
+
+    if (Notification.permission === 'granted') {
+      // Already granted — subscribe immediately
+      subscribeToWebPush();
+    } else if (Notification.permission !== 'denied') {
+      // Ask for permission first
+      Notification.requestPermission().then(p => {
+        setPermission(p);
+        if (p === 'granted') subscribeToWebPush();
+      });
     }
   }, []);
 

@@ -7,6 +7,19 @@ import 'dotenv/config';
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI, Type } from '@google/genai';
+import webpush from 'web-push';
+
+// ── VAPID Setup for Web Push ───────────────────────────────────────────────
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@aksarasync.com';
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('[Push] VAPID keys configured successfully.');
+} else {
+  console.warn('[Push] VAPID keys not configured. Push notifications will not work.');
+}
 
 // --- Type Interfaces ---
 export interface Manpower {
@@ -856,6 +869,151 @@ Format output: Berikan penjelasan yang rapi menggunakan Markdown, langsung ke po
 
     res.json({ insight: response.text?.trim() || 'Tidak ada insight operasional yang dihasilkan.' });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/push-subscribe ─────────────────────────────────────────────
+// Receives a PushSubscription object from the browser and stores it in Supabase.
+app.post('/api/push-subscribe', async (req, res) => {
+  try {
+    const subscription = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ error: 'Invalid subscription object.' });
+    }
+
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase not configured on server.' });
+    }
+
+    const supa = createClient(supabaseUrl, supabaseKey);
+
+    // Upsert: update if endpoint already exists, insert if new
+    const { error } = await supa.from('push_subscriptions').upsert(
+      {
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys?.p256dh || '',
+        auth: subscription.keys?.auth || '',
+        user_agent: req.headers['user-agent'] || ''
+      },
+      { onConflict: 'endpoint' }
+    );
+
+    if (error) {
+      console.error('[Push] Failed to save subscription:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
+
+    console.log('[Push] Subscription saved:', subscription.endpoint.substring(0, 60) + '...');
+    res.json({ success: true, message: 'Subscription saved.' });
+  } catch (err: any) {
+    console.error('[Push] push-subscribe error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/push-send ───────────────────────────────────────────────────
+// Called by Supabase Webhook when schedules or manpower_absences change.
+// Fetches all stored subscriptions and sends push to every device.
+app.post('/api/push-send', async (req, res) => {
+  try {
+    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+      return res.status(500).json({ error: 'VAPID keys not configured.' });
+    }
+
+    const payload = req.body;
+    const table = payload?.table || 'schedules';
+    const record = payload?.record || payload?.new || {};
+    const eventType = payload?.type || 'INSERT';
+
+    // Build notification content based on event
+    let title = '🔔 AksaraSync AI';
+    let body = 'Ada pembaruan baru di database.';
+    let tag = 'aksarasync-general';
+
+    if (table === 'schedules') {
+      const clientName = record.client_name || 'Klien';
+      const agendaType = record.agenda_type || 'Riksa Uji';
+      if (eventType === 'INSERT') {
+        title = '📅 Agenda Baru Masuk!';
+        body = `[${agendaType}] ${clientName} — Jadwal baru telah ditambahkan.`;
+        tag = 'aksarasync-schedule-new';
+      } else if (eventType === 'UPDATE') {
+        const status = record.status || '';
+        if (status === 'Completed') {
+          title = '✅ Agenda Selesai!';
+          body = `Pengerjaan untuk ${clientName} telah selesai.`;
+          tag = 'aksarasync-schedule-done';
+        } else if (status === 'Cancelled') {
+          title = '⚠️ Agenda Dibatalkan';
+          body = `Jadwal [${agendaType}] ${clientName} dibatalkan.`;
+          tag = 'aksarasync-schedule-cancel';
+        } else {
+          title = '🔄 Agenda Diperbarui';
+          body = `Jadwal ${clientName} (${agendaType}) telah diperbarui.`;
+          tag = 'aksarasync-schedule-update';
+        }
+      }
+    } else if (table === 'manpower_absences') {
+      const absenceType = record.absence_type || 'Izin';
+      title = `🏥 Absensi K3: ${absenceType}`;
+      body = `Ada pengajuan ${absenceType} baru pada ${record.date || 'hari ini'}.`;
+      tag = 'aksarasync-absence';
+    }
+
+    const pushPayload = JSON.stringify({ title, body, tag, url: '/' });
+
+    // Fetch all subscriptions from Supabase
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase not configured on server.' });
+    }
+
+    const supa = createClient(supabaseUrl, supabaseKey);
+    const { data: subscriptions, error: fetchError } = await supa
+      .from('push_subscriptions')
+      .select('*');
+
+    if (fetchError) {
+      console.error('[Push] Failed to fetch subscriptions:', fetchError.message);
+      return res.status(500).json({ error: fetchError.message });
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      return res.json({ success: true, sent: 0, message: 'No subscriptions found.' });
+    }
+
+    // Send push to all subscriptions in parallel
+    const results = await Promise.allSettled(
+      subscriptions.map(async (sub: any) => {
+        const pushSub = {
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.p256dh, auth: sub.auth }
+        };
+        try {
+          await webpush.sendNotification(pushSub, pushPayload);
+        } catch (pushErr: any) {
+          // Remove expired/invalid subscriptions (410 Gone)
+          if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+            console.log('[Push] Removing expired subscription:', sub.endpoint.substring(0, 60));
+            await supa.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+          } else {
+            throw pushErr;
+          }
+        }
+      })
+    );
+
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    console.log(`[Push] Sent to ${successCount}/${subscriptions.length} devices.`);
+    res.json({ success: true, sent: successCount, total: subscriptions.length });
+  } catch (err: any) {
+    console.error('[Push] push-send error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
