@@ -1,5 +1,5 @@
-// AksaraSync AI - Service Worker v2 (with Web Push support)
-const CACHE_NAME = 'aksarasync-v2';
+// AksaraSync AI - Service Worker v3 (Network-First Auto Healing)
+const CACHE_NAME = 'aksarasync-v3';
 const STATIC_ASSETS = ['/', '/index.html', '/logo-AksaraSyncAI.png', '/custom-notification.mp3'];
 
 // ── Install: pre-cache static assets ──────────────────────────────────────
