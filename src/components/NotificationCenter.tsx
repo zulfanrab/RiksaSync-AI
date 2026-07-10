@@ -226,9 +226,53 @@ export default function NotificationCenter({ isFloating = false, className = '' 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Supabase real-time subscription
+  // Supabase real-time subscription & Fetch missed notifications
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
+
+    // [NEW] Fetch missed notifications that were logged while app was closed
+    const fetchMissedNotifications = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('notifications_log')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (error || !data) return;
+
+        // Merge with existing notifications from localStorage
+        setNotifications(prev => {
+          const merged = [...prev];
+          let changed = false;
+          data.forEach(dbNotif => {
+            // Avoid duplicates
+            if (!merged.some(n => n.id === `db_${dbNotif.id}`)) {
+              merged.push({
+                id: `db_${dbNotif.id}`,
+                title: dbNotif.title,
+                message: dbNotif.message,
+                timestamp: dbNotif.created_at,
+                read: dbNotif.is_read || false,
+                priority: dbNotif.priority as 'P1' | 'P2' | 'P3'
+              });
+              changed = true;
+            }
+          });
+          
+          if (changed) {
+            // Sort by latest
+            merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            return merged.slice(0, 50); // Keep max 50
+          }
+          return prev;
+        });
+      } catch (err) {
+        console.warn('Failed to fetch missed notifications', err);
+      }
+    };
+
+    fetchMissedNotifications();
 
     const channelId = `riksasync_notif_${isFloating ? 'floating' : 'navbar'}_${Math.random().toString(36).substring(2, 11)}`;
     const channel = supabase

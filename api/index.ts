@@ -984,6 +984,15 @@ app.post('/api/push-send', async (req, res) => {
     }
 
     const supa = createClient(supabaseUrl, supabaseKey);
+
+    // [NEW] Simpan notifikasi ke database agar tidak hilang saat app ditutup
+    await supa.from('notifications_log').insert([{
+      title: title,
+      message: body,
+      priority: tag === 'aksarasync-schedule-new' ? 'P1' : (tag === 'aksarasync-absence' ? 'P2' : 'P3'),
+      is_read: false
+    }]).catch(e => console.error('[Push] Failed to log notification:', e));
+
     const { data: subscriptions, error: fetchError } = await supa
       .from('push_subscriptions')
       .select('*');
