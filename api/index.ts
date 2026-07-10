@@ -14,9 +14,17 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@aksarasync.com';
 
+let pushConfigStatus = 'Not Configured';
+
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-  console.log('[Push] VAPID keys configured successfully.');
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    pushConfigStatus = 'Configured Successfully';
+    console.log('[Push] VAPID keys configured successfully.');
+  } catch (err: any) {
+    pushConfigStatus = `Error: ${err.message}`;
+    console.error('[Push] VAPID configuration failed:', err.message);
+  }
 } else {
   console.warn('[Push] VAPID keys not configured. Push notifications will not work.');
 }
@@ -615,7 +623,8 @@ app.use(express.json());
 app.get('/api/status', (req, res) => {
   res.json({
     supabase: dbManager.isSupabaseConnected(),
-    gemini: isGeminiConfigured()
+    gemini: isGeminiConfigured(),
+    push: pushConfigStatus
   });
 });
 
