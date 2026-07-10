@@ -229,8 +229,6 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
     // PRIMARY data source: load from Supabase DB on every app open
     const loadNotificationsFromDB = async () => {
-      if (isFloating) return; // Only one instance loads
-
       try {
         const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(); // last 7 days
 
