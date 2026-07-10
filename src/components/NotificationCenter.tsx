@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, X, BellRing, Inbox, Download, Smartphone } from 'lucide-react';
+import { Bell, Check, X, BellRing, Inbox, Download, Smartphone, RefreshCw } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -123,66 +123,91 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   // Whether to show the install notification card
   const showInstallCard = !isAppInstalled && (installPrompt !== null || isIOS);
 
-  // Request browser notification permission + subscribe to Web Push
-  useEffect(() => {
-    if (!('Notification' in window)) return;
+  // --- Web Push Subscription Logic ---
+  const subscribeToWebPush = async () => {
+    try {
+      if (!('Notification' in window)) return;
+      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        console.warn('[Push] VITE_VAPID_PUBLIC_KEY not set. Web Push not available.');
+        return;
+      }
 
-    const subscribeToWebPush = async () => {
-      try {
-        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) {
-          console.warn('[Push] VITE_VAPID_PUBLIC_KEY not set. Web Push not available.');
-          return;
-        }
+      const registration = await navigator.serviceWorker.ready;
 
-        const registration = await navigator.serviceWorker.ready;
-
-        // Check if already subscribed
-        const existingSub = await registration.pushManager.getSubscription();
-        if (existingSub) {
-          // Already subscribed — sync to server (in case server lost it)
-          await fetch('/api/push-subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(existingSub.toJSON()),
-          }).catch(() => {});
-          return;
-        }
-
-        // Convert VAPID public key from base64 to Uint8Array
-        const urlBase64ToUint8Array = (base64String: string) => {
-          const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-          const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-          const rawData = window.atob(base64);
-          return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-        };
-
-        // Subscribe to push
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
-
-        // Send subscription to server
+      // Check if already subscribed
+      const existingSub = await registration.pushManager.getSubscription();
+      if (existingSub) {
+        // Already subscribed — sync to server (in case server lost it)
         await fetch('/api/push-subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(subscription.toJSON()),
-        });
-
-        console.log('[Push] Successfully subscribed to Web Push.');
-      } catch (err) {
-        console.warn('[Push] Web Push subscription failed:', err);
+          body: JSON.stringify(existingSub.toJSON()),
+        }).catch(() => {});
+        return;
       }
-    };
 
+      // Convert VAPID public key from base64 to Uint8Array
+      const urlBase64ToUint8Array = (base64String: string) => {
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+      };
+
+      // Subscribe to push
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      });
+
+      // Send subscription to server
+      await fetch('/api/push-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+
+      console.log('[Push] Successfully subscribed to Web Push.');
+    } catch (err) {
+      console.warn('[Push] Web Push subscription failed:', err);
+    }
+  };
+
+  const handleReSubscribe = async () => {
+    try {
+      if (!('Notification' in window)) return;
+      const registration = await navigator.serviceWorker.ready;
+      const existingSub = await registration.pushManager.getSubscription();
+      
+      if (existingSub) {
+        await existingSub.unsubscribe();
+        console.log('[Push] Unsubscribed existing subscription for a fresh sync.');
+      }
+      
+      // Request permission again if needed and subscribe
+      const p = await Notification.requestPermission();
+      setPermission(p);
+      if (p === 'granted') {
+        await subscribeToWebPush();
+        alert('Sinkronisasi Notifikasi Latar Belakang berhasil! Coba test sekarang.');
+      } else {
+        alert('Gagal mengaktifkan notifikasi: Izin diblokir browser.');
+      }
+    } catch (e) {
+      console.error('[Push] Force sync failed:', e);
+      alert('Gagal menyinkronkan notifikasi.');
+    }
+  };
+
+  // Request browser notification permission + auto-subscribe
+  useEffect(() => {
+    if (!('Notification' in window)) return;
     setPermission(Notification.permission);
 
     if (Notification.permission === 'granted') {
-      // Already granted — subscribe immediately
       subscribeToWebPush();
     } else if (Notification.permission !== 'denied') {
-      // Ask for permission first
       Notification.requestPermission().then(p => {
         setPermission(p);
         if (p === 'granted') subscribeToWebPush();
@@ -387,6 +412,13 @@ export default function NotificationCenter({ isFloating = false, className = '' 
                 <h3 className="text-xs font-bold text-slate-800">Pusat Notifikasi</h3>
               </div>
               <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleReSubscribe}
+                  className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-blue-600 transition-colors cursor-pointer border-0 bg-transparent"
+                  title="Sinkronisasi Ulang Push Notifikasi"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
                 {unreadCount > 0 && (
                   <button
                     onClick={markAllAsRead}
