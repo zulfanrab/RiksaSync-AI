@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, X, BellRing, Inbox } from 'lucide-react';
+import { Bell, Check, X, BellRing, Inbox, Download, Smartphone } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -27,12 +27,65 @@ const playNotificationSound = () => {
   }
 };
 
+// PWA install prompt event type
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
 export default function NotificationCenter({ isFloating = false, className = '' }: NotificationCenterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
-  
+
+  // PWA Install states
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [showIOSTip, setShowIOSTip] = useState(false);
+
   const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Detect iOS
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    setIsIOS(/iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream);
+  }, []);
+
+  // Detect if already running in standalone (installed) mode
+  useEffect(() => {
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+    if (isStandalone) {
+      setIsAppInstalled(true);
+      localStorage.setItem('aksara_pwa_installed', 'true');
+    } else {
+      const alreadyInstalled = localStorage.getItem('aksara_pwa_installed') === 'true';
+      setIsAppInstalled(alreadyInstalled);
+    }
+  }, []);
+
+  // Capture beforeinstallprompt
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // Listen for successful install
+  useEffect(() => {
+    const handler = () => {
+      setIsAppInstalled(true);
+      setInstallPrompt(null);
+      localStorage.setItem('aksara_pwa_installed', 'true');
+    };
+    window.addEventListener('appinstalled', handler);
+    return () => window.removeEventListener('appinstalled', handler);
+  }, []);
 
   // Load notifications from local storage on mount
   useEffect(() => {
@@ -50,6 +103,25 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   useEffect(() => {
     localStorage.setItem('aksara_notifications', JSON.stringify(notifications));
   }, [notifications]);
+
+  // Handle install button click
+  const handleInstallClick = async () => {
+    if (isIOS) {
+      setShowIOSTip(prev => !prev);
+      return;
+    }
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === 'accepted') {
+      setIsAppInstalled(true);
+      setInstallPrompt(null);
+      localStorage.setItem('aksara_pwa_installed', 'true');
+    }
+  };
+
+  // Whether to show the install notification card
+  const showInstallCard = !isAppInstalled && (installPrompt !== null || isIOS);
 
   // Request browser notification permission
   useEffect(() => {
@@ -141,12 +213,13 @@ export default function NotificationCenter({ isFloating = false, className = '' 
           const absence = payload.new;
           if (!absence) return;
 
-          supabase
-            .from('manpower')
-            .select('name')
-            .eq('id', absence.manpower_id)
-            .single()
-            .then(({ data }) => {
+          Promise.resolve(
+            supabase
+              .from('manpower')
+              .select('name')
+              .eq('id', absence.manpower_id)
+              .single()
+          ).then(({ data }) => {
               const name = data?.name || 'Staf';
               const notif: AppNotification = {
                 id: `notif_${Date.now()}_${absence.id}`,
@@ -181,7 +254,7 @@ export default function NotificationCenter({ isFloating = false, className = '' 
     };
   }, []);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter(n => !n.read).length + (showInstallCard ? 1 : 0);
 
   const markAllAsRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -278,13 +351,72 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
             {/* Notification List */}
             <div className="max-h-[45vh] overflow-y-auto scrollbar-thin bg-white flex-1 p-0">
-              {notifications.length === 0 ? (
+              {notifications.length === 0 && !showInstallCard ? (
                 <div className="flex flex-col items-center justify-center py-10 text-slate-400">
                   <Inbox className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-[11px] font-medium">Belum ada notifikasi baru.</p>
                 </div>
               ) : (
                 <div className="flex flex-col divide-y divide-slate-50">
+
+                  {/* ── PERSISTENT PWA INSTALL CARD (always on top) ── */}
+                  {showInstallCard && (
+                    <div className="relative overflow-hidden">
+                      {/* Gradient background strip */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-teal-400/5 to-transparent pointer-events-none" />
+                      <div className="p-3.5 relative">
+                        <div className="flex gap-2.5 items-start">
+                          {/* Unread dot */}
+                          <div className="shrink-0 mt-1.5 w-2 flex justify-center">
+                            <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <Smartphone className="h-3 w-3 text-emerald-600 shrink-0" />
+                              <p className="text-xs font-bold text-slate-900 truncate">
+                                📲 Install AksaraSync AI
+                              </p>
+                            </div>
+                            <p className="text-[10px] leading-relaxed text-slate-600">
+                              {isIOS
+                                ? 'Tambahkan ke Home Screen agar bisa dibuka seperti aplikasi native tanpa perlu buka browser!'
+                                : 'Install aplikasi ke perangkat Anda agar bisa dibuka langsung dari taskbar / home screen — tanpa browser!'}
+                            </p>
+
+                            {/* iOS Tip */}
+                            <AnimatePresence>
+                              {isIOS && showIOSTip && (
+                                <motion.div
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  className="mt-2 p-2.5 bg-teal-50 border border-teal-200 rounded-lg"
+                                >
+                                  <p className="text-[10px] text-teal-800 font-medium leading-relaxed">
+                                    Di Safari: Tap ikon <strong>Share (⬆)</strong> → pilih <strong>"Add to Home Screen"</strong> → tap <strong>Add</strong>.
+                                  </p>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+
+                            <div className="flex items-center gap-2 mt-2">
+                              <button
+                                onClick={handleInstallClick}
+                                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer border-0 shadow-sm"
+                              >
+                                <Download className="h-3 w-3" />
+                                {isIOS ? 'Cara Install (iOS)' : 'Install Sekarang'}
+                              </button>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                PWA
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {notifications.map((notif) => (
                     <div
                       key={notif.id}
