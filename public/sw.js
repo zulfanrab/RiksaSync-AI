@@ -70,7 +70,17 @@ self.addEventListener('push', (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(data.title, options)
+    // Cek apakah ada tab aplikasi yang sedang terbuka dan aktif (focused)
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      const anyClientVisible = windowClients.some(client => client.visibilityState === 'visible');
+      
+      // Jika tab/app tidak terbuka atau tidak aktif, baru tampilkan background push notification
+      if (!anyClientVisible) {
+        return self.registration.showNotification(data.title, options);
+      }
+      
+      console.log('[SW] App is currently open and visible. Skipping background push notification to prevent duplicates.');
+    })
   );
 });
 
