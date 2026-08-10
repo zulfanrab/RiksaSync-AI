@@ -6,6 +6,10 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+:root {
+  color-scheme: light;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: #F8FAFB;
