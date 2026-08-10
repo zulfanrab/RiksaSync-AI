@@ -7,11 +7,22 @@
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: only light !important;
+  supported-color-schemes: light !important;
 }
 
-body {
+html, body, #root {
   font-family: var(--font-sans);
-  background-color: #F8FAFB;
-  color: #0f172a; /* Slate 900 */
+  background-color: #F8FAFB !important;
+  color: #0f172a !important;
+  color-scheme: only light !important;
+}
+
+/* Force Light Theme Overrides against Android TV WebView / Chromium Force-Dark algorithm */
+@media (prefers-color-scheme: dark) {
+  :root, html, body, #root {
+    color-scheme: only light !important;
+    background-color: #F8FAFB !important;
+    color: #0f172a !important;
+  }
 }
