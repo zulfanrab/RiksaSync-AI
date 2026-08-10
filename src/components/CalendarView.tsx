@@ -324,7 +324,6 @@ export default function CalendarView({
     const headers = [['Tanggal & Jam', 'Klien & PIC', 'Jenis Agenda', 'Deskripsi Alat / Lokasi', 'Tim Penugasan']];
     
     const tableRows = activeSchedules.map(s => {
-      // Date and time layout
       let dateCell = `${s.start_date}`;
       if (s.end_date !== s.start_date) {
         dateCell += ` s/d ${s.end_date}`;
@@ -336,13 +335,9 @@ export default function CalendarView({
         : '';
       dateCell += timeStr;
 
-      // Client & PIC layout
       const clientCell = `${s.client_name}\nPIC: ${s.pic_name || 'No PIC'}\nPriority: ${s.priority}`;
-
-      // Agenda Type Badge
       let agendaCell = s.agenda_type === 'Survey' ? 'Survey' : s.agenda_type === 'Lainnya' ? (s.manual_agenda || 'Lainnya') : 'Riksa Uji';
 
-      // Units & Locations
       const matchedUnits = s.unit_ids
         .map(uid => units.find(u => u.id === uid)?.unit_name)
         .filter(Boolean)
@@ -353,7 +348,6 @@ export default function CalendarView({
         unitCell += `\nDetail: ${s.unit_descriptions.join(', ')}`;
       }
 
-      // Assignment Team (Lead + Support)
       const leadExpert = manpowerList.find(m => m.id === s.lead_expert_id)?.name || 'Unknown Lead';
       const supportTeam = s.support_ids
         .map(sid => manpowerList.find(m => m.id === sid)?.name)
@@ -378,7 +372,7 @@ export default function CalendarView({
         valign: 'middle',
       },
       headStyles: {
-        fillColor: [15, 23, 42], // slate-900
+        fillColor: [15, 23, 42],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         fontSize: 8.5,
@@ -395,11 +389,10 @@ export default function CalendarView({
         fillColor: [250, 250, 250],
       },
       didDrawPage: (data) => {
-        // Footer: Page Number and Official Timestamp
         const pageCount = doc.internal.getNumberOfPages();
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(148, 163, 184); // slate-400
+        doc.setTextColor(148, 163, 184);
 
         const footerLeft = `Halaman ${data.pageNumber} dari ${pageCount}`;
         doc.text(footerLeft, 14, 201);
@@ -411,7 +404,6 @@ export default function CalendarView({
       }
     });
 
-    // Save document
     const cleanPeriodStr = periodeText.replace(/[^a-zA-Z0-9]/g, '_');
     doc.save(`Laporan_Jadwal_Operasional_${cleanPeriodStr}.pdf`);
   };
@@ -421,67 +413,67 @@ export default function CalendarView({
   const maxBadgesShown = isSidebarOpen ? 2 : 4;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 relative">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 relative">
       {/* Calendar Grid - Expand to 12 columns when Sidebar is closed */}
-      <div className={`${isSidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white border border-slate-200 rounded-2xl p-5 shadow-sm transition-all duration-300`}>
+      <div className={`${isSidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white border border-slate-200 rounded-xl sm:rounded-2xl p-3 sm:p-5 shadow-sm transition-all duration-300`}>
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 mb-3 sm:mb-5">
           <div className="flex items-center gap-2">
-            <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100 text-emerald-600">
+            <div className="bg-emerald-50 p-1.5 sm:p-2 rounded-lg border border-emerald-100 text-emerald-600 shrink-0">
               <CalendarIcon className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight flex items-center gap-2">
+              <h3 className="font-extrabold text-slate-800 text-xs sm:text-sm tracking-tight flex items-center gap-2">
                 <span>Kalender Jadwal Riksa</span>
                 {!isSidebarOpen && (
-                  <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-extrabold uppercase border border-emerald-200">
-                    Mode Layar Penuh / Standby TV
+                  <span className="hidden sm:inline-block text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-extrabold uppercase border border-emerald-200">
+                    Mode Fullscreen / TV
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
                 {viewMode === 'monthly' ? (
                   `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`
                 ) : (
-                  `Minggu dari ${formatIndonesianShortDate(weekDays[0])} s.d. ${formatIndonesianShortDate(weekDays[6])}`
+                  `Minggu: ${formatIndonesianShortDate(weekDays[0])} - ${formatIndonesianShortDate(weekDays[6])}`
                 )}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
-            {/* Toggle Sidebar Button */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-between sm:justify-start">
+            {/* Toggle Sidebar Button (Desktop only) */}
             <button
               type="button"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`text-[10px] sm:text-xs px-2.5 py-1.5 rounded-lg border font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
+              className={`hidden lg:flex text-[10px] sm:text-xs px-2.5 py-1.5 rounded-lg border font-bold items-center gap-1.5 transition-all cursor-pointer shadow-2xs active:scale-95 ${
                 isSidebarOpen
                   ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                   : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
               }`}
-              title={isSidebarOpen ? 'Sembunyikan Sidebar Riksa Aktif (Mode TV / Fullscreen)' : 'Tampilkan Sidebar Riksa Aktif'}
+              title={isSidebarOpen ? 'Sembunyikan Sidebar Riksa Aktif' : 'Tampilkan Sidebar Riksa Aktif'}
             >
               {isSidebarOpen ? (
                 <>
                   <PanelRightClose className="h-3.5 w-3.5 text-slate-600" />
-                  <span className="hidden md:inline">Sembunyikan Sidebar</span>
+                  <span>Sembunyikan Sidebar</span>
                 </>
               ) : (
                 <>
                   <PanelRightOpen className="h-3.5 w-3.5 text-emerald-600" />
-                  <span className="hidden md:inline">Tampilkan Sidebar</span>
+                  <span>Tampilkan Sidebar</span>
                 </>
               )}
             </button>
 
             {/* Tampilan Toggle Buttons */}
-            <div className="flex p-0.5 bg-slate-100 rounded-lg border border-slate-200">
+            <div className="flex p-0.5 bg-slate-100 rounded-lg border border-slate-200 shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('monthly')}
-                className={`text-[10px] font-extrabold px-2.5 py-1.5 rounded-md transition-all cursor-pointer ${
+                className={`text-[10px] sm:text-xs font-extrabold px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-md transition-all cursor-pointer ${
                   viewMode === 'monthly'
-                    ? 'bg-white text-slate-800 shadow-sm'
+                    ? 'bg-white text-slate-800 shadow-2xs'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -490,9 +482,9 @@ export default function CalendarView({
               <button
                 type="button"
                 onClick={() => setViewMode('weekly')}
-                className={`text-[10px] font-extrabold px-2.5 py-1.5 rounded-md transition-all cursor-pointer ${
+                className={`text-[10px] sm:text-xs font-extrabold px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-md transition-all cursor-pointer ${
                   viewMode === 'weekly'
-                    ? 'bg-white text-slate-800 shadow-sm'
+                    ? 'bg-white text-slate-800 shadow-2xs'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -500,34 +492,35 @@ export default function CalendarView({
               </button>
             </div>
 
-            <div className="flex items-center gap-1 justify-end">
+            {/* Action buttons */}
+            <div className="flex items-center gap-1 justify-end shrink-0">
               <button
                 onClick={handleExportPDF}
-                className="text-[10px] sm:text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-emerald-700 transition-all mr-1 font-bold flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
-                title="Ekspor Jadwal Operasional Aktif ke PDF (Laporan Resmi Landscape)"
+                className="text-[10px] sm:text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border border-emerald-700 transition-all font-bold flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                title="Ekspor Jadwal Operasional Aktif ke PDF"
               >
                 <FileDown className="h-3.5 w-3.5" />
                 <span>PDF</span>
               </button>
               <button
                 onClick={goToToday}
-                className="text-[10px] sm:text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-200 transition-all mr-1 font-bold"
+                className="text-[10px] sm:text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-200 transition-all font-bold cursor-pointer"
               >
                 Hari Ini
               </button>
               <button
                 onClick={handlePrev}
-                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 transition-all"
+                className="p-1 sm:p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 transition-all cursor-pointer"
                 title={viewMode === 'monthly' ? 'Bulan Sebelumnya' : 'Minggu Sebelumnya'}
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </button>
               <button
                 onClick={handleNext}
-                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 transition-all"
+                className="p-1 sm:p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 transition-all cursor-pointer"
                 title={viewMode === 'monthly' ? 'Bulan Berikutnya' : 'Minggu Berikutnya'}
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </button>
             </div>
           </div>
@@ -536,34 +529,39 @@ export default function CalendarView({
         {viewMode === 'monthly' ? (
           <>
             {/* Day labels */}
-            <div className="grid grid-cols-7 gap-1.5 mb-1.5 text-center">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5 mb-1.5 text-center">
               {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((d, idx) => (
-                <span key={d} className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider py-1 ${idx === 0 || idx === 6 ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span key={d} className={`text-[9px] sm:text-xs font-extrabold uppercase tracking-wider py-1 ${idx === 0 || idx === 6 ? 'text-slate-400' : 'text-slate-500'}`}>
                   {d}
                 </span>
               ))}
             </div>
 
             {/* Calendar days grid */}
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
               {days.map((day, idx) => {
                 const dateStr = formatDateString(day);
                 const isSelected = dateStr === selectedDate;
                 const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
                 const isToday = formatDateString(new Date()) === dateStr;
                 const daySchedules = getSchedulesForDay(dateStr);
+                const dayAbsences = absences.filter(a => a.date === dateStr);
 
                 return (
                   <div
                     key={idx}
                     onClick={() => {
                       onSelectDate(dateStr);
+                      // Tapping a date with schedules on mobile automatically opens the Date Detail Modal!
+                      if (daySchedules.length > 0 && window.innerWidth < 640) {
+                        setActiveModalDate(dateStr);
+                      }
                     }}
-                    className={`p-2 rounded-xl border cursor-pointer flex flex-col justify-between transition-all group/cell relative ${
-                      isSidebarOpen ? 'min-h-[76px]' : 'min-h-[110px] sm:min-h-[130px]'
+                    className={`p-1 sm:p-2 rounded-lg sm:rounded-xl border cursor-pointer flex flex-col justify-between transition-all group/cell relative ${
+                      isSidebarOpen ? 'min-h-[54px] sm:min-h-[76px]' : 'min-h-[72px] sm:min-h-[110px] md:min-h-[130px]'
                     } ${
                       isSelected
-                        ? 'bg-emerald-50/70 border-emerald-500 text-emerald-900 font-bold ring-2 ring-emerald-500/20 shadow-xs'
+                        ? 'bg-emerald-50/80 border-emerald-500 text-emerald-900 font-bold ring-2 ring-emerald-500/20 shadow-xs'
                         : isToday
                         ? 'bg-slate-100 border-slate-300 text-slate-900 font-bold shadow-xs'
                         : isCurrentMonth
@@ -571,13 +569,14 @@ export default function CalendarView({
                         : 'bg-slate-50/10 border-transparent text-slate-300 hover:text-slate-400'
                     }`}
                   >
-                    <div className="flex justify-between items-center w-full pb-1">
-                      <span className={`text-xs sm:text-sm font-black ${isToday && !isSelected ? 'text-emerald-600 font-bold' : ''}`}>
+                    {/* Date Header */}
+                    <div className="flex justify-between items-center w-full pb-0.5 sm:pb-1">
+                      <span className={`text-[10px] sm:text-xs font-black ${isToday && !isSelected ? 'text-emerald-600 font-bold' : ''}`}>
                         {day.getDate()}
                       </span>
                       
-                      <div className="flex items-center gap-1">
-                        {/* Quick detail modal trigger button */}
+                      {/* Desktop Cell Actions & Badges (Hidden on mobile to prevent overlapping) */}
+                      <div className="hidden sm:flex items-center gap-1">
                         {daySchedules.length > 0 && (
                           <button
                             type="button"
@@ -586,19 +585,18 @@ export default function CalendarView({
                               onSelectDate(dateStr);
                               setActiveModalDate(dateStr);
                             }}
-                            title="Buka rincian lengkap tanggal ini dalam modal popup"
+                            title="Buka rincian lengkap tanggal ini"
                             className="p-0.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-100/80 rounded border border-slate-200/80 shadow-2xs flex items-center justify-center shrink-0 transition-all active:scale-90"
                           >
                             <Eye className="h-3 w-3" />
                           </button>
                         )}
 
-                        {/* Quick plus icon button */}
                         {onQuickAddSchedule && (
                           <button
                             type="button"
                             onClick={(e) => {
-                              e.stopPropagation(); // Prevents selection change
+                              e.stopPropagation();
                               onQuickAddSchedule(dateStr);
                             }}
                             title={`Tambah plotting cepat untuk tanggal ${dateStr}`}
@@ -608,16 +606,28 @@ export default function CalendarView({
                           </button>
                         )}
 
-                        {/* Total absences bubble */}
-                        {absences.filter(a => a.date === dateStr).length > 0 && (
+                        {dayAbsences.length > 0 && (
                           <span className="text-[8px] bg-rose-50 text-rose-600 px-1 py-0.5 rounded border border-rose-100 font-bold shrink-0" title="Manpower Absen">
-                            🚫 {absences.filter(a => a.date === dateStr).length}
+                            🚫 {dayAbsences.length}
                           </span>
                         )}
 
-                        {/* Total projects bubble */}
                         {daySchedules.length > 0 && (
                           <span className="text-[8px] sm:text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded-full border border-slate-200 font-extrabold shrink-0">
+                            {daySchedules.length}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Mobile Cell Badge (Clean, non-clashing) */}
+                      <div className="flex sm:hidden items-center gap-0.5 shrink-0">
+                        {dayAbsences.length > 0 && (
+                          <span className="text-[8px] leading-none text-rose-600 font-bold" title="Manpower Absen">
+                            🚫
+                          </span>
+                        )}
+                        {daySchedules.length > 0 && (
+                          <span className="text-[8px] leading-none bg-emerald-600 text-white font-extrabold px-1.5 py-0.2 rounded-full">
                             {daySchedules.length}
                           </span>
                         )}
@@ -626,7 +636,7 @@ export default function CalendarView({
 
                     {/* Schedule Indicators */}
                     <div className="space-y-1 mt-0.5 flex-1 flex flex-col justify-start">
-                      {/* For Mobile: simple dots/indicators row */}
+                      {/* For Mobile: clean priority dots */}
                       <div className="flex flex-wrap gap-0.5 justify-center sm:hidden">
                         {daySchedules.map((s) => (
                           <span
@@ -702,8 +712,13 @@ export default function CalendarView({
               return (
                 <div
                   key={idx}
-                  onClick={() => onSelectDate(dateStr)}
-                  className={`flex flex-col border rounded-xl transition-all cursor-pointer p-3 min-h-[220px] select-none hover:shadow-sm relative group/weekly ${
+                  onClick={() => {
+                    onSelectDate(dateStr);
+                    if (daySchedules.length > 0 && window.innerWidth < 640) {
+                      setActiveModalDate(dateStr);
+                    }
+                  }}
+                  className={`flex flex-col border rounded-xl transition-all cursor-pointer p-3 min-h-[200px] sm:min-h-[220px] select-none hover:shadow-sm relative group/weekly ${
                     isSelected
                       ? 'bg-emerald-50/40 border-emerald-500 ring-1 ring-emerald-500/20 text-emerald-900 font-medium'
                       : isToday
@@ -826,8 +841,8 @@ export default function CalendarView({
 
       {/* Selected Day Projects List - Right 4 columns (Collapsible) */}
       <div className={`${isSidebarOpen ? 'lg:col-span-4 flex flex-col gap-4' : 'hidden'} transition-all duration-300`}>
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex-1 flex flex-col">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-sm flex-1 flex flex-col">
+          <div className="mb-3 sm:mb-4 flex items-center justify-between">
             <div>
               <h4 className="font-bold text-slate-800 text-xs tracking-wider uppercase">Daftar Riksa Aktif</h4>
               <p className="text-[11px] text-slate-500">Inspeksi untuk tanggal <span className="text-emerald-600 font-mono font-semibold">{selectedDate}</span></p>
@@ -992,13 +1007,13 @@ export default function CalendarView({
                       <div className="mt-2.5 pt-2 border-t border-slate-100 flex justify-end gap-2">
                         <button
                           onClick={() => onEditSchedule(s)}
-                          className="text-[9px] font-bold text-slate-600 hover:text-amber-700 bg-slate-50 px-2 py-1 rounded border border-slate-200 transition-all"
+                          className="text-[9px] font-bold text-slate-600 hover:text-amber-700 bg-slate-50 px-2 py-1 rounded border border-slate-200 transition-all cursor-pointer"
                         >
                           Ubah
                         </button>
                         <button
                           onClick={() => onDeleteSchedule(s.id)}
-                          className="text-[9px] font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded border border-rose-200 transition-all"
+                          className="text-[9px] font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded border border-rose-200 transition-all cursor-pointer"
                         >
                           Hapus
                         </button>
@@ -1055,7 +1070,7 @@ export default function CalendarView({
       {/* Interactive Date Detail Modal Popup ("Kotak Baru") */}
       {activeModalDate && (
         <div 
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-200 animate-in fade-in"
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 transition-all duration-200 animate-in fade-in"
           onClick={() => setActiveModalDate(null)}
         >
           <div 
@@ -1063,19 +1078,19 @@ export default function CalendarView({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-emerald-100/80 text-emerald-700 rounded-xl border border-emerald-200/80">
-                  <CalendarIcon className="h-5 w-5" />
+            <div className="p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="p-2 sm:p-2.5 bg-emerald-100/80 text-emerald-700 rounded-xl border border-emerald-200/80 shrink-0">
+                  <CalendarIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-800 text-sm sm:text-base tracking-tight flex items-center gap-2">
-                    <span>Rincian Kegiatan Operasional</span>
+                  <h3 className="font-extrabold text-slate-800 text-xs sm:text-base tracking-tight flex items-center gap-2">
+                    <span>Rincian Agenda Operasional</span>
                     <span className="text-[10px] bg-slate-200/70 text-slate-700 px-2 py-0.5 rounded-full font-bold">
                       {getSchedulesForDay(activeModalDate).length} Agenda
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-500 font-medium">
+                  <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
                     {formatIndonesianFullDate(activeModalDate)}
                   </p>
                 </div>
@@ -1091,7 +1106,7 @@ export default function CalendarView({
             </div>
 
             {/* Modal Body */}
-            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4 max-h-[65vh]">
+            <div className="p-3.5 sm:p-5 overflow-y-auto flex-1 space-y-3.5 sm:space-y-4 max-h-[65vh]">
               {/* Schedules List for Active Modal Date */}
               {(() => {
                 const daySchedules = getSchedulesForDay(activeModalDate);
@@ -1122,48 +1137,48 @@ export default function CalendarView({
                   return (
                     <div
                       key={s.id}
-                      className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3 relative shadow-2xs"
+                      className="p-3 sm:p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3 relative shadow-2xs"
                     >
                       {/* Left Accent Priority Strip */}
                       <div className={`absolute top-0 bottom-0 left-0 w-1.5 rounded-l-2xl ${getPriorityDot(s.priority)}`} />
 
-                      <div className="pl-2">
+                      <div className="pl-1.5 sm:pl-2">
                         {/* Top Bar: Title & Priority Badge */}
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <h4 className="font-extrabold text-slate-800 text-sm sm:text-base leading-tight">
+                            <h4 className="font-extrabold text-slate-800 text-xs sm:text-base leading-tight">
                               {s.client_name}
                             </h4>
-                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1">
                               {s.agenda_type === 'Survey' ? (
-                                <span className="text-[9px] font-extrabold uppercase bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md">
+                                <span className="text-[8.5px] sm:text-[9px] font-extrabold uppercase bg-indigo-50 border border-indigo-200 text-indigo-700 px-1.5 py-0.5 rounded-md">
                                   🔍 Survey
                                 </span>
                               ) : s.agenda_type === 'Lainnya' ? (
-                                <span className="text-[9px] font-extrabold uppercase bg-slate-100 border border-slate-200 text-slate-700 px-2 py-0.5 rounded-md" title={s.manual_agenda || 'Kegiatan Lainnya'}>
+                                <span className="text-[8.5px] sm:text-[9px] font-extrabold uppercase bg-slate-100 border border-slate-200 text-slate-700 px-1.5 py-0.5 rounded-md" title={s.manual_agenda || 'Kegiatan Lainnya'}>
                                   ⚙️ {s.manual_agenda || 'Lainnya'}
                                 </span>
                               ) : (
-                                <span className="text-[9px] font-extrabold uppercase bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-md">
+                                <span className="text-[8.5px] sm:text-[9px] font-extrabold uppercase bg-emerald-50 border border-emerald-200 text-emerald-700 px-1.5 py-0.5 rounded-md">
                                   ⚡ Riksa Uji
                                 </span>
                               )}
 
                               {s.is_until_finished && (
-                                <span className="text-[9px] font-extrabold uppercase bg-rose-50 border border-rose-200 text-rose-700 px-2 py-0.5 rounded-md">
+                                <span className="text-[8.5px] sm:text-[9px] font-extrabold uppercase bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.5 rounded-md">
                                   🔄 Sampai Selesainya
                                 </span>
                               )}
                             </div>
                           </div>
 
-                          <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg border shrink-0 ${getPriorityColor(s.priority)}`}>
+                          <span className={`text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-lg border shrink-0 ${getPriorityColor(s.priority)}`}>
                             Prioritas {s.priority}
                           </span>
                         </div>
 
                         {/* Meta details */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-150">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5 text-xs text-slate-600 bg-white p-2.5 sm:p-3 rounded-xl border border-slate-150">
                           <div className="flex items-center gap-2">
                             <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                             <span><strong className="text-slate-700">PIC Klien:</strong> {s.pic_name || 'Tanpa PIC'}</span>
@@ -1179,7 +1194,7 @@ export default function CalendarView({
                         </div>
 
                         {/* Units Section */}
-                        <div className="mt-2.5 text-xs bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200/80 text-emerald-900 flex items-start gap-2">
+                        <div className="mt-2 text-xs bg-emerald-50/70 p-2 sm:p-2.5 rounded-xl border border-emerald-200/80 text-emerald-900 flex items-start gap-2">
                           <Award className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                           <div className="flex-1">
                             <span className="font-bold block">Unit Alat Riksa:</span>
@@ -1189,7 +1204,7 @@ export default function CalendarView({
 
                         {/* Unit Descriptions */}
                         {s.unit_descriptions && s.unit_descriptions.length > 0 && (
-                          <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl text-xs space-y-1">
+                          <div className="mt-2 p-2 sm:p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl text-xs space-y-1">
                             <span className="font-bold text-slate-500 uppercase tracking-wider text-[9px] block">Rincian Deskripsi Unit:</span>
                             <ul className="list-disc list-inside space-y-0.5">
                               {s.unit_descriptions.map((desc, dIdx) => (
@@ -1323,7 +1338,7 @@ export default function CalendarView({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
+            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2.5">
               {onQuickAddSchedule ? (
                 <button
                   onClick={() => {
@@ -1331,16 +1346,16 @@ export default function CalendarView({
                     setActiveModalDate(null);
                     onQuickAddSchedule(targetDate);
                   }}
-                  className="text-xs font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl border border-emerald-700 transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+                  className="text-xs font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-xl border border-emerald-700 transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer truncate"
                 >
-                  <Plus className="h-4 w-4" />
-                  <span>Tambah Plotting Tanggal Ini</span>
+                  <Plus className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Tambah Plotting Tanggal Ini</span>
                 </button>
               ) : <div />}
 
               <button
                 onClick={() => setActiveModalDate(null)}
-                className="text-xs font-bold text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                className="text-xs font-bold text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-100 px-3.5 py-2 sm:px-4 sm:py-2 rounded-xl border border-slate-200 transition-all cursor-pointer shadow-2xs shrink-0"
               >
                 Tutup
               </button>

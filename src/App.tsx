@@ -694,7 +694,7 @@ CREATE TABLE IF NOT EXISTS schedule_files (
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 py-3 sm:px-6 sm:py-6 space-y-4 sm:space-y-6">
 
         {/* New user welcome and guide recommendation banner */}
         {showWelcomeBanner && (
@@ -817,10 +817,10 @@ CREATE TABLE IF NOT EXISTS schedule_files (
         </div>
 
         {/* Main Tab System */}
-        <div className="flex items-center gap-2 border-b border-slate-200 pb-px">
+        <div className="flex items-center gap-1.5 border-b border-slate-200 pb-px overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`px-5 py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 ${
+            className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
               activeTab === 'calendar'
                 ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
@@ -830,7 +830,7 @@ CREATE TABLE IF NOT EXISTS schedule_files (
           </button>
           <button
             onClick={() => setActiveTab('drive')}
-            className={`px-5 py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 ${
+            className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
               activeTab === 'drive'
                 ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
