@@ -4,7 +4,26 @@
  */
 
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, MapPin, Award, Users, Tag, AlertCircle, Plus, FileDown } from 'lucide-react';
+import { 
+  Calendar as CalendarIcon, 
+  ChevronLeft, 
+  ChevronRight, 
+  MapPin, 
+  Award, 
+  Users, 
+  Tag, 
+  AlertCircle, 
+  Plus, 
+  FileDown, 
+  PanelRightClose, 
+  PanelRightOpen, 
+  X, 
+  Clock, 
+  Edit, 
+  Trash2, 
+  ExternalLink, 
+  Eye 
+} from 'lucide-react';
 import { Schedule, Unit, Manpower, ManpowerAbsence } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -36,6 +55,8 @@ export default function CalendarView({
 }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'monthly' | 'weekly'>('monthly');
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [activeModalDate, setActiveModalDate] = useState<string | null>(null);
 
   // Helper for generating month calendar grid
   const getDaysInMonth = (date: Date): Date[] => {
@@ -89,6 +110,18 @@ export default function CalendarView({
       'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'
     ];
     return `${daysList[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}`;
+  };
+
+  const formatIndonesianFullDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    const daysList = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const monthsFull = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    return `${daysList[dateObj.getDay()]}, ${d} ${monthsFull[m - 1]} ${y}`;
   };
 
   const days = getDaysInMonth(currentMonth);
@@ -299,95 +332,80 @@ export default function CalendarView({
       const timeStr = s.is_until_finished 
         ? '\nSampai Selesai' 
         : (s.start_time || s.end_time) 
-        ? `\n🕒 ${s.start_time || '--:--'} - ${s.end_time || '--:--'}` 
-        : '\nJam Kerja Standar';
-      const fullDateCell = dateCell + timeStr;
+        ? `\n${s.start_time || '--:--'} - ${s.end_time || '--:--'}` 
+        : '';
+      dateCell += timeStr;
 
-      // Client & PIC details
-      const picStr = s.pic_name ? `\nPIC: ${s.pic_name}` : '';
-      const clientCell = `${s.client_name}${picStr}`;
+      // Client & PIC layout
+      const clientCell = `${s.client_name}\nPIC: ${s.pic_name || 'No PIC'}\nPriority: ${s.priority}`;
 
-      // Agenda categorization details
-      let agendaCell = s.agenda_type || 'Riksa Uji';
-      if (s.agenda_type === 'Lainnya' && s.manual_agenda) {
-        agendaCell = `${s.manual_agenda}`;
-      }
-      agendaCell = `[${s.priority}] ${agendaCell}`;
+      // Agenda Type Badge
+      let agendaCell = s.agenda_type === 'Survey' ? 'Survey' : s.agenda_type === 'Lainnya' ? (s.manual_agenda || 'Lainnya') : 'Riksa Uji';
 
-      // Matched inspected items / location
+      // Units & Locations
       const matchedUnits = s.unit_ids
         .map(uid => units.find(u => u.id === uid)?.unit_name)
         .filter(Boolean)
-        .join(' & ') || 'Tanpa Unit';
+        .join(', ');
       
-      const unitDescs = s.unit_descriptions && s.unit_descriptions.length > 0
-        ? `\nDetail Unit:\n- ${s.unit_descriptions.join('\n- ')}`
-        : '';
-      const fullUnitCell = matchedUnits + unitDescs;
+      let unitCell = matchedUnits || 'Tanpa Unit';
+      if (s.unit_descriptions && s.unit_descriptions.length > 0) {
+        unitCell += `\nDetail: ${s.unit_descriptions.join(', ')}`;
+      }
 
-      // Allocated manpower
-      const leadName = manpowerList.find(m => m.id === s.lead_expert_id)?.name || 'Belum Ditentukan';
-      const supportNames = s.support_ids
+      // Assignment Team (Lead + Support)
+      const leadExpert = manpowerList.find(m => m.id === s.lead_expert_id)?.name || 'Unknown Lead';
+      const supportTeam = s.support_ids
         .map(sid => manpowerList.find(m => m.id === sid)?.name)
         .filter(Boolean)
-        .join(', ') || 'Tanpa Support';
-      const teamCell = `Lead: ${leadName}\nSupport: ${supportNames}`;
+        .join(', ');
 
-      return [fullDateCell, clientCell, agendaCell, fullUnitCell, teamCell];
+      const teamCell = `Lead: ${leadExpert}` + (supportTeam ? `\nSupport: ${supportTeam}` : '');
+
+      return [dateCell, clientCell, agendaCell, unitCell, teamCell];
     });
 
-    // 4. Executing Autotable (No Signature Block below table, officially automated)
+    // 4. Generate AutoTable
     autoTable(doc, {
+      startY: 44,
       head: headers,
       body: tableRows,
-      startY: 45,
       theme: 'grid',
-      headStyles: {
-        fillColor: [15, 23, 42], // Deep Navy Charcoal / slate-900
-        textColor: [255, 255, 255],
+      styles: {
         fontSize: 8,
-        fontStyle: 'bold',
-        halign: 'left',
-        valign: 'middle'
+        cellPadding: 3,
+        overflow: 'linebreak',
+        valign: 'middle',
       },
-      bodyStyles: {
-        fontSize: 7,
-        textColor: [51, 65, 85], // slate-700
-        valign: 'top',
-        cellPadding: 3
+      headStyles: {
+        fillColor: [15, 23, 42], // slate-900
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 8.5,
+        halign: 'left',
       },
       columnStyles: {
-        0: { cellWidth: 42 }, // Tanggal & Jam
-        1: { cellWidth: 52 }, // Klien & PIC
-        2: { cellWidth: 42 }, // Jenis Agenda
-        3: { cellWidth: 70 }, // Deskripsi Alat
-        4: { cellWidth: 63 }  // Tim Penugasan
+        0: { cellWidth: 42, fontStyle: 'bold' },
+        1: { cellWidth: 55 },
+        2: { cellWidth: 32 },
+        3: { cellWidth: 78 },
+        4: { cellWidth: 62 },
       },
       alternateRowStyles: {
-        fillColor: [248, 250, 252] // slate-50
-      },
-      styles: {
-        lineColor: [226, 232, 240], // slate-200
-        lineWidth: 0.15
+        fillColor: [250, 250, 250],
       },
       didDrawPage: (data) => {
-        const pageCount = doc.getNumberOfPages();
+        // Footer: Page Number and Official Timestamp
+        const pageCount = doc.internal.getNumberOfPages();
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
+        doc.setFontSize(8);
         doc.setTextColor(148, 163, 184); // slate-400
-        
-        // Footer Left: page tracker
-        const footerLeft = `RiksaSync AI - Halaman ${data.pageNumber} dari ${pageCount}`;
+
+        const footerLeft = `Halaman ${data.pageNumber} dari ${pageCount}`;
         doc.text(footerLeft, 14, 201);
 
-        // Footer Right: print date
-        const todayStr = new Date().toLocaleDateString('id-ID', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
+        const today = new Date();
+        const todayStr = `${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()} ${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
         const footerRight = `Laporan resmi dicetak otomatis pada: ${todayStr}`;
         doc.text(footerRight, 283 - doc.getTextWidth(footerRight), 201);
       }
@@ -400,11 +418,12 @@ export default function CalendarView({
 
   // Get active schedules for selected day
   const selectedDaySchedules = getSchedulesForDay(selectedDate);
+  const maxBadgesShown = isSidebarOpen ? 2 : 4;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-      {/* Calendar Grid - Left 8 columns */}
-      <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 relative">
+      {/* Calendar Grid - Expand to 12 columns when Sidebar is closed */}
+      <div className={`${isSidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white border border-slate-200 rounded-2xl p-5 shadow-sm transition-all duration-300`}>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
@@ -412,7 +431,14 @@ export default function CalendarView({
               <CalendarIcon className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Kalender Jadwal Riksa</h3>
+              <h3 className="font-bold text-slate-800 text-sm tracking-tight flex items-center gap-2">
+                <span>Kalender Jadwal Riksa</span>
+                {!isSidebarOpen && (
+                  <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-extrabold uppercase border border-emerald-200">
+                    Mode Layar Penuh / Standby TV
+                  </span>
+                )}
+              </h3>
               <p className="text-xs text-slate-500">
                 {viewMode === 'monthly' ? (
                   `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`
@@ -424,6 +450,30 @@ export default function CalendarView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
+            {/* Toggle Sidebar Button */}
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className={`text-[10px] sm:text-xs px-2.5 py-1.5 rounded-lg border font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
+                isSidebarOpen
+                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
+              }`}
+              title={isSidebarOpen ? 'Sembunyikan Sidebar Riksa Aktif (Mode TV / Fullscreen)' : 'Tampilkan Sidebar Riksa Aktif'}
+            >
+              {isSidebarOpen ? (
+                <>
+                  <PanelRightClose className="h-3.5 w-3.5 text-slate-600" />
+                  <span className="hidden md:inline">Sembunyikan Sidebar</span>
+                </>
+              ) : (
+                <>
+                  <PanelRightOpen className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="hidden md:inline">Tampilkan Sidebar</span>
+                </>
+              )}
+            </button>
+
             {/* Tampilan Toggle Buttons */}
             <div className="flex p-0.5 bg-slate-100 rounded-lg border border-slate-200">
               <button
@@ -435,7 +485,7 @@ export default function CalendarView({
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                Tampilan Bulanan
+                Bulanan
               </button>
               <button
                 type="button"
@@ -446,7 +496,7 @@ export default function CalendarView({
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                Tampilan Mingguan
+                Mingguan
               </button>
             </div>
 
@@ -486,16 +536,16 @@ export default function CalendarView({
         {viewMode === 'monthly' ? (
           <>
             {/* Day labels */}
-            <div className="grid grid-cols-7 gap-1 mb-1.5 text-center">
+            <div className="grid grid-cols-7 gap-1.5 mb-1.5 text-center">
               {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((d, idx) => (
-                <span key={d} className={`text-[10px] font-bold uppercase tracking-wider py-1 ${idx === 0 || idx === 6 ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span key={d} className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider py-1 ${idx === 0 || idx === 6 ? 'text-slate-400' : 'text-slate-500'}`}>
                   {d}
                 </span>
               ))}
             </div>
 
             {/* Calendar days grid */}
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1.5">
               {days.map((day, idx) => {
                 const dateStr = formatDateString(day);
                 const isSelected = dateStr === selectedDate;
@@ -506,23 +556,43 @@ export default function CalendarView({
                 return (
                   <div
                     key={idx}
-                    onClick={() => onSelectDate(dateStr)}
-                    className={`min-h-[72px] p-1.5 rounded-lg border cursor-pointer flex flex-col justify-between transition-all group/cell relative ${
+                    onClick={() => {
+                      onSelectDate(dateStr);
+                    }}
+                    className={`p-2 rounded-xl border cursor-pointer flex flex-col justify-between transition-all group/cell relative ${
+                      isSidebarOpen ? 'min-h-[76px]' : 'min-h-[110px] sm:min-h-[130px]'
+                    } ${
                       isSelected
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold ring-1 ring-emerald-500/20'
+                        ? 'bg-emerald-50/70 border-emerald-500 text-emerald-900 font-bold ring-2 ring-emerald-500/20 shadow-xs'
                         : isToday
-                        ? 'bg-slate-100 border-slate-300 text-slate-900 font-bold'
+                        ? 'bg-slate-100 border-slate-300 text-slate-900 font-bold shadow-xs'
                         : isCurrentMonth
-                        ? 'bg-slate-50/20 border-slate-100 text-slate-700 hover:border-slate-200 hover:bg-slate-50/60'
+                        ? 'bg-slate-50/20 border-slate-150 text-slate-700 hover:border-emerald-300 hover:bg-slate-50/80 hover:shadow-xs'
                         : 'bg-slate-50/10 border-transparent text-slate-300 hover:text-slate-400'
                     }`}
                   >
-                    <div className="flex justify-between items-center w-full">
-                      <span className={`text-xs ${isToday && !isSelected ? 'text-emerald-600 font-bold' : ''}`}>
+                    <div className="flex justify-between items-center w-full pb-1">
+                      <span className={`text-xs sm:text-sm font-black ${isToday && !isSelected ? 'text-emerald-600 font-bold' : ''}`}>
                         {day.getDate()}
                       </span>
                       
                       <div className="flex items-center gap-1">
+                        {/* Quick detail modal trigger button */}
+                        {daySchedules.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectDate(dateStr);
+                              setActiveModalDate(dateStr);
+                            }}
+                            title="Buka rincian lengkap tanggal ini dalam modal popup"
+                            className="p-0.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-100/80 rounded border border-slate-200/80 shadow-2xs flex items-center justify-center shrink-0 transition-all active:scale-90"
+                          >
+                            <Eye className="h-3 w-3" />
+                          </button>
+                        )}
+
                         {/* Quick plus icon button */}
                         {onQuickAddSchedule && (
                           <button
@@ -547,7 +617,7 @@ export default function CalendarView({
 
                         {/* Total projects bubble */}
                         {daySchedules.length > 0 && (
-                          <span className="text-[8px] bg-slate-50 text-slate-500 px-1 rounded border border-slate-200 font-semibold shrink-0">
+                          <span className="text-[8px] sm:text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded-full border border-slate-200 font-extrabold shrink-0">
                             {daySchedules.length}
                           </span>
                         )}
@@ -555,7 +625,7 @@ export default function CalendarView({
                     </div>
 
                     {/* Schedule Indicators */}
-                    <div className="space-y-0.5 mt-1 max-h-[44px] overflow-hidden">
+                    <div className="space-y-1 mt-0.5 flex-1 flex flex-col justify-start">
                       {/* For Mobile: simple dots/indicators row */}
                       <div className="flex flex-wrap gap-0.5 justify-center sm:hidden">
                         {daySchedules.map((s) => (
@@ -568,20 +638,48 @@ export default function CalendarView({
                       </div>
 
                       {/* For Desktop: full text badges */}
-                      <div className="hidden sm:block space-y-0.5">
-                        {daySchedules.slice(0, 2).map((s) => (
-                          <div
-                            key={s.id}
-                            className={`text-[8px] font-bold px-1 py-0.2 rounded border truncate ${getPriorityColor(s.priority)}`}
-                            title={`${s.client_name} (${s.priority})`}
+                      <div className="hidden sm:flex flex-col space-y-1">
+                        {daySchedules.slice(0, maxBadgesShown).map((s) => {
+                          const iconPrefix = s.agenda_type === 'Survey' ? '🔍' : s.agenda_type === 'Lainnya' ? '⚙️' : '⚡';
+                          const timeDisplay = s.start_time ? ` (${s.start_time})` : '';
+
+                          return (
+                            <div
+                              key={s.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectDate(dateStr);
+                                setActiveModalDate(dateStr);
+                              }}
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border truncate flex items-center justify-between gap-1 transition-all hover:scale-[1.01] hover:shadow-2xs cursor-pointer ${getPriorityColor(s.priority)}`}
+                              title={`${s.client_name} - Klik untuk rincian lengkap`}
+                            >
+                              <span className="truncate">
+                                {iconPrefix} {s.client_name}
+                              </span>
+                              {!isSidebarOpen && (
+                                <span className="text-[7.5px] opacity-80 font-mono shrink-0">
+                                  {timeDisplay || s.priority}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Interactive "+N lagi" indicator badge */}
+                        {daySchedules.length > maxBadgesShown && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectDate(dateStr);
+                              setActiveModalDate(dateStr);
+                            }}
+                            className="w-full text-[8.5px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-extrabold text-center py-0.5 rounded-md border border-emerald-200 transition-all cursor-pointer shadow-2xs hover:scale-[1.01] mt-0.5"
+                            title="Klik untuk melihat rincian seluruh kegiatan pada tanggal ini"
                           >
-                            {s.client_name}
-                          </div>
-                        ))}
-                        {daySchedules.length > 2 && (
-                          <div className="text-[7px] text-slate-400 text-center font-medium">
-                            +{daySchedules.length - 2} lagi
-                          </div>
+                            +{daySchedules.length - maxBadgesShown} lagi (Lihat Rincian)
+                          </button>
                         )}
                       </div>
                     </div>
@@ -630,6 +728,21 @@ export default function CalendarView({
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
+                      {daySchedules.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectDate(dateStr);
+                            setActiveModalDate(dateStr);
+                          }}
+                          className="p-0.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded border border-slate-200 flex items-center justify-center shrink-0 transition-all active:scale-90"
+                          title="Buka rincian lengkap tanggal ini"
+                        >
+                          <Eye className="h-3 w-3" />
+                        </button>
+                      )}
+
                       {onQuickAddSchedule && (
                         <button
                           type="button"
@@ -684,7 +797,12 @@ export default function CalendarView({
                         return (
                           <div
                             key={s.id}
-                            className={`p-2 rounded-lg border text-[9px] leading-tight space-y-1 transition-all ${agendaColor} hover:border-slate-300 hover:shadow-xs`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectDate(dateStr);
+                              setActiveModalDate(dateStr);
+                            }}
+                            className={`p-2 rounded-lg border text-[9px] leading-tight space-y-1 transition-all ${agendaColor} hover:border-slate-300 hover:shadow-xs cursor-pointer`}
                             title={`${s.client_name} - Lead: ${leadExpert?.name || 'No Lead'}`}
                           >
                             <div className="font-extrabold truncate text-slate-800">{s.client_name}</div>
@@ -706,12 +824,22 @@ export default function CalendarView({
         )}
       </div>
 
-      {/* Selected Day Projects List - Right 4 columns */}
-      <div className="lg:col-span-4 flex flex-col gap-4">
+      {/* Selected Day Projects List - Right 4 columns (Collapsible) */}
+      <div className={`${isSidebarOpen ? 'lg:col-span-4 flex flex-col gap-4' : 'hidden'} transition-all duration-300`}>
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex-1 flex flex-col">
-          <div className="mb-4">
-            <h4 className="font-bold text-slate-800 text-xs tracking-wider uppercase">Daftar Riksa Aktif</h4>
-            <p className="text-[11px] text-slate-500">Inspeksi untuk tanggal <span className="text-emerald-600 font-mono font-semibold">{selectedDate}</span></p>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h4 className="font-bold text-slate-800 text-xs tracking-wider uppercase">Daftar Riksa Aktif</h4>
+              <p className="text-[11px] text-slate-500">Inspeksi untuk tanggal <span className="text-emerald-600 font-mono font-semibold">{selectedDate}</span></p>
+            </div>
+            <button
+              onClick={() => setActiveModalDate(selectedDate)}
+              className="text-[9px] bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 px-2 py-1 rounded-lg font-bold flex items-center gap-1 transition-all"
+              title="Buka rincian dalam kotak baru"
+            >
+              <Eye className="h-3 w-3" />
+              <span>Modal</span>
+            </button>
           </div>
 
           <div className="space-y-3 overflow-y-auto flex-1 max-h-[380px] pr-1">
@@ -923,6 +1051,303 @@ export default function CalendarView({
           })()}
         </div>
       </div>
+
+      {/* Interactive Date Detail Modal Popup ("Kotak Baru") */}
+      {activeModalDate && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-200 animate-in fade-in"
+          onClick={() => setActiveModalDate(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-100/80 text-emerald-700 rounded-xl border border-emerald-200/80">
+                  <CalendarIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-sm sm:text-base tracking-tight flex items-center gap-2">
+                    <span>Rincian Kegiatan Operasional</span>
+                    <span className="text-[10px] bg-slate-200/70 text-slate-700 px-2 py-0.5 rounded-full font-bold">
+                      {getSchedulesForDay(activeModalDate).length} Agenda
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {formatIndonesianFullDate(activeModalDate)}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setActiveModalDate(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-xl transition-all cursor-pointer"
+                title="Tutup Modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4 max-h-[65vh]">
+              {/* Schedules List for Active Modal Date */}
+              {(() => {
+                const daySchedules = getSchedulesForDay(activeModalDate);
+                if (daySchedules.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50/50 rounded-2xl border border-slate-200 border-dashed">
+                      <AlertCircle className="h-10 w-10 text-slate-400 mb-3" />
+                      <h4 className="font-bold text-slate-700 text-sm">Tidak ada agenda kegiatan</h4>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                        Tidak ada inspeksi atau survey yang dijadwalkan pada {formatIndonesianFullDate(activeModalDate)}.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return daySchedules.map((s) => {
+                  const leadExpertName = manpowerList.find(m => m.id === s.lead_expert_id)?.name || 'Belum Ditentukan';
+                  const supportNames = s.support_ids
+                    .map(sid => manpowerList.find(m => m.id === sid)?.name)
+                    .filter(Boolean)
+                    .join(', ') || 'Tidak ada support';
+
+                  const matchedUnits = s.unit_ids
+                    .map(uid => units.find(u => u.id === uid)?.unit_name)
+                    .filter(Boolean)
+                    .join(' & ');
+
+                  return (
+                    <div
+                      key={s.id}
+                      className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 hover:border-slate-300 transition-all space-y-3 relative shadow-2xs"
+                    >
+                      {/* Left Accent Priority Strip */}
+                      <div className={`absolute top-0 bottom-0 left-0 w-1.5 rounded-l-2xl ${getPriorityDot(s.priority)}`} />
+
+                      <div className="pl-2">
+                        {/* Top Bar: Title & Priority Badge */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h4 className="font-extrabold text-slate-800 text-sm sm:text-base leading-tight">
+                              {s.client_name}
+                            </h4>
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                              {s.agenda_type === 'Survey' ? (
+                                <span className="text-[9px] font-extrabold uppercase bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md">
+                                  🔍 Survey
+                                </span>
+                              ) : s.agenda_type === 'Lainnya' ? (
+                                <span className="text-[9px] font-extrabold uppercase bg-slate-100 border border-slate-200 text-slate-700 px-2 py-0.5 rounded-md" title={s.manual_agenda || 'Kegiatan Lainnya'}>
+                                  ⚙️ {s.manual_agenda || 'Lainnya'}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-extrabold uppercase bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-md">
+                                  ⚡ Riksa Uji
+                                </span>
+                              )}
+
+                              {s.is_until_finished && (
+                                <span className="text-[9px] font-extrabold uppercase bg-rose-50 border border-rose-200 text-rose-700 px-2 py-0.5 rounded-md">
+                                  🔄 Sampai Selesainya
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg border shrink-0 ${getPriorityColor(s.priority)}`}>
+                            Prioritas {s.priority}
+                          </span>
+                        </div>
+
+                        {/* Meta details */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-150">
+                          <div className="flex items-center gap-2">
+                            <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span><strong className="text-slate-700">PIC Klien:</strong> {s.pic_name || 'Tanpa PIC'}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span>
+                              <strong className="text-slate-700">Jam Operasional:</strong>{' '}
+                              {s.is_until_finished ? 'Sampai Selesai' : (s.start_time || s.end_time) ? `${s.start_time || '--:--'} - ${s.end_time || '--:--'}` : 'Standar'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Units Section */}
+                        <div className="mt-2.5 text-xs bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200/80 text-emerald-900 flex items-start gap-2">
+                          <Award className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <span className="font-bold block">Unit Alat Riksa:</span>
+                            <span className="font-semibold text-emerald-800">{matchedUnits || 'Tidak ada unit dipilih'}</span>
+                          </div>
+                        </div>
+
+                        {/* Unit Descriptions */}
+                        {s.unit_descriptions && s.unit_descriptions.length > 0 && (
+                          <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl text-xs space-y-1">
+                            <span className="font-bold text-slate-500 uppercase tracking-wider text-[9px] block">Rincian Deskripsi Unit:</span>
+                            <ul className="list-disc list-inside space-y-0.5">
+                              {s.unit_descriptions.map((desc, dIdx) => (
+                                <li key={dIdx} className="text-slate-700 font-medium">
+                                  {desc}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Team Section */}
+                        <div className="mt-2.5 pt-2.5 border-t border-slate-200/60 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-150">
+                            <Users className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                            <div className="truncate">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Lead Expert</span>
+                              <span className="font-extrabold text-slate-800 truncate block">{leadExpertName}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-150">
+                            <Users className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                            <div className="truncate">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Support Manpower</span>
+                              <span className="font-semibold text-slate-700 truncate block">{supportNames}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Google Drive Attachments */}
+                        {(() => {
+                          const files = (scheduleFiles || []).filter(f => f.schedule_id === s.id);
+                          if (files.length === 0) return null;
+                          return (
+                            <div className="mt-2.5 pt-2 border-t border-slate-200/60 space-y-1.5">
+                              <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider block">Dokumen Google Drive Terlampir:</span>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {files.map(file => (
+                                  <a
+                                    key={file.id}
+                                    href={file.google_drive_link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 p-2 bg-emerald-50/80 hover:bg-emerald-100 text-xs text-emerald-900 font-semibold border border-emerald-200 rounded-xl transition-all cursor-pointer truncate active:scale-95"
+                                  >
+                                    <span className="shrink-0">📁</span>
+                                    <span className="truncate flex-1 font-bold">{file.file_name}</span>
+                                    <ExternalLink className="h-3 w-3 text-emerald-700 shrink-0" />
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Log signature */}
+                        {(s.created_by || s.updated_by) && (
+                          <div className="mt-2.5 text-[10px] text-slate-400 italic flex flex-wrap justify-between items-center gap-1.5 border-t border-slate-100 pt-2">
+                            {s.created_by && (
+                              <span>Dibuat oleh: <strong className="text-slate-600">{s.created_by}</strong></span>
+                            )}
+                            {s.updated_by && (
+                              <span>Terakhir diedit: <strong className="text-slate-600">{s.updated_by}</strong></span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Action buttons inside Modal */}
+                        <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setActiveModalDate(null);
+                              onEditSchedule(s);
+                            }}
+                            className="text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200 transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                            <span>Ubah Jadwal</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActiveModalDate(null);
+                              onDeleteSchedule(s.id);
+                            }}
+                            className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl border border-rose-200 transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>Hapus</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+
+              {/* Absences Section inside Modal */}
+              {(() => {
+                const dayAbsences = absences.filter(a => a.date === activeModalDate);
+                if (dayAbsences.length === 0) return null;
+
+                return (
+                  <div className="mt-4 pt-4 border-t border-slate-200">
+                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2 mb-2">
+                      <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                      <span>Tim Manpower Tidak Hadir ({dayAbsences.length})</span>
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {dayAbsences.map(abs => {
+                        const person = manpowerList.find(m => m.id === abs.manpower_id);
+                        const badgeColor = abs.absence_type === 'Sakit' 
+                          ? 'bg-rose-50 text-rose-800 border-rose-200' 
+                          : abs.absence_type === 'Cuti'
+                          ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200';
+
+                        return (
+                          <div key={abs.id} className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold ${badgeColor}`}>
+                            <span className="truncate">{person?.name || 'Unknown'}</span>
+                            <span className="uppercase text-[9px] px-1.5 py-0.5 bg-white/80 rounded-md border border-inherit shrink-0">
+                              {abs.absence_type}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
+              {onQuickAddSchedule ? (
+                <button
+                  onClick={() => {
+                    const targetDate = activeModalDate;
+                    setActiveModalDate(null);
+                    onQuickAddSchedule(targetDate);
+                  }}
+                  className="text-xs font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl border border-emerald-700 transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Tambah Plotting Tanggal Ini</span>
+                </button>
+              ) : <div />}
+
+              <button
+                onClick={() => setActiveModalDate(null)}
+                className="text-xs font-bold text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 transition-all cursor-pointer shadow-2xs"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
