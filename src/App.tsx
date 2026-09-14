@@ -320,7 +320,7 @@ CREATE TABLE IF NOT EXISTS quick_links (
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes, quickLinksRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
         supabase.from('schedules').select('*'),
