@@ -702,7 +702,9 @@ export default function ScheduleForm({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* PT Client input with beautiful dropdown autocomplete suggestions */}
           <div className="space-y-1 relative">
-            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">Nama Klien / Perusahaan</label>
+            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+              {agendaType === 'Riksa Uji' ? 'Nama Klien / Perusahaan' : 'Instansi / Tujuan / Klien'}
+            </label>
             <input
               id="input_client_name"
               type="text"
@@ -749,7 +751,9 @@ export default function ScheduleForm({
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">PIC Lapangan</label>
+            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
+              {agendaType === 'Riksa Uji' ? 'PIC Lapangan' : 'PIC / Penanggung Jawab'}
+            </label>
             <input
               id="input_pic_name"
               type="text"
@@ -1171,7 +1175,7 @@ export default function ScheduleForm({
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-                  Lead Expert (Ahli SKP)
+                  {agendaType === 'Riksa Uji' ? 'Lead Expert (Ahli SKP)' : 'Penanggung Jawab Utama (Lead)'}
                 </label>
                 <span className="text-[9px] text-slate-400 font-bold font-mono">
                   {filteredLeadExperts.length} qualified
@@ -1190,7 +1194,9 @@ export default function ScheduleForm({
                 onChange={e => setLeadExpertId(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
               >
-                <option value="">-- Pilih Lead Expert (Disaring Berdasarkan SKP) --</option>
+                <option value="">
+                  {agendaType === 'Riksa Uji' ? '-- Pilih Lead Expert (Disaring Berdasarkan SKP) --' : '-- Pilih Penanggung Jawab Utama --'}
+                </option>
                 {filteredLeadExperts.map(expert => {
                   const rangeAbsences = getAbsenceInDateRange(expert.id);
                   const prefix = rangeAbsences.length > 0 
@@ -1433,13 +1439,13 @@ export default function ScheduleForm({
       </div>
 
       {/* STICKY FOOTER */}
-      <div className="grid grid-cols-2 sm:flex sm:justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 z-10 w-full">
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 sm:gap-3 px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 z-10 w-full">
         <button
           id="btn_cancel_form_footer"
           type="button"
           disabled={isSaving}
           onClick={onCancel}
-          className="w-full sm:w-auto px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-all shadow-sm h-10 flex items-center justify-center cursor-pointer disabled:opacity-50"
+          className="w-full sm:w-auto px-4 py-2.5 sm:py-2 bg-white hover:bg-slate-100 text-slate-700 text-[11px] sm:text-xs font-bold rounded-xl border border-slate-200 transition-all shadow-sm flex items-center justify-center cursor-pointer disabled:opacity-50"
         >
           Batalkan
         </button>
@@ -1447,16 +1453,16 @@ export default function ScheduleForm({
           id="btn_submit_form"
           type="submit"
           disabled={fileUploading || isSaving}
-          className="w-full sm:w-auto px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 h-10 cursor-pointer disabled:opacity-50"
+          className="w-full sm:w-auto px-5 py-2.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
         >
           {isSaving ? (
             <>
-              <Loader className="h-4 w-4 animate-spin" />
+              <Loader className="h-4 w-4 animate-spin shrink-0" />
               <span>Menyimpan...</span>
             </>
           ) : (
             <>
-              <Save className="h-4 w-4" />
+              <Save className="h-4 w-4 shrink-0" />
               <span>Simpan Jadwal Plotting</span>
             </>
           )}

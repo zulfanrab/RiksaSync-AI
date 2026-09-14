@@ -98,7 +98,9 @@ export default function WhatsappDispatcher({
 
         const statusLabel = s.status === 'Draft' ? 'DRAFT' : s.status === 'Scheduled' ? 'TERJADWAL' : s.status === 'Completed' ? 'SELESAI' : 'BATAL';
 
-        text += `*${idx + 1}. [${statusLabel}] Klien: ${s.client_name}*\n`;
+        const isRiksa = s.agenda_type === 'Riksa Uji';
+        const targetLabel = isRiksa ? 'Klien' : 'Tujuan/Instansi';
+        text += `*${idx + 1}. [${statusLabel}] ${targetLabel}: ${s.client_name}*\n`;
         text += `• Kegiatan: ${agendaLabel}\n`;
         
         // Time
@@ -113,7 +115,7 @@ export default function WhatsappDispatcher({
         const picContact = s.pic_name 
           ? `${s.pic_name}${s.pic_phone ? ` (${s.pic_phone})` : ''}` 
           : 'Belum ditentukan';
-        text += `• PIC Klien: ${picContact}\n`;
+        text += `• ${isRiksa ? 'PIC Klien' : 'PIC/Penanggung Jawab'}: ${picContact}\n`;
 
         // Location
         if (s.location) {
@@ -133,7 +135,7 @@ export default function WhatsappDispatcher({
         supports.forEach(name => teamMembers.push(name));
 
         const teamStr = teamMembers.length > 0 ? teamMembers.join(', ') : 'Belum ditentukan';
-        text += `• Tim: ${teamStr}\n`;
+        text += `• ${isRiksa ? 'Tim Eksekusi' : 'Tim Penugasan'}: ${teamStr}\n`;
 
         // Unit descriptions if any
         if (s.unit_descriptions && s.unit_descriptions.length > 0) {
