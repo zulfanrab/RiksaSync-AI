@@ -69,13 +69,23 @@ export interface TeamTask {
   due_date: string; // YYYY-MM-DD
   due_time?: string; // HH:MM
   priority: 'P1' | 'P2' | 'P3'; // P1: Tinggi (Red), P2: Sedang (Yellow), P3: Rendah (Green)
-  status: 'To Do' | 'In Progress' | 'Done';
+  status: 'To Do' | 'In Progress' | 'Done' | 'Cancelled';
   category: 'Notulensi' | 'Laporan Bulanan' | 'Survey' | 'Lainnya';
   recurrence: 'None' | 'Daily' | 'Weekly' | 'Monthly';
   visibility: 'Public' | 'Private';
+  cancel_reason?: string;
   created_at: string;
   created_by?: string;
   updated_at?: string;
+}
+
+export interface QuickLink {
+  id: string;
+  title: string;
+  url: string;
+  emoji: string;
+  created_by?: string;
+  created_at: string;
 }
 
 export interface DBState {

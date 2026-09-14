@@ -14,7 +14,7 @@ import ScheduleForm from './components/ScheduleForm';
 import ManpowerManagement from './components/ManpowerManagement';
 import WhatsappDispatcher from './components/WhatsappDispatcher';
 import TaskBoard from './components/TaskBoard';
-import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask } from './types';
+import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask, QuickLink } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -112,6 +112,7 @@ export default function App() {
   const [clients, setClients] = useState<{ id: string; client_name: string; pic_name: string; pic_phone: string }[]>([]);
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
+  const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -253,18 +254,30 @@ CREATE TABLE IF NOT EXISTS team_tasks (
   due_date TEXT NOT NULL,
   due_time TEXT,
   priority TEXT NOT NULL CHECK (priority IN ('P1', 'P2', 'P3')),
-  status TEXT NOT NULL CHECK (status IN ('To Do', 'In Progress', 'Done')),
+  status TEXT NOT NULL DEFAULT 'To Do' CHECK (status IN ('To Do', 'In Progress', 'Done', 'Cancelled')),
   category TEXT NOT NULL CHECK (category IN ('Notulensi', 'Laporan Bulanan', 'Survey', 'Lainnya')),
   recurrence TEXT NOT NULL DEFAULT 'None' CHECK (recurrence IN ('None', 'Daily', 'Weekly', 'Monthly')),
   visibility TEXT NOT NULL DEFAULT 'Public' CHECK (visibility IN ('Public', 'Private')),
+  cancel_reason TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   created_by TEXT,
   updated_at TIMESTAMP WITH TIME ZONE
 );
 
--- Note for existing DB:
--- ALTER TABLE team_tasks ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'None' CHECK (recurrence IN ('None', 'Daily', 'Weekly', 'Monthly'));
--- ALTER TABLE team_tasks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'Public' CHECK (visibility IN ('Public', 'Private'));
+-- 9. Create quick_links table for pinned quick access links
+CREATE TABLE IF NOT EXISTS quick_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  emoji TEXT NOT NULL DEFAULT '🔗',
+  created_by TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Note for EXISTING DB (jika tabel sudah ada):
+-- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+-- ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_status_check;
+-- ALTER TABLE team_tasks ADD CONSTRAINT team_tasks_status_check CHECK (status IN ('To Do', 'In Progress', 'Done', 'Cancelled'));
 `;
 
   const handleCopySql = () => {
@@ -328,6 +341,13 @@ CREATE TABLE IF NOT EXISTS team_tasks (
         (async () => {
           try {
             return await supabase.from('team_tasks').select('*');
+          } catch (e) {
+            return { data: [], error: e } as any;
+          }
+        })(),
+        (async () => {
+          try {
+            return await supabase.from('quick_links').select('*').order('created_at', { ascending: false });
           } catch (e) {
             return { data: [], error: e } as any;
           }
@@ -399,6 +419,7 @@ CREATE TABLE IF NOT EXISTS team_tasks (
       }
 
       const tasksData = tasksRes && !tasksRes.error ? (tasksRes.data || []) : [];
+      const quickLinksData = quickLinksRes && !quickLinksRes.error ? (quickLinksRes.data || []) : [];
 
       setManpowerList(manpowerData);
       setUnits(unitsData);
@@ -406,6 +427,7 @@ CREATE TABLE IF NOT EXISTS team_tasks (
       setClients(clientsData);
       setAbsences(absencesData as ManpowerAbsence[]);
       setTasks(tasksData);
+      setQuickLinks(quickLinksData);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
@@ -415,6 +437,8 @@ CREATE TABLE IF NOT EXISTS team_tasks (
       setUnits(INITIAL_UNITS);
       setSchedules(getLocalSchedules());
       setClients([]);
+      setTasks([]);
+      setQuickLinks([]);
       const localAbs = localStorage.getItem('local_manpower_absences');
       if (localAbs) {
         try {
@@ -1032,6 +1056,7 @@ CREATE TABLE IF NOT EXISTS team_tasks (
           <div className="h-full flex-1">
             <TaskBoard
               tasks={tasks}
+              quickLinks={quickLinks}
               manpowerList={manpowerList}
               activeUser={activeUser}
               onRefreshAll={loadAllData}

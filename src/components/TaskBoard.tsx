@@ -1,22 +1,26 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TeamTask, Manpower } from '../types';
-import { Plus, Clock, User, AlertCircle, CheckCircle2, ChevronRight, X, Loader, Trash2, Calendar, FileText } from 'lucide-react';
+import { TeamTask, Manpower, QuickLink } from '../types';
+import { Plus, Clock, User, AlertCircle, CheckCircle2, ChevronRight, X, Loader, Trash2, Calendar, FileText, Link as LinkIcon, ExternalLink, Archive, LayoutDashboard } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface TaskBoardProps {
   tasks: TeamTask[];
+  quickLinks: QuickLink[];
   manpowerList: Manpower[];
   activeUser: string | null;
   onRefreshAll: () => Promise<void>;
 }
 
-export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAll }: TaskBoardProps) {
+export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser, onRefreshAll }: TaskBoardProps) {
+  const [activeTab, setActiveTab] = useState<'board' | 'archive'>('board');
+  
+  // Task Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TeamTask | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
-  // Form State
+  // Task Form State
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
@@ -26,6 +30,12 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
   const [category, setCategory] = useState<'Notulensi' | 'Laporan Bulanan' | 'Survey' | 'Lainnya'>('Notulensi');
   const [recurrence, setRecurrence] = useState<'None' | 'Daily' | 'Weekly' | 'Monthly'>('None');
   const [visibility, setVisibility] = useState<'Public' | 'Private'>('Public');
+
+  // Quick Link Modal State
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [linkTitle, setLinkTitle] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkEmoji, setLinkEmoji] = useState('🔗');
 
   const openNewTaskModal = () => {
     setEditingTask(null);
@@ -55,7 +65,7 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
     setIsModalOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmitTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !description || !assigneeId || !dueDate) {
       alert('Mohon lengkapi judul, deskripsi, penerima tugas, dan tanggal tenggat.');
@@ -94,8 +104,8 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus tugas ini?')) return;
+  const handleDeleteTask = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus tugas ini secara permanen?')) return;
     setIsSaving(true);
     try {
       const { error } = await supabase.from('team_tasks').delete().eq('id', id);
@@ -109,12 +119,17 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
     }
   };
 
-  const handleUpdateStatus = async (id: string, newStatus: 'To Do' | 'In Progress' | 'Done') => {
+  const handleUpdateStatus = async (id: string, newStatus: 'To Do' | 'In Progress' | 'Done' | 'Cancelled', reason?: string) => {
     try {
       const task = tasks.find(t => t.id === id);
       if (!task) return;
 
-      const { error } = await supabase.from('team_tasks').update({ status: newStatus }).eq('id', id);
+      const updateData: any = { status: newStatus };
+      if (newStatus === 'Cancelled' && reason) {
+        updateData.cancel_reason = reason;
+      }
+
+      const { error } = await supabase.from('team_tasks').update(updateData).eq('id', id);
       if (error) throw error;
 
       // Auto-generate recurring task if marked as Done
@@ -146,6 +161,30 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
     }
   };
 
+  const handleSaveQuickLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!linkTitle || !linkUrl) return;
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.from('quick_links').insert([{
+        title: linkTitle,
+        url: linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`,
+        emoji: linkEmoji,
+        created_by: activeUser || 'System'
+      }]);
+      if (error) throw error;
+      await onRefreshAll();
+      setIsLinkModalOpen(false);
+      setLinkTitle('');
+      setLinkUrl('');
+      setLinkEmoji('🔗');
+    } catch (err: any) {
+      alert(`Gagal menyimpan link: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Group tasks by status and filter by visibility
   const visibleTasks = useMemo(() => {
     return tasks.filter(t => {
@@ -157,11 +196,12 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
     });
   }, [tasks, activeUser, manpowerList]);
 
-  const columns = [
+  const activeColumns = [
     { id: 'To Do', title: '📋 To Do', color: 'bg-slate-100 border-slate-200 text-slate-700' },
-    { id: 'In Progress', title: '⏳ In Progress', color: 'bg-amber-50 border-amber-200 text-amber-800' },
-    { id: 'Done', title: '✅ Selesai', color: 'bg-emerald-50 border-emerald-200 text-emerald-800' }
+    { id: 'In Progress', title: '⏳ In Progress', color: 'bg-amber-50 border-amber-200 text-amber-800' }
   ];
+
+  const archivedTasks = visibleTasks.filter(t => t.status === 'Done' || t.status === 'Cancelled');
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -183,36 +223,141 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
         </button>
       </div>
 
-      {/* Kanban Board */}
-      <div className="flex-1 overflow-x-auto p-5 bg-slate-50/50">
-        <div className="flex gap-5 min-w-max h-full">
-          {columns.map(col => (
-            <div key={col.id} className="w-80 flex flex-col h-full">
-              <div className={`px-4 py-2.5 rounded-t-xl border-t border-l border-r font-bold text-sm ${col.color}`}>
-                {col.title} <span className="ml-1 bg-white/50 px-2 py-0.5 rounded-full text-[10px]">{visibleTasks.filter(t => t.status === col.id).length}</span>
-              </div>
-              <div className={`flex-1 p-3 border-b border-l border-r rounded-b-xl overflow-y-auto space-y-3 ${col.color.split(' ')[0].replace('50', '50/50')}`}>
-                {visibleTasks.filter(t => t.status === col.id).map(task => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    manpowerList={manpowerList}
-                    onClick={() => openEditTaskModal(task)}
-                    onStatusChange={(status) => handleUpdateStatus(task.id, status as any)}
-                  />
-                ))}
-                {visibleTasks.filter(t => t.status === col.id).length === 0 && (
-                  <div className="text-center p-5 border border-dashed border-slate-300 rounded-xl text-slate-400 text-xs font-medium">
-                    Belum ada tugas di kolom ini.
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+      {/* Quick Links Bar */}
+      <div className="bg-slate-50/50 border-b border-slate-200 px-5 py-3 flex items-center gap-3 overflow-x-auto shrink-0 hide-scrollbar">
+        <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+          <LinkIcon className="h-3 w-3" />
+          Quick Links
         </div>
+        <div className="h-4 w-px bg-slate-300 mx-1 shrink-0" />
+        
+        {quickLinks.map(link => (
+          <a
+            key={link.id}
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-sm px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-indigo-700 transition-all shrink-0 group"
+          >
+            <span>{link.emoji}</span>
+            <span>{link.title}</span>
+            <ExternalLink className="h-3 w-3 text-slate-400 group-hover:text-indigo-500" />
+          </a>
+        ))}
+
+        <button
+          onClick={() => setIsLinkModalOpen(true)}
+          className="flex items-center gap-1 bg-slate-100 hover:bg-indigo-50 border border-slate-200 border-dashed hover:border-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:text-indigo-600 transition-all shrink-0"
+        >
+          <Plus className="h-3 w-3" />
+          Tambah
+        </button>
       </div>
 
-      {/* Task Modal */}
+      {/* Tabs */}
+      <div className="flex px-5 border-b border-slate-200 bg-white shrink-0">
+        <button
+          onClick={() => setActiveTab('board')}
+          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === 'board' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+          }`}
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          Board Aktif
+        </button>
+        <button
+          onClick={() => setActiveTab('archive')}
+          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === 'archive' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+          }`}
+        >
+          <Archive className="h-4 w-4" />
+          Arsip Tugas
+        </button>
+      </div>
+
+      {/* Main Content Area */}
+      {activeTab === 'board' ? (
+        <div className="flex-1 overflow-x-auto p-5 bg-slate-50/50">
+          <div className="flex gap-5 h-full">
+            {activeColumns.map(col => (
+              <div key={col.id} className="w-[320px] flex flex-col h-full">
+                <div className={`px-4 py-2.5 rounded-t-xl border-t border-l border-r font-bold text-sm flex items-center justify-between ${col.color}`}>
+                  {col.title}
+                  <span className="bg-white/50 px-2 py-0.5 rounded-full text-[10px]">{visibleTasks.filter(t => t.status === col.id).length}</span>
+                </div>
+                <div className={`flex-1 p-3 border-b border-l border-r rounded-b-xl overflow-y-auto space-y-3 ${col.color.split(' ')[0].replace('50', '50/50')}`}>
+                  {visibleTasks.filter(t => t.status === col.id).map(task => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      manpowerList={manpowerList}
+                      onClick={() => openEditTaskModal(task)}
+                      onStatusChange={(status, reason) => handleUpdateStatus(task.id, status as any, reason)}
+                    />
+                  ))}
+                  {visibleTasks.filter(t => t.status === col.id).length === 0 && (
+                    <div className="text-center p-5 border border-dashed border-slate-300 rounded-xl text-slate-400 text-xs font-medium">
+                      Belum ada tugas di kolom ini.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-5 bg-slate-50/50">
+          <div className="max-w-4xl mx-auto space-y-3">
+            {archivedTasks.length === 0 ? (
+              <div className="text-center p-10 bg-white border border-slate-200 rounded-2xl">
+                <Archive className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-sm font-bold text-slate-700">Belum Ada Arsip</h3>
+                <p className="text-xs text-slate-500 mt-1">Tugas yang selesai atau dibatalkan akan tampil di sini.</p>
+              </div>
+            ) : (
+              archivedTasks.sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()).map(task => (
+                <div key={task.id} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-all cursor-pointer" onClick={() => openEditTaskModal(task)}>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${
+                        task.status === 'Done' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'
+                      }`}>
+                        {task.status === 'Done' ? 'Selesai' : 'Dibatalkan'}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                        {task.category}
+                      </span>
+                    </div>
+                    <h4 className="font-bold text-slate-800">{task.title}</h4>
+                    <p className="text-xs text-slate-500 mt-1 line-clamp-1">{task.description}</p>
+                    
+                    {task.status === 'Cancelled' && task.cancel_reason && (
+                      <div className="mt-2 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 p-2 rounded-lg">
+                        <AlertCircle className="h-3 w-3 inline mr-1" />
+                        Alasan Batal: <span className="font-medium">{task.cancel_reason}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-3 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-100 pt-3 sm:pt-0 sm:pl-4">
+                    <div className="text-[10px]">
+                      <p className="text-slate-400 font-bold uppercase mb-0.5">Penerima</p>
+                      <p className="font-bold text-slate-700 flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {manpowerList.find(m => m.id === task.assignee_id)?.name || 'Unknown'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modals... */}
+      {/* 1. Task Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/40 backdrop-blur-sm">
@@ -233,7 +378,7 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
               </div>
 
               <div className="p-6 overflow-y-auto flex-1">
-                <form id="task-form" onSubmit={handleSubmit} className="space-y-4">
+                <form id="task-form" onSubmit={handleSubmitTask} className="space-y-4">
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">Judul Tugas</label>
                     <input
@@ -356,7 +501,7 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
                 {editingTask ? (
                   <button
                     type="button"
-                    onClick={() => handleDelete(editingTask.id)}
+                    onClick={() => handleDeleteTask(editingTask.id)}
                     className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1.5 px-3 py-2 hover:bg-rose-50 rounded-xl transition-all"
                     disabled={isSaving}
                   >
@@ -389,6 +534,87 @@ export default function TaskBoard({ tasks, manpowerList, activeUser, onRefreshAl
           </div>
         )}
       </AnimatePresence>
+
+      {/* 2. Quick Link Modal */}
+      <AnimatePresence>
+        {isLinkModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="text-md font-bold text-slate-800 flex items-center gap-2">
+                  <LinkIcon className="h-4 w-4 text-indigo-600" />
+                  Tambah Quick Link
+                </h3>
+                <button onClick={() => setIsLinkModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 bg-slate-200/50 hover:bg-slate-200 rounded-full transition-all">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-6">
+                <form id="link-form" onSubmit={handleSaveQuickLink} className="space-y-4">
+                  <div className="flex gap-3">
+                    <div className="w-16">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Emoji</label>
+                      <input
+                        type="text"
+                        value={linkEmoji}
+                        onChange={e => setLinkEmoji(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-2 py-2 text-center text-sm focus:outline-none focus:border-indigo-500"
+                        maxLength={2}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Judul Link</label>
+                      <input
+                        type="text"
+                        value={linkTitle}
+                        onChange={e => setLinkTitle(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-indigo-500"
+                        placeholder="Contoh: Google Drive Inspeksi"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">URL / Link</label>
+                    <input
+                      type="url"
+                      value={linkUrl}
+                      onChange={e => setLinkUrl(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-indigo-500"
+                      placeholder="https://drive.google.com/..."
+                      required
+                    />
+                  </div>
+                </form>
+              </div>
+
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsLinkModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/50 rounded-xl transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  form="link-form"
+                  disabled={isSaving}
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                >
+                  {isSaving ? 'Menyimpan...' : 'Simpan Link'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -398,12 +624,12 @@ function TaskCard({ task, manpowerList, onClick, onStatusChange }: {
   task: TeamTask, 
   manpowerList: Manpower[], 
   onClick: () => void,
-  onStatusChange: (status: string) => void
+  onStatusChange: (status: string, reason?: string) => void
 }) {
   const assignee = manpowerList.find(m => m.id === task.assignee_id);
   
   // Calculate if overdue
-  const isOverdue = task.status !== 'Done' && new Date(task.due_date) < new Date(new Date().toISOString().split('T')[0]);
+  const isOverdue = task.status !== 'Done' && task.status !== 'Cancelled' && new Date(task.due_date) < new Date(new Date().toISOString().split('T')[0]);
   
   const priorityColors: Record<string, string> = {
     'P1': 'bg-rose-100 text-rose-700 border-rose-200',
@@ -420,11 +646,19 @@ function TaskCard({ task, manpowerList, onClick, onStatusChange }: {
   const nextStatus = nextStatusMap[task.status];
   const nextStatusLabel = nextStatus === 'In Progress' ? 'Mulai Kerjakan' : nextStatus === 'Done' ? 'Selesaikan' : 'Kembalikan';
 
+  const handleCancelTask = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const reason = window.prompt("Masukkan alasan mengapa tugas ini dibatalkan atau gagal:");
+    if (reason !== null && reason.trim() !== '') {
+      onStatusChange('Cancelled', reason.trim());
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all group flex flex-col gap-2 relative">
+    <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all group flex flex-col gap-2 relative">
       <div className="flex justify-between items-start cursor-pointer" onClick={onClick}>
         <div className="flex flex-col gap-1 w-full">
-          <div className="flex justify-between items-start gap-2">
+          <div className="flex justify-between items-start gap-2 mb-1">
             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${priorityColors[task.priority]}`}>
               {task.priority}
             </span>
@@ -444,39 +678,62 @@ function TaskCard({ task, manpowerList, onClick, onStatusChange }: {
               </span>
             </div>
           </div>
-          <h4 className="font-bold text-sm text-slate-800 leading-tight mt-1 group-hover:text-indigo-600 transition-colors">
+          <h4 className="font-bold text-sm text-slate-800 leading-tight group-hover:text-indigo-600 transition-colors">
             {task.title}
           </h4>
         </div>
       </div>
       
-      <div className="text-[11px] text-slate-500 line-clamp-2 cursor-pointer" onClick={onClick}>
+      <div className="text-[11px] text-slate-500 line-clamp-2 cursor-pointer mb-1" onClick={onClick}>
         {task.description}
       </div>
 
-      <div className="flex justify-between items-center mt-1 border-t border-slate-100 pt-2">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-slate-100 w-fit px-2 py-1 rounded-lg">
+      <div className="flex flex-col gap-2 mt-auto border-t border-slate-100 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Penerima Tugas */}
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-slate-100/80 px-2 py-1 rounded-lg">
             <User className="h-3 w-3 text-slate-400" />
             <span className="truncate max-w-[80px]">{assignee?.name || 'Unknown'}</span>
           </div>
-          <div className={`flex items-center gap-1.5 text-[10px] font-bold w-fit px-2 py-1 rounded-lg ${isOverdue ? 'text-rose-600 bg-rose-50 border border-rose-100' : 'text-slate-500'}`}>
+
+          {/* Tenggat Waktu */}
+          <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-lg ${isOverdue ? 'text-rose-600 bg-rose-50 border border-rose-100' : 'text-slate-500 bg-slate-100/80'}`}>
             {isOverdue ? <AlertCircle className="h-3 w-3" /> : <Calendar className="h-3 w-3" />}
             {new Date(task.due_date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
             {task.due_time && ` • ${task.due_time}`}
           </div>
         </div>
-        
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onStatusChange(nextStatus);
-          }}
-          className="bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-600 hover:text-indigo-700 h-8 w-8 rounded-full flex items-center justify-center transition-all shadow-xs"
-          title={nextStatusLabel}
-        >
-          {task.status === 'Done' ? <ChevronRight className="h-4 w-4 rotate-180" /> : <ChevronRight className="h-4 w-4" />}
-        </button>
+
+        <div className="flex items-center justify-between mt-1">
+          {/* Ditugaskan oleh (Activity Log) */}
+          <div className="text-[9px] text-slate-400 font-medium flex items-center gap-1">
+            <span>Oleh:</span>
+            <span className="font-bold text-slate-500">{task.created_by || 'System'}</span>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCancelTask}
+              className="text-[10px] font-bold text-rose-500 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 px-2.5 py-1 rounded-md transition-all shadow-xs"
+              title="Batalkan atau gagalkan tugas"
+            >
+              Batalkan
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStatusChange(nextStatus);
+              }}
+              className="bg-indigo-50 hover:bg-indigo-600 border border-indigo-100 hover:border-indigo-600 text-indigo-600 hover:text-white text-[10px] font-bold px-3 py-1 rounded-md flex items-center gap-1 transition-all shadow-xs"
+              title={nextStatusLabel}
+            >
+              {task.status === 'Done' ? 'Buka Lagi' : task.status === 'In Progress' ? 'Selesaikan' : 'Mulai'}
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

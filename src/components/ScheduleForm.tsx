@@ -523,37 +523,12 @@ export default function ScheduleForm({
         location: location || undefined
       });
 
-      // If new schedule had files queued, upload them to Google Drive now
-      if (savedId && pendingFiles.length > 0) {
-        setFileUploading(true);
-        for (const fileObj of pendingFiles) {
-          try {
-            const response = await fetch('/api/upload-drive', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                fileName: fileObj.name,
-                mimeType: fileObj.type,
-                base64Data: fileObj.base64,
-                clientName: clientName.trim() || 'Umum',
-                category: fileObj.category,
-                scheduleId: savedId
-              })
-            });
-            if (!response.ok) {
-              console.warn(`Failed to upload pending file to Google Drive: ${fileObj.name}`);
-            }
-          } catch (uploadErr) {
-            console.error('Pending upload error:', uploadErr);
-          }
-        }
-      }
+      // Schedule saved successfully — Google Drive integration removed
     } catch (err: any) {
       console.error(err);
       alert(`Gagal menyimpan plotting: ${err.message || err}`);
     } finally {
       setIsSaving(false);
-      setFileUploading(false);
     }
   };
 
@@ -1221,7 +1196,7 @@ export default function ScheduleForm({
         <button
           id="btn_submit_form"
           type="submit"
-          disabled={fileUploading || isSaving}
+          disabled={isSaving}
           className="w-full sm:w-auto px-5 py-2.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
         >
           {isSaving ? (
