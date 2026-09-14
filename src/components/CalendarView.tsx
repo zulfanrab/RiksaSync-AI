@@ -38,6 +38,7 @@ interface CalendarViewProps {
   onEditSchedule: (schedule: Schedule) => void;
   onDeleteSchedule: (id: string) => void;
   onQuickAddSchedule?: (dateStr: string) => void;
+  onUpdateScheduleStatus?: (id: string, newStatus: Schedule['status']) => void;
   scheduleFiles?: any[];
 }
 
@@ -51,6 +52,7 @@ export default function CalendarView({
   onEditSchedule,
   onDeleteSchedule,
   onQuickAddSchedule,
+  onUpdateScheduleStatus,
   scheduleFiles = []
 }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
@@ -1024,20 +1026,43 @@ export default function CalendarView({
                         </div>
                       )}
 
-                      {/* Action buttons */}
-                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex justify-end gap-2">
-                        <button
-                          onClick={() => onEditSchedule(s)}
-                          className="text-[9px] font-bold text-slate-600 hover:text-amber-700 bg-slate-50 px-2 py-1 rounded border border-slate-200 transition-all cursor-pointer"
-                        >
-                          Ubah
-                        </button>
-                        <button
-                          onClick={() => onDeleteSchedule(s.id)}
-                          className="text-[9px] font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded border border-rose-200 transition-all cursor-pointer"
-                        >
-                          Hapus
-                        </button>
+                      {/* Quick Status Selector & Reschedule Option */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1.5">
+                        {onUpdateScheduleStatus ? (
+                          <div className="flex items-center gap-1 text-[9px]">
+                            <span className="text-slate-400 font-bold">Status:</span>
+                            <select
+                              value={s.status}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                onUpdateScheduleStatus(s.id, e.target.value as Schedule['status']);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className={`text-[9px] font-bold py-0.5 px-1.5 rounded border cursor-pointer focus:outline-none transition-all ${getStatusColor(s.status)}`}
+                            >
+                              <option value="Draft">Draft</option>
+                              <option value="Scheduled">Scheduled</option>
+                              <option value="Completed">Completed</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                          </div>
+                        ) : <div />}
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => onEditSchedule(s)}
+                            className="text-[9px] font-bold text-slate-600 hover:text-amber-700 bg-slate-50 hover:bg-slate-100 px-2 py-1 rounded border border-slate-200 transition-all cursor-pointer"
+                            title="Reschedule / Edit Detail Jadwal"
+                          >
+                            Reschedule / Edit
+                          </button>
+                          <button
+                            onClick={() => onDeleteSchedule(s.id)}
+                            className="text-[9px] font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded border border-rose-200 transition-all cursor-pointer"
+                          >
+                            Hapus
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1300,27 +1325,48 @@ export default function CalendarView({
                         )}
 
                         {/* Action buttons inside Modal */}
-                        <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setActiveModalDate(null);
-                              onEditSchedule(s);
-                            }}
-                            className="text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200 transition-all flex items-center gap-1 cursor-pointer"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                            <span>Ubah Jadwal</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setActiveModalDate(null);
-                              onDeleteSchedule(s.id);
-                            }}
-                            className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl border border-rose-200 transition-all flex items-center gap-1 cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            <span>Hapus</span>
-                          </button>
+                        <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2">
+                          {onUpdateScheduleStatus ? (
+                            <div className="flex items-center gap-1.5 text-xs">
+                              <span className="text-slate-500 font-bold">Ubah Status Cepat:</span>
+                              <select
+                                value={s.status}
+                                onChange={(e) => {
+                                  onUpdateScheduleStatus(s.id, e.target.value as Schedule['status']);
+                                }}
+                                className={`text-xs font-bold py-1 px-2.5 rounded-xl border cursor-pointer focus:outline-none transition-all ${getStatusColor(s.status)}`}
+                              >
+                                <option value="Draft">Draft (Belum Pasti)</option>
+                                <option value="Scheduled">Scheduled (Terjadwal/Fix)</option>
+                                <option value="Completed">Completed (Selesai Inspeksi)</option>
+                                <option value="Cancelled">Cancelled (Batal)</option>
+                              </select>
+                            </div>
+                          ) : <div />}
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setActiveModalDate(null);
+                                onEditSchedule(s);
+                              }}
+                              className="text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200 transition-all flex items-center gap-1 cursor-pointer"
+                              title="Jadwalkan Ulang / Edit Informasi Jadwal"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                              <span>Reschedule / Ubah</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveModalDate(null);
+                                onDeleteSchedule(s.id);
+                              }}
+                              className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl border border-rose-200 transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Hapus</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>

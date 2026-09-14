@@ -568,6 +568,41 @@ CREATE TABLE IF NOT EXISTS schedule_files (
     setIsFormOpen(true);
   };
 
+  // Quick Status Update directly from Calendar without opening the full form
+  const handleUpdateScheduleStatus = async (id: string, newStatus: Schedule['status']) => {
+    try {
+      setIsRefreshing(true);
+      setActionError(null);
+
+      // Optimistic update local state immediately for instant feedback
+      setSchedules(prev => prev.map(s => s.id === id ? { ...s, status: newStatus, updated_by: activeUser || undefined } : s));
+
+      if (!id.startsWith('local-') && isSupabaseConfigured && supabase) {
+        const { error } = await supabase
+          .from('schedules')
+          .update({ status: newStatus, updated_by: activeUser || undefined })
+          .eq('id', id);
+
+        if (error) {
+          throw new Error(error.message);
+        }
+      } else {
+        const localSchedules = getLocalSchedules();
+        const updated = localSchedules.map(s => s.id === id ? { ...s, status: newStatus, updated_by: activeUser || undefined } : s);
+        saveLocalSchedules(updated);
+      }
+
+      setSummaryTrigger(p => p + 1);
+    } catch (err: any) {
+      console.warn('Failed to update schedule status:', err);
+      setActionError(`Gagal memperbarui status jadwal: ${err?.message || String(err)}`);
+      // Reload from DB if failed
+      loadAllData();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleQuickAddSchedule = (dateStr: string) => {
     setEditingSchedule({
       id: '', // Blank ID denotes custom quick template
@@ -910,6 +945,7 @@ CREATE TABLE IF NOT EXISTS schedule_files (
                 onEditSchedule={handleEditTrigger}
                 onDeleteSchedule={handleDeleteSchedule}
                 onQuickAddSchedule={handleQuickAddSchedule}
+                onUpdateScheduleStatus={handleUpdateScheduleStatus}
                 scheduleFiles={scheduleFiles}
               />
 
