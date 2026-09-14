@@ -29,7 +29,9 @@ export default function WhatsappDispatcher({
 
   const getSchedulesForDay = (dateStr: string): Schedule[] => {
     return schedules.filter(s => {
-      if (s.status === 'Cancelled') return false;
+      // Don't filter out cancelled, so they can be dispatched as well, or keep filtering?
+      // User said "tahu dan paham kalau misalkan si jadwal ini masih draft, jadwal ini udah fix, jadwal ini belum pasti, jadwal ini di reschedule (cancel)"
+      // So let's include Cancelled but clearly label them.
       return dateStr >= s.start_date && dateStr <= s.end_date;
     });
   };
@@ -94,7 +96,9 @@ export default function WhatsappDispatcher({
           ? (s.manual_agenda || 'Lainnya') 
           : s.agenda_type || 'Riksa Uji';
 
-        text += `*${idx + 1}. Klien: ${s.client_name}*\n`;
+        const statusLabel = s.status === 'Draft' ? 'DRAFT' : s.status === 'Scheduled' ? 'TERJADWAL' : s.status === 'Completed' ? 'SELESAI' : 'BATAL';
+
+        text += `*${idx + 1}. [${statusLabel}] Klien: ${s.client_name}*\n`;
         text += `• Kegiatan: ${agendaLabel}\n`;
         
         // Time
@@ -203,7 +207,9 @@ export default function WhatsappDispatcher({
           const lead = manpowerList.find(m => m.id === s.lead_expert_id);
           const leadName = lead ? lead.name : 'Belum Ditugaskan';
           
-          text += `• [${agendaLabel}] ${s.client_name} | Jam: ${timeStr} | Lead: ${leadName}\n`;
+          const statusLabel = s.status === 'Draft' ? 'DRAFT' : s.status === 'Scheduled' ? 'TERJADWAL' : s.status === 'Completed' ? 'SELESAI' : 'BATAL';
+          
+          text += `• [${statusLabel}] [${agendaLabel}] ${s.client_name} | Jam: ${timeStr} | Lead: ${leadName}\n`;
         });
         text += `\n`;
       }

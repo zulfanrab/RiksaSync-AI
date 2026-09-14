@@ -185,7 +185,7 @@ export default function CalendarView({
   // Check schedules on a given day
   const getSchedulesForDay = (dateStr: string): Schedule[] => {
     return schedules.filter(s => {
-      if (s.status === 'Cancelled') return false;
+      // Show all schedules, including cancelled
       return dateStr >= s.start_date && dateStr <= s.end_date;
     });
   };
@@ -208,6 +208,16 @@ export default function CalendarView({
       case 'P1': return 'bg-red-500';
       case 'P2': return 'bg-amber-500';
       case 'P3': return 'bg-emerald-500';
+    }
+  };
+
+  const getStatusColor = (status: Schedule['status']) => {
+    switch (status) {
+      case 'Draft': return 'bg-slate-100 border-slate-300 text-slate-700 border-dashed';
+      case 'Scheduled': return 'bg-blue-50 border-blue-300 text-blue-700';
+      case 'Completed': return 'bg-emerald-50 border-emerald-300 text-emerald-700';
+      case 'Cancelled': return 'bg-rose-50 border-rose-300 text-rose-700 line-through opacity-70';
+      default: return 'bg-slate-50 border-slate-200 text-slate-700';
     }
   };
 
@@ -526,6 +536,21 @@ export default function CalendarView({
           </div>
         </div>
 
+        {/* Status Legend */}
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-[9px] sm:text-[10px] mb-3 sm:mb-4 bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200">
+          <span className="font-extrabold text-slate-500 uppercase tracking-wider">Status Jadwal:</span>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-100 border border-slate-300 border-dashed"></span> Draft (Belum Pasti)</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-50 border border-blue-300"></span> Scheduled (Fix)</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-50 border border-emerald-300"></span> Completed (Selesai)</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-50 border border-rose-300"></span> Cancelled (Batal)</div>
+          <div className="flex items-center gap-1.5 ml-auto border-l border-slate-300 pl-3">
+            <span className="font-extrabold text-slate-500 uppercase tracking-wider mr-1">Prioritas:</span>
+            <span className="w-2 h-2 rounded-full bg-red-500" title="P1"></span> P1 
+            <span className="w-2 h-2 rounded-full bg-amber-500 ml-1" title="P2"></span> P2 
+            <span className="w-2 h-2 rounded-full bg-emerald-500 ml-1" title="P3"></span> P3
+          </div>
+        </div>
+
         {viewMode === 'monthly' ? (
           <>
             {/* Day labels */}
@@ -661,12 +686,15 @@ export default function CalendarView({
                                 onSelectDate(dateStr);
                                 setActiveModalDate(dateStr);
                               }}
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border truncate flex items-center justify-between gap-1 transition-all hover:scale-[1.01] hover:shadow-2xs cursor-pointer ${getPriorityColor(s.priority)}`}
-                              title={`${s.client_name} - Klik untuk rincian lengkap`}
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border truncate flex items-center justify-between gap-1 transition-all hover:scale-[1.01] hover:shadow-2xs cursor-pointer ${getStatusColor(s.status)}`}
+                              title={`${s.client_name} - Status: ${s.status} - Klik untuk rincian lengkap`}
                             >
-                              <span className="truncate">
-                                {iconPrefix} {s.client_name}
-                              </span>
+                              <div className="flex items-center gap-1 truncate">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getPriorityDot(s.priority)}`} />
+                                <span className="truncate">
+                                  {iconPrefix} {s.client_name}
+                                </span>
+                              </div>
                               {!isSidebarOpen && (
                                 <span className="text-[7.5px] opacity-80 font-mono shrink-0">
                                   {timeDisplay || s.priority}
@@ -796,13 +824,6 @@ export default function CalendarView({
                       daySchedules.map((s) => {
                         const leadExpert = manpowerList.find(m => m.id === s.lead_expert_id);
                         
-                        let agendaColor = 'border-emerald-200 bg-emerald-50/50 text-emerald-800';
-                        if (s.agenda_type === 'Survey') {
-                          agendaColor = 'border-indigo-200 bg-indigo-50/50 text-indigo-800';
-                        } else if (s.agenda_type === 'Lainnya') {
-                          agendaColor = 'border-slate-200 bg-slate-100/60 text-slate-700';
-                        }
-
                         const timeText = s.is_until_finished 
                           ? 'Selesai' 
                           : (s.start_time || s.end_time) 
@@ -817,8 +838,8 @@ export default function CalendarView({
                               onSelectDate(dateStr);
                               setActiveModalDate(dateStr);
                             }}
-                            className={`p-2 rounded-lg border text-[9px] leading-tight space-y-1 transition-all ${agendaColor} hover:border-slate-300 hover:shadow-xs cursor-pointer`}
-                            title={`${s.client_name} - Lead: ${leadExpert?.name || 'No Lead'}`}
+                            className={`p-2 rounded-lg border text-[9px] leading-tight space-y-1 transition-all ${getStatusColor(s.status)} hover:border-slate-400 hover:shadow-xs cursor-pointer`}
+                            title={`${s.client_name} - Status: ${s.status} - Lead: ${leadExpert?.name || 'No Lead'}`}
                           >
                             <div className="font-extrabold truncate text-slate-800">{s.client_name}</div>
                             <div className="flex items-center justify-between text-[8px] text-slate-500 font-medium">
@@ -1172,9 +1193,14 @@ export default function CalendarView({
                             </div>
                           </div>
 
-                          <span className={`text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-lg border shrink-0 ${getPriorityColor(s.priority)}`}>
-                            Prioritas {s.priority}
-                          </span>
+                          <div className="flex flex-col gap-1.5 shrink-0 items-end">
+                            <span className={`text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-lg border ${getStatusColor(s.status)}`}>
+                              Status: {s.status}
+                            </span>
+                            <span className={`text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-lg border ${getPriorityColor(s.priority)}`}>
+                              Prioritas {s.priority}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Meta details */}
