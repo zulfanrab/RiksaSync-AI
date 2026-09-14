@@ -619,19 +619,44 @@ CREATE TABLE IF NOT EXISTS schedule_files (
     setIsFormOpen(true);
   };
 
-  // Calculated widgets statistics - Moved here before early returns to comply with Rules of Hooks
+  // Calculated widgets statistics - Actionable Monthly & Daily Operational Breakdown
   const stats = React.useMemo(() => {
-    const active = schedules.filter(s => s.status === 'Scheduled');
-    const p1Count = active.filter(s => s.priority === 'P1').length;
-    const completed = schedules.filter(s => s.status === 'Completed').length;
-    
-    // Unique clients
+    const todayStr = new Date().toISOString().split('T')[0];
+    const currentMonthStr = todayStr.substring(0, 7); // YYYY-MM
+
+    // 1. Today's schedules
+    const todaySchedules = schedules.filter(s => 
+      s.start_date <= todayStr && s.end_date >= todayStr && s.status !== 'Cancelled'
+    );
+
+    // 2. Current Month schedules
+    const monthSchedules = schedules.filter(s => 
+      (s.start_date.startsWith(currentMonthStr) || s.end_date.startsWith(currentMonthStr)) && s.status !== 'Cancelled'
+    );
+    const monthCompleted = monthSchedules.filter(s => s.status === 'Completed').length;
+    const monthTotal = monthSchedules.length;
+    const monthProgressPct = monthTotal > 0 ? Math.round((monthCompleted / monthTotal) * 100) : 0;
+
+    // 3. Priority P1 active
+    const p1Count = schedules.filter(s => s.status === 'Scheduled' && s.priority === 'P1').length;
+
+    // 4. Manpower assigned today
+    const activeManpowerSet = new Set<string>();
+    todaySchedules.forEach(s => {
+      if (s.lead_expert_id) activeManpowerSet.add(s.lead_expert_id);
+      (s.support_ids || []).forEach(id => activeManpowerSet.add(id));
+    });
+
     const uniqueClients = new Set(schedules.map(s => s.client_name)).size;
 
     return {
-      activeCount: active.length,
+      todayCount: todaySchedules.length,
+      todaySchedules,
+      monthTotal,
+      monthCompleted,
+      monthProgressPct,
       p1Count,
-      completedCount: completed,
+      activeManpowerTodayCount: activeManpowerSet.size,
       uniqueClients
     };
   }, [schedules]);
@@ -881,48 +906,71 @@ CREATE TABLE IF NOT EXISTS schedule_files (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
               {/* Quick Stats Grid - Left 4 columns */}
               <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
-                {/* Stat 1 */}
-                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
+                {/* Stat 1: Agenda Hari Ini */}
+                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm relative overflow-hidden">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-emerald-50 border border-emerald-100 p-1.5 rounded-lg text-emerald-600">
                       <CalendarDays className="h-4 w-4" />
                     </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Inspeksi Aktif</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Agenda Hari Ini</span>
                   </div>
-                  <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none mt-1">{stats.activeCount}</p>
+                  <div className="mt-2">
+                    <p className="text-2xl font-black font-mono text-slate-800 tracking-tight leading-none">
+                      {stats.todayCount} <span className="text-xs font-sans text-slate-500 font-normal">Job</span>
+                    </p>
+                    <p className="text-[9px] text-emerald-600 font-medium mt-1 truncate">
+                      {stats.todayCount > 0 ? '● Aktif di lapangan' : 'Tidak ada agenda hari ini'}
+                    </p>
+                  </div>
                 </div>
 
-                {/* Stat 2 */}
-                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <div className="bg-red-50 border border-red-100 p-2 rounded-lg text-red-600">
+                {/* Stat 2: Agenda Bulan Ini & Progress % */}
+                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="bg-sky-50 border border-sky-100 p-1.5 rounded-lg text-sky-600">
+                        <CheckCircle2 className="h-4 w-4" />
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bulan Ini</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-sky-600 font-mono">{stats.monthProgressPct}%</span>
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none">
+                      {stats.monthCompleted}<span className="text-xs font-normal text-slate-400">/{stats.monthTotal} Selesai</span>
+                    </p>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-sky-500 h-full rounded-full transition-all duration-500" style={{ width: `${stats.monthProgressPct}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stat 3: Prioritas P1 Active */}
+                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-rose-50 border border-rose-100 p-1.5 rounded-lg text-rose-600">
                       <Shield className="h-4 w-4" />
                     </div>
                     <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
                   </div>
-                  <p className="text-xl font-black font-mono text-red-600 tracking-tight leading-none mt-1">{stats.p1Count}</p>
+                  <div className="mt-2">
+                    <p className="text-2xl font-black font-mono text-rose-600 tracking-tight leading-none">{stats.p1Count}</p>
+                    <p className="text-[9px] text-slate-400 font-medium mt-1">Job mendesak aktif</p>
+                  </div>
                 </div>
 
-                {/* Stat 3 */}
-                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <div className="bg-amber-50 border border-amber-100 p-2 rounded-lg text-amber-600">
-                      <Plus className="h-4 w-4" />
+                {/* Stat 4: Personil On-Site Hari Ini */}
+                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-amber-50 border border-amber-100 p-1.5 rounded-lg text-amber-600">
+                      <Users className="h-4 w-4" />
                     </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Klien</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Personil Lapangan</span>
                   </div>
-                  <p className="text-xl font-black font-mono text-amber-600 tracking-tight leading-none mt-1">{stats.uniqueClients}</p>
-                </div>
-
-                {/* Stat 4 */}
-                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col justify-center gap-2.5 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-lg text-emerald-600">
-                      <CheckCircle2 className="h-4 w-4" />
-                    </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Selesai Riksa</span>
+                  <div className="mt-2">
+                    <p className="text-2xl font-black font-mono text-amber-600 tracking-tight leading-none">{stats.activeManpowerTodayCount}</p>
+                    <p className="text-[9px] text-slate-400 font-medium mt-1">Bertugas hari ini</p>
                   </div>
-                  <p className="text-xl font-black font-mono text-emerald-600 tracking-tight leading-none mt-1">{stats.completedCount}</p>
                 </div>
               </div>
 
