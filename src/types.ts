@@ -61,8 +61,26 @@ export interface ManpowerAbsence {
   reason?: string;
 }
 
+export interface TeamTask {
+  id: string;
+  title: string;
+  description: string;
+  assignee_id: string; // References Manpower.id
+  due_date: string; // YYYY-MM-DD
+  due_time?: string; // HH:MM
+  priority: 'P1' | 'P2' | 'P3'; // P1: Tinggi (Red), P2: Sedang (Yellow), P3: Rendah (Green)
+  status: 'To Do' | 'In Progress' | 'Done';
+  category: 'Notulensi' | 'Laporan Bulanan' | 'Survey' | 'Lainnya';
+  recurrence: 'None' | 'Daily' | 'Weekly' | 'Monthly';
+  visibility: 'Public' | 'Private';
+  created_at: string;
+  created_by?: string;
+  updated_at?: string;
+}
+
 export interface DBState {
   manpower: Manpower[];
   units: Unit[];
   schedules: Schedule[];
+  tasks: TeamTask[];
 }

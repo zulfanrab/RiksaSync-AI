@@ -13,8 +13,8 @@ import ManpowerGrid from './components/ManpowerGrid';
 import ScheduleForm from './components/ScheduleForm';
 import ManpowerManagement from './components/ManpowerManagement';
 import WhatsappDispatcher from './components/WhatsappDispatcher';
-import DriveView from './components/DriveView';
-import { Manpower, Unit, Schedule, ManpowerAbsence } from './types';
+import TaskBoard from './components/TaskBoard';
+import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -111,8 +111,8 @@ export default function App() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [clients, setClients] = useState<{ id: string; client_name: string; pic_name: string; pic_phone: string }[]>([]);
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
-  const [scheduleFiles, setScheduleFiles] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'drive'>('calendar');
+  const [tasks, setTasks] = useState<TeamTask[]>([]);
+  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -244,17 +244,28 @@ INSERT INTO units (id, unit_name, required_skp) VALUES
   ('u7', 'Instalasi Listrik', 'Instalasi Listrik')
 ON CONFLICT (id) DO NOTHING;
 
--- 8. Create schedule_files table for Google Drive uploads
-CREATE TABLE IF NOT EXISTS schedule_files (
+-- 8. Create team_tasks table for Task Management feature
+CREATE TABLE IF NOT EXISTS team_tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  schedule_id UUID REFERENCES schedules(id) ON DELETE CASCADE,
-  file_name TEXT NOT NULL,
-  file_size INTEGER NOT NULL,
-  category TEXT NOT NULL CHECK (category IN ('Sertifikat', 'Foto Lapangan', 'Laporan Riksa', 'Dokumen Pendukung', 'Lainnya')),
-  google_drive_link TEXT NOT NULL,
-  google_file_id TEXT NOT NULL,
-  uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);`;
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  assignee_id TEXT NOT NULL REFERENCES manpower(id) ON DELETE CASCADE,
+  due_date TEXT NOT NULL,
+  due_time TEXT,
+  priority TEXT NOT NULL CHECK (priority IN ('P1', 'P2', 'P3')),
+  status TEXT NOT NULL CHECK (status IN ('To Do', 'In Progress', 'Done')),
+  category TEXT NOT NULL CHECK (category IN ('Notulensi', 'Laporan Bulanan', 'Survey', 'Lainnya')),
+  recurrence TEXT NOT NULL DEFAULT 'None' CHECK (recurrence IN ('None', 'Daily', 'Weekly', 'Monthly')),
+  visibility TEXT NOT NULL DEFAULT 'Public' CHECK (visibility IN ('Public', 'Private')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  created_by TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Note for existing DB:
+-- ALTER TABLE team_tasks ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'None' CHECK (recurrence IN ('None', 'Daily', 'Weekly', 'Monthly'));
+-- ALTER TABLE team_tasks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'Public' CHECK (visibility IN ('Public', 'Private'));
+`;
 
   const handleCopySql = () => {
     if (navigator.clipboard) {
@@ -296,7 +307,7 @@ CREATE TABLE IF NOT EXISTS schedule_files (
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, scheduleFilesRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
         supabase.from('schedules').select('*'),
@@ -316,7 +327,7 @@ CREATE TABLE IF NOT EXISTS schedule_files (
         })(),
         (async () => {
           try {
-            return await supabase.from('schedule_files').select('*');
+            return await supabase.from('team_tasks').select('*');
           } catch (e) {
             return { data: [], error: e } as any;
           }
@@ -387,14 +398,14 @@ CREATE TABLE IF NOT EXISTS schedule_files (
         }
       }
 
-      const filesData = scheduleFilesRes && !scheduleFilesRes.error ? (scheduleFilesRes.data || []) : [];
+      const tasksData = tasksRes && !tasksRes.error ? (tasksRes.data || []) : [];
 
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
       setClients(clientsData);
       setAbsences(absencesData as ManpowerAbsence[]);
-      setScheduleFiles(filesData);
+      setTasks(tasksData);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
@@ -876,7 +887,6 @@ CREATE TABLE IF NOT EXISTS schedule_files (
           </div>
         </div>
 
-        {/* Main Tab System */}
         <div className="flex items-center gap-1.5 border-b border-slate-200 pb-px overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab('calendar')}
@@ -889,20 +899,20 @@ CREATE TABLE IF NOT EXISTS schedule_files (
             🗓️ Kalender & Plotting
           </button>
           <button
-            onClick={() => setActiveTab('drive')}
+            onClick={() => setActiveTab('tasks')}
             className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
-              activeTab === 'drive'
-                ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
+              activeTab === 'tasks'
+                ? 'border-indigo-600 bg-white text-indigo-700 shadow-xs'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            📁 RiksaSync Drive (Google Drive)
+            📝 Workspace & Tugas
           </button>
         </div>
 
         {activeTab === 'calendar' ? (
           <>
-            {/* Dashboard Analytics & Summary Bento Row */}
+          {/* Dashboard Analytics & Summary Bento Row */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
               {/* Quick Stats Grid - Left 4 columns */}
               <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
@@ -994,7 +1004,6 @@ CREATE TABLE IF NOT EXISTS schedule_files (
                 onDeleteSchedule={handleDeleteSchedule}
                 onQuickAddSchedule={handleQuickAddSchedule}
                 onUpdateScheduleStatus={handleUpdateScheduleStatus}
-                scheduleFiles={scheduleFiles}
               />
 
               {/* Manpower & WhatsApp Dispatcher Row */}
@@ -1020,12 +1029,14 @@ CREATE TABLE IF NOT EXISTS schedule_files (
             </div>
           </>
         ) : (
-          <DriveView
-            schedules={schedules}
-            clients={clients}
-            scheduleFiles={scheduleFiles}
-            onRefreshAll={loadAllData}
-          />
+          <div className="h-full flex-1">
+            <TaskBoard
+              tasks={tasks}
+              manpowerList={manpowerList}
+              activeUser={activeUser}
+              onRefreshAll={loadAllData}
+            />
+          </div>
         )}
       </main>
 

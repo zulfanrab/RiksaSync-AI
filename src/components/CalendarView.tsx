@@ -24,7 +24,7 @@ import {
   ExternalLink, 
   Eye 
 } from 'lucide-react';
-import { Schedule, Unit, Manpower, ManpowerAbsence } from '../types';
+import { Schedule, Unit, Manpower, ManpowerAbsence, TeamTask } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -33,13 +33,13 @@ interface CalendarViewProps {
   units: Unit[];
   manpowerList: Manpower[];
   absences: ManpowerAbsence[];
+  tasks: TeamTask[];
   selectedDate: string; // YYYY-MM-DD
   onSelectDate: (dateStr: string) => void;
   onEditSchedule: (schedule: Schedule) => void;
   onDeleteSchedule: (id: string) => void;
   onQuickAddSchedule?: (dateStr: string) => void;
   onUpdateScheduleStatus?: (id: string, newStatus: Schedule['status']) => void;
-  scheduleFiles?: any[];
 }
 
 export default function CalendarView({
@@ -47,13 +47,13 @@ export default function CalendarView({
   units,
   manpowerList,
   absences = [],
+  tasks = [],
   selectedDate,
   onSelectDate,
   onEditSchedule,
   onDeleteSchedule,
   onQuickAddSchedule,
-  onUpdateScheduleStatus,
-  scheduleFiles = []
+  onUpdateScheduleStatus
 }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'monthly' | 'weekly'>('monthly');
@@ -573,6 +573,7 @@ export default function CalendarView({
                 const isToday = formatDateString(new Date()) === dateStr;
                 const daySchedules = getSchedulesForDay(dateStr);
                 const dayAbsences = absences.filter(a => a.date === dateStr);
+                const dayTasks = tasks.filter(t => t.due_date === dateStr);
 
                 return (
                   <div
@@ -640,8 +641,14 @@ export default function CalendarView({
                         )}
 
                         {daySchedules.length > 0 && (
-                          <span className="text-[8px] sm:text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded-full border border-slate-200 font-extrabold shrink-0">
+                          <span className="text-[8px] sm:text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded-full border border-slate-200 font-extrabold shrink-0" title="Plotting Agenda">
                             {daySchedules.length}
+                          </span>
+                        )}
+
+                        {dayTasks.length > 0 && (
+                          <span className="text-[8px] sm:text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded-full border border-indigo-200 font-extrabold shrink-0" title="Deadline Tugas">
+                            T {dayTasks.length}
                           </span>
                         )}
                       </div>
@@ -658,6 +665,11 @@ export default function CalendarView({
                             {daySchedules.length}
                           </span>
                         )}
+                        {dayTasks.length > 0 && (
+                          <span className="text-[8px] leading-none bg-indigo-600 text-white font-extrabold px-1.5 py-0.2 rounded-full">
+                            {dayTasks.length}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -670,6 +682,13 @@ export default function CalendarView({
                             key={s.id}
                             className={`w-1.5 h-1.5 rounded-full ${getPriorityDot(s.priority)}`}
                             title={`${s.client_name} (${s.priority})`}
+                          />
+                        ))}
+                        {dayTasks.map((t) => (
+                          <span
+                            key={`task-${t.id}`}
+                            className="w-1.5 h-1.5 rounded-full bg-indigo-500"
+                            title={`${t.title}`}
                           />
                         ))}
                       </div>
@@ -705,6 +724,15 @@ export default function CalendarView({
                             </div>
                           );
                         })}
+                        {dayTasks.slice(0, 2).map((t) => (
+                          <div
+                            key={`task-${t.id}`}
+                            className="text-[9px] font-bold px-1.5 py-0.5 rounded-md border truncate bg-indigo-50 border-indigo-100 text-indigo-700"
+                            title={t.title}
+                          >
+                            📝 {t.title}
+                          </div>
+                        ))}
 
                         {/* Interactive "+N lagi" indicator badge */}
                         {daySchedules.length > maxBadgesShown && (
@@ -987,32 +1015,6 @@ export default function CalendarView({
                         </div>
                       </div>
 
-                      {/* Google Drive Linked Files */}
-                      {(() => {
-                        const files = (scheduleFiles || []).filter(f => f.schedule_id === s.id);
-                        if (files.length === 0) return null;
-                        return (
-                          <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
-                            <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-wider block">Dokumen Google Drive:</span>
-                            <div className="grid grid-cols-1 gap-1">
-                              {files.map(file => (
-                                <a
-                                  key={file.id}
-                                  href={file.google_drive_link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-1.5 p-1 bg-emerald-50/50 hover:bg-emerald-100/50 text-[10px] text-emerald-800 font-semibold border border-emerald-100 rounded-lg truncate transition-all active:scale-95"
-                                  title={`${file.file_name} (${file.category})`}
-                                >
-                                  <span className="shrink-0 text-xs">📁</span>
-                                  <span className="truncate flex-1 text-[9px]">{file.file_name}</span>
-                                  <span className="text-[7px] bg-emerald-100 text-emerald-800 px-1 rounded uppercase font-bold shrink-0">{file.category}</span>
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()}
 
                       {/* Log creator/updater */}
                       {(s.created_by || s.updated_by) && (
@@ -1102,6 +1104,45 @@ export default function CalendarView({
                               "{abs.reason}"
                             </span>
                           )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Tugas Hari Ini Section */}
+          {(() => {
+            const selectedDayTasks = tasks.filter(t => t.due_date === selectedDate);
+            if (selectedDayTasks.length === 0) return null;
+            return (
+              <div className="mt-4 pt-4 border-t border-slate-150">
+                <h4 className="font-bold text-slate-800 text-[10px] uppercase tracking-wider flex items-center gap-1.5 mb-2.5">
+                  <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0" />
+                  <span>Tugas Tim ({selectedDayTasks.length})</span>
+                </h4>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                  {selectedDayTasks.map(task => {
+                    const assignee = manpowerList.find(m => m.id === task.assignee_id);
+                    return (
+                      <div key={`side-task-${task.id}`} className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm flex flex-col gap-1.5">
+                        <div className="flex justify-between items-start">
+                          <span className="font-bold text-xs text-indigo-700">{task.title}</span>
+                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${task.priority === 'P1' ? 'bg-rose-100 text-rose-700' : task.priority === 'P2' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {task.priority}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 line-clamp-2 leading-tight">{task.description}</p>
+                        <div className="flex justify-between items-center mt-1">
+                          <div className="flex items-center gap-1 text-[9px] text-slate-600 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            {assignee?.name || 'Unknown'}
+                          </div>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${task.status === 'Done' ? 'bg-emerald-50 text-emerald-600' : task.status === 'In Progress' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+                            {task.status}
+                          </span>
                         </div>
                       </div>
                     );
@@ -1286,31 +1327,6 @@ export default function CalendarView({
                           </div>
                         </div>
 
-                        {/* Google Drive Attachments */}
-                        {(() => {
-                          const files = (scheduleFiles || []).filter(f => f.schedule_id === s.id);
-                          if (files.length === 0) return null;
-                          return (
-                            <div className="mt-2.5 pt-2 border-t border-slate-200/60 space-y-1.5">
-                              <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider block">Dokumen Google Drive Terlampir:</span>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                {files.map(file => (
-                                  <a
-                                    key={file.id}
-                                    href={file.google_drive_link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-2 p-2 bg-emerald-50/80 hover:bg-emerald-100 text-xs text-emerald-900 font-semibold border border-emerald-200 rounded-xl transition-all cursor-pointer truncate active:scale-95"
-                                  >
-                                    <span className="shrink-0">📁</span>
-                                    <span className="truncate flex-1 font-bold">{file.file_name}</span>
-                                    <ExternalLink className="h-3 w-3 text-emerald-700 shrink-0" />
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })()}
 
                         {/* Log signature */}
                         {(s.created_by || s.updated_by) && (
@@ -1408,6 +1424,45 @@ export default function CalendarView({
                 );
               })()}
             </div>
+
+            {/* Mobile Modal - Tugas Hari Ini Section */}
+            {(() => {
+              const modalDayTasks = tasks.filter(t => t.due_date === activeModalDate);
+              if (modalDayTasks.length === 0) return null;
+              return (
+                <div className="mt-5 pt-4 border-t border-slate-200 px-4 sm:px-6">
+                  <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2 mb-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 shrink-0" />
+                    <span>Tugas Tim ({modalDayTasks.length})</span>
+                  </h4>
+                  <div className="grid grid-cols-1 gap-2">
+                    {modalDayTasks.map(task => {
+                      const assignee = manpowerList.find(m => m.id === task.assignee_id);
+                      return (
+                        <div key={`modal-task-${task.id}`} className="bg-indigo-50/30 p-3 rounded-xl border border-indigo-100 flex flex-col gap-1.5">
+                          <div className="flex justify-between items-start">
+                            <span className="font-bold text-xs text-indigo-700">{task.title}</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${task.priority === 'P1' ? 'bg-rose-100 text-rose-700 border-rose-200' : task.priority === 'P2' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                              {task.priority}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-tight">{task.description}</p>
+                          <div className="flex justify-between items-center mt-1 border-t border-indigo-100/50 pt-1.5">
+                            <div className="flex items-center gap-1.5 text-[9px] text-slate-600 font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-300" />
+                              {assignee?.name || 'Unknown'}
+                            </div>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${task.status === 'Done' ? 'bg-emerald-50 text-emerald-600' : task.status === 'In Progress' ? 'bg-amber-50 text-amber-600' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                              {task.status}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Modal Footer */}
             <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2.5">
