@@ -421,8 +421,16 @@ CREATE TABLE IF NOT EXISTS quick_links (
         }
       }
 
-      const tasksData = tasksRes && !tasksRes.error ? (tasksRes.data || []) : [];
-      const quickLinksData = quickLinksRes && !quickLinksRes.error ? (quickLinksRes.data || []) : [];
+      let quickLinksData = quickLinksRes && !quickLinksRes.error && Array.isArray(quickLinksRes.data) ? quickLinksRes.data : [];
+      const localLinksStr = localStorage.getItem('local_quick_links');
+      if (localLinksStr) {
+        try {
+          const parsed = JSON.parse(localLinksStr);
+          const urls = new Set(quickLinksData.map((l: any) => l.url));
+          const uniqueLocal = parsed.filter((l: any) => !urls.has(l.url));
+          quickLinksData = [...quickLinksData, ...uniqueLocal];
+        } catch (e) {}
+      }
 
       setManpowerList(manpowerData);
       setUnits(unitsData);
@@ -761,7 +769,7 @@ CREATE TABLE IF NOT EXISTS quick_links (
                 setDbError(null);
                 loadAllData();
               }}
-              className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-5 py-3 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+              className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-4 py-3 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
             >
               <RefreshCcw className="h-4 w-4 animate-spin-reverse" />
               Coba Hubungkan Kembali
@@ -769,9 +777,17 @@ CREATE TABLE IF NOT EXISTS quick_links (
             <button
               onClick={() => {
                 setDbError(null);
+              }}
+              className="flex-1 flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs px-4 py-3 rounded-xl border border-emerald-200 transition-all active:scale-95 cursor-pointer"
+            >
+              Lanjutkan Mode Offline / Lokal
+            </button>
+            <button
+              onClick={() => {
+                setDbError(null);
                 logout();
               }}
-              className="flex-1 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
+              className="flex-none flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl border border-slate-200 transition-all active:scale-95 cursor-pointer"
             >
               Keluar Sesi
             </button>

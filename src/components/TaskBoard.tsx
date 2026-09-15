@@ -431,23 +431,63 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
     e.preventDefault();
     if (!linkTitle || !linkUrl) return;
     setIsSaving(true);
+
+    const newLink: QuickLink = {
+      id: 'ql-' + Date.now(),
+      title: linkTitle.trim(),
+      url: linkUrl.startsWith('http') ? linkUrl.trim() : `https://${linkUrl.trim()}`,
+      emoji: linkEmoji || '🔗',
+      created_by: activeUser || 'System',
+      created_at: new Date().toISOString()
+    };
+
     try {
+      // 1. Try to save to Supabase
       const { error } = await supabase.from('quick_links').insert([{
-        title: linkTitle,
-        url: linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`,
-        emoji: linkEmoji || '🔗',
-        created_by: activeUser || 'System'
+        title: newLink.title,
+        url: newLink.url,
+        emoji: newLink.emoji,
+        created_by: newLink.created_by
       }]);
-      if (error) throw error;
+
+      if (error) {
+        console.warn('Supabase quick_links insert note (saved locally):', error.message);
+        const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
+        localStorage.setItem('local_quick_links', JSON.stringify([newLink, ...local]));
+      }
+
       await onRefreshAll();
       setIsLinkModalOpen(false);
       setLinkTitle('');
       setLinkUrl('');
       setLinkEmoji('🔗');
     } catch (err: any) {
-      alert(`Gagal menyimpan link: ${err.message}`);
+      console.warn('Fallback save quick link locally:', err);
+      const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
+      localStorage.setItem('local_quick_links', JSON.stringify([newLink, ...local]));
+      await onRefreshAll();
+      setIsLinkModalOpen(false);
+      setLinkTitle('');
+      setLinkUrl('');
+      setLinkEmoji('🔗');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeleteQuickLink = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm('Hapus tautan ini?')) return;
+    try {
+      if (!id.startsWith('ql-')) {
+        await supabase.from('quick_links').delete().eq('id', id);
+      }
+      const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
+      localStorage.setItem('local_quick_links', JSON.stringify(local.filter((l: any) => l.id !== id)));
+      await onRefreshAll();
+    } catch (err) {
+      console.warn('Delete quick link error:', err);
     }
   };
 
@@ -546,17 +586,28 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
         <div className="h-4 w-px bg-slate-300 mx-1 shrink-0" />
         
         {quickLinks.map(link => (
-          <a
+          <div
             key={link.id}
-            href={link.url}
-            target="_blank"
-            rel="noopener noreferrer"
             className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-xs px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-indigo-700 transition-all shrink-0 group"
           >
-            <span>{link.emoji}</span>
-            <span>{link.title}</span>
-            <ExternalLink className="h-3 w-3 text-slate-400 group-hover:text-indigo-500" />
-          </a>
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5"
+            >
+              <span>{link.emoji}</span>
+              <span>{link.title}</span>
+              <ExternalLink className="h-3 w-3 text-slate-400 group-hover:text-indigo-500" />
+            </a>
+            <button
+              onClick={(e) => handleDeleteQuickLink(link.id, e)}
+              className="opacity-0 group-hover:opacity-100 hover:text-rose-600 text-slate-400 p-0.5 rounded transition-all cursor-pointer"
+              title="Hapus tautan ini"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
         ))}
 
         <button
