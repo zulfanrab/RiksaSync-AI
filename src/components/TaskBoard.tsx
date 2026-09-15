@@ -171,6 +171,12 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Check if current user can edit the task
+  const canEdit = useMemo(() => {
+    if (!editingTask) return true;
+    return activeUser === 'Zulfan' || editingTask.created_by === activeUser;
+  }, [editingTask, activeUser]);
+
   // Quick Link Modal State
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [linkTitle, setLinkTitle] = useState('');
@@ -962,8 +968,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
                 <div>
                   <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                    {editingTask ? <EditIcon className="h-5 w-5 text-indigo-600" /> : <Plus className="h-5 w-5 text-indigo-600" />}
-                    {editingTask ? 'Edit Detail Tugas' : 'Buat Tugas / Notulensi Baru'}
+                    {editingTask ? (canEdit ? <EditIcon className="h-5 w-5 text-indigo-600" /> : <Search className="h-5 w-5 text-indigo-600" />) : <Plus className="h-5 w-5 text-indigo-600" />}
+                    {editingTask ? (canEdit ? 'Edit Detail Tugas' : 'Detail Tugas (View Only)') : 'Buat Tugas / Notulensi Baru'}
                   </h3>
                   {editingTask && (
                     <p className="text-[11px] text-slate-400 mt-0.5">
@@ -986,7 +992,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       type="text"
                       value={title}
                       onChange={e => setTitle(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all font-semibold"
+                      disabled={!canEdit}
+                      className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all font-semibold ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                       placeholder="Contoh: Buat Surat Pengantar Riksa Uji PT ABC"
                       required
                     />
@@ -1002,79 +1009,82 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       <span className="text-[10px] text-slate-400">Tekan Enter pada list untuk auto-numbering</span>
                     </div>
 
-                    {/* Format Toolbar */}
-                    <div className="bg-slate-100 border border-slate-200 border-b-0 rounded-t-xl px-2.5 py-1.5 flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => insertFormatting('• ')}
-                        className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                        title="Buat Daftar Poin (Bullet List)"
-                      >
-                        <List className="h-3.5 w-3.5" />
-                        <span>Pointing</span>
-                      </button>
+                    {/* Format Toolbar - Only show if can Edit */}
+                    {canEdit && (
+                      <div className="bg-slate-100 border border-slate-200 border-b-0 rounded-t-xl px-2.5 py-1.5 flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => insertFormatting('• ')}
+                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
+                          title="Buat Daftar Poin (Bullet List)"
+                        >
+                          <List className="h-3.5 w-3.5" />
+                          <span>Pointing</span>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => insertFormatting('1. ')}
-                        className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                        title="Buat Daftar Bernomor (Numbered List)"
-                      >
-                        <ListOrdered className="h-3.5 w-3.5" />
-                        <span>Numbering</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => insertFormatting('1. ')}
+                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
+                          title="Buat Daftar Bernomor (Numbered List)"
+                        >
+                          <ListOrdered className="h-3.5 w-3.5" />
+                          <span>Numbering</span>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => insertFormatting('☐ ')}
-                        className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                        title="Buat To-Do Checklist"
-                      >
-                        <CheckSquare className="h-3.5 w-3.5" />
-                        <span>Checklist</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => insertFormatting('☐ ')}
+                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
+                          title="Buat To-Do Checklist"
+                        >
+                          <CheckSquare className="h-3.5 w-3.5" />
+                          <span>Checklist</span>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => insertFormatting('**', '**')}
-                        className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-extrabold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                        title="Teks Tebal (Bold)"
-                      >
-                        <Bold className="h-3.5 w-3.5" />
-                        <span>Tebal</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => insertFormatting('**', '**')}
+                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-extrabold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
+                          title="Teks Tebal (Bold)"
+                        >
+                          <Bold className="h-3.5 w-3.5" />
+                          <span>Tebal</span>
+                        </button>
 
-                      <div className="h-4 w-px bg-slate-300 mx-1" />
+                        <div className="h-4 w-px bg-slate-300 mx-1" />
 
-                      {/* Template Cepat */}
-                      <button
-                        type="button"
-                        onClick={() => insertTemplate('notulensi')}
-                        className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                        title="Sisipkan Format Notulensi Rapat"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        Template Notulensi
-                      </button>
+                        {/* Template Cepat */}
+                        <button
+                          type="button"
+                          onClick={() => insertTemplate('notulensi')}
+                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                          title="Sisipkan Format Notulensi Rapat"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          Template Notulensi
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => insertTemplate('instruksi')}
-                        className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                        title="Sisipkan Format Tugas Kerja"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        Template Tugas
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => insertTemplate('instruksi')}
+                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                          title="Sisipkan Format Tugas Kerja"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          Template Tugas
+                        </button>
+                      </div>
+                    )}
 
                     <textarea
                       ref={textareaRef}
                       value={description}
                       onChange={e => setDescription(e.target.value)}
                       onKeyDown={handleKeyDownDescription}
+                      disabled={!canEdit}
                       rows={6}
-                      className="w-full bg-white border border-slate-200 rounded-b-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all font-sans leading-relaxed"
+                      className={`w-full bg-white border border-slate-200 ${canEdit ? 'rounded-b-xl' : 'rounded-xl'} px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all font-sans leading-relaxed ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                       placeholder="Tuliskan poin-poin notulensi rapat, daftar pemeriksaan, instruksi kerja, atau nomor surat..."
                       required
                     />
@@ -1100,6 +1110,7 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                             key={m.id}
                             type="button"
                             onClick={() => {
+                              if (!canEdit) return;
                               if (isSelected) {
                                 if (assigneeIds.length > 1) {
                                   setAssigneeIds(assigneeIds.filter(id => id !== m.id));
@@ -1108,11 +1119,12 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                                 setAssigneeIds([...assigneeIds, m.id]);
                               }
                             }}
+                            disabled={!canEdit}
                             className={`flex items-center gap-2 p-2 rounded-lg text-left text-xs transition-all border ${
                               isSelected
                                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
-                            }`}
+                                : 'bg-white text-slate-700 border-slate-200'
+                            } ${canEdit && !isSelected ? 'hover:border-indigo-300' : ''} ${!canEdit ? 'cursor-not-allowed opacity-80' : ''}`}
                           >
                             <div className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0 border ${isSelected ? 'bg-white text-indigo-600 border-white' : 'border-slate-300 bg-slate-50'}`}>
                               {isSelected ? '✓' : ''}
@@ -1136,7 +1148,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       <select
                         value={category}
                         onChange={e => setCategory(e.target.value as TaskCategory)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium"
+                        disabled={!canEdit}
+                        className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                       >
                         {TASK_CATEGORIES.map(c => (
                           <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
@@ -1149,7 +1162,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       <select
                         value={priority}
                         onChange={e => setPriority(e.target.value as any)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium"
+                        disabled={!canEdit}
+                        className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                       >
                         <option value="P1">🔴 P1 - Tinggi (Mendesak)</option>
                         <option value="P2">🟡 P2 - Sedang (Normal)</option>
@@ -1162,7 +1176,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       <select
                         value={recurrence}
                         onChange={e => setRecurrence(e.target.value as any)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium"
+                        disabled={!canEdit}
+                        className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                       >
                         <option value="None">Tidak Diulang</option>
                         <option value="Daily">Harian</option>
@@ -1186,7 +1201,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                           type="date"
                           value={dueDate}
                           onChange={e => setDueDate(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium"
+                          disabled={!canEdit}
+                          className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                           required
                         />
                       </div>
@@ -1196,7 +1212,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                           type="time"
                           value={dueTime}
                           onChange={e => setDueTime(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium"
+                          disabled={!canEdit}
+                          className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                         />
                       </div>
                     </div>
@@ -1206,7 +1223,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       <select
                         value={visibility}
                         onChange={e => setVisibility(e.target.value as any)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium"
+                        disabled={!canEdit}
+                        className={`w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500 font-medium ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
                       >
                         <option value="Public">Public (Semua Tim)</option>
                         <option value="Private">Private (Hanya PIC)</option>
@@ -1226,15 +1244,17 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
               <div className="p-5 border-t border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                 {editingTask ? (
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTask(editingTask.id)}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1.5 px-3 py-2 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
-                      disabled={isSaving}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Hapus
-                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(editingTask.id)}
+                        className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1.5 px-3 py-2 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                        disabled={isSaving}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Hapus
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleSendWhatsappReminder(editingTask)}
@@ -1242,29 +1262,67 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                       title="Kirim pengingat WhatsApp ke penerima tugas"
                     >
                       <Send className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>Kirim Pengingat WA</span>
+                      <span className="hidden sm:inline">Kirim Pengingat WA</span>
                     </button>
                   </div>
                 ) : <div />}
                 
-                <div className="flex gap-3">
+                <div className="flex gap-2 sm:gap-3 items-center">
+                  {/* Status Actions for Assignees in View-Only Mode */}
+                  {!canEdit && editingTask && editingTask.status !== 'Done' && editingTask.status !== 'Cancelled' && (
+                    <div className="flex items-center gap-2 mr-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const reason = window.prompt("Masukkan alasan mengapa tugas ini dibatalkan atau gagal:");
+                          if (reason !== null && reason.trim() !== '') {
+                            handleUpdateStatus(editingTask.id, 'Cancelled', reason.trim());
+                            setIsModalOpen(false);
+                          }
+                        }}
+                        className="px-3 py-2 text-[11px] font-bold text-rose-500 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-xl transition-all shadow-xs"
+                      >
+                        Batal
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextMap: Record<string, 'To Do' | 'In Progress' | 'Done'> = {
+                            'To Do': 'In Progress',
+                            'In Progress': 'Done',
+                            'Done': 'To Do'
+                          };
+                          handleUpdateStatus(editingTask.id, nextMap[editingTask.status]);
+                          setIsModalOpen(false);
+                        }}
+                        className="px-4 py-2 text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-xs flex items-center gap-1"
+                      >
+                        <span>{editingTask.status === 'In Progress' ? 'Selesaikan' : 'Mulai Kerjakan'}</span>
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/60 rounded-xl transition-all"
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/60 rounded-xl transition-all"
                     disabled={isSaving}
                   >
-                    Batal
+                    Tutup
                   </button>
-                  <button
-                    type="submit"
-                    form="task-form"
-                    disabled={isSaving}
-                    className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
-                  >
-                    {isSaving ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    {editingTask ? 'Simpan Perubahan' : 'Buat Tugas'}
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="submit"
+                      form="task-form"
+                      disabled={isSaving}
+                      className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                    >
+                      {isSaving ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      {editingTask ? 'Simpan' : 'Buat'}
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>
