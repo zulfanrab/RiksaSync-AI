@@ -432,6 +432,17 @@ CREATE TABLE IF NOT EXISTS quick_links (
         } catch (e) {}
       }
 
+      let tasksData = tasksRes && !tasksRes.error && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+      const localTasksStr = localStorage.getItem('local_team_tasks');
+      if (localTasksStr) {
+        try {
+          const parsed = JSON.parse(localTasksStr);
+          const ids = new Set(tasksData.map((t: any) => t.id));
+          const uniqueLocal = parsed.filter((t: any) => !ids.has(t.id));
+          tasksData = [...tasksData, ...uniqueLocal];
+        } catch (e) {}
+      }
+
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
