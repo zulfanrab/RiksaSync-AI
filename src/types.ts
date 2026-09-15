@@ -61,16 +61,27 @@ export interface ManpowerAbsence {
   reason?: string;
 }
 
+export type TaskCategory = 
+  | 'Notulensi' 
+  | 'Laporan Bulanan' 
+  | 'Buat Surat' 
+  | 'Ketemu Klien' 
+  | 'Riksa Uji' 
+  | 'Survey' 
+  | 'Follow-up' 
+  | 'Lainnya';
+
 export interface TeamTask {
   id: string;
   title: string;
   description: string;
-  assignee_id: string; // References Manpower.id
+  assignee_id: string; // References Manpower.id (primary or first assignee)
+  assignee_ids?: string[]; // Multiple assignees (array of Manpower.id)
   due_date: string; // YYYY-MM-DD
   due_time?: string; // HH:MM
   priority: 'P1' | 'P2' | 'P3'; // P1: Tinggi (Red), P2: Sedang (Yellow), P3: Rendah (Green)
   status: 'To Do' | 'In Progress' | 'Done' | 'Cancelled';
-  category: 'Notulensi' | 'Laporan Bulanan' | 'Survey' | 'Lainnya';
+  category: TaskCategory | string;
   recurrence: 'None' | 'Daily' | 'Weekly' | 'Monthly';
   visibility: 'Public' | 'Private';
   cancel_reason?: string;

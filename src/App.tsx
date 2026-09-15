@@ -251,11 +251,12 @@ CREATE TABLE IF NOT EXISTS team_tasks (
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   assignee_id TEXT NOT NULL REFERENCES manpower(id) ON DELETE CASCADE,
+  assignee_ids TEXT[] DEFAULT '{}',
   due_date TEXT NOT NULL,
   due_time TEXT,
   priority TEXT NOT NULL CHECK (priority IN ('P1', 'P2', 'P3')),
   status TEXT NOT NULL DEFAULT 'To Do' CHECK (status IN ('To Do', 'In Progress', 'Done', 'Cancelled')),
-  category TEXT NOT NULL CHECK (category IN ('Notulensi', 'Laporan Bulanan', 'Survey', 'Lainnya')),
+  category TEXT NOT NULL DEFAULT 'Lainnya',
   recurrence TEXT NOT NULL DEFAULT 'None' CHECK (recurrence IN ('None', 'Daily', 'Weekly', 'Monthly')),
   visibility TEXT NOT NULL DEFAULT 'Public' CHECK (visibility IN ('Public', 'Private')),
   cancel_reason TEXT,
@@ -276,8 +277,10 @@ CREATE TABLE IF NOT EXISTS quick_links (
 
 -- Note for EXISTING DB (jika tabel sudah ada):
 -- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+-- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS assignee_ids TEXT[] DEFAULT '{}';
 -- ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_status_check;
 -- ALTER TABLE team_tasks ADD CONSTRAINT team_tasks_status_check CHECK (status IN ('To Do', 'In Progress', 'Done', 'Cancelled'));
+-- ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
 `;
 
   const handleCopySql = () => {
