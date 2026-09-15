@@ -5,9 +5,10 @@ import {
   Plus, Clock, User, Users, AlertCircle, AlertTriangle, CheckCircle2, 
   ChevronRight, X, Loader, Trash2, Calendar, FileText, Link as LinkIcon, 
   ExternalLink, Archive, LayoutDashboard, Search, Bold, List, 
-  ListOrdered, CheckSquare, Sparkles, Filter 
+  ListOrdered, CheckSquare, Sparkles, Filter, Bell, Send, MessageSquare 
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import TaskCalendarView from './TaskCalendarView';
 
 interface TaskBoardProps {
   tasks: TeamTask[];
@@ -138,9 +139,19 @@ export function getDeadlineCountdown(dueDate: string, dueTime?: string | null, s
 }
 
 export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser, onRefreshAll }: TaskBoardProps) {
-  const [activeTab, setActiveTab] = useState<'board' | 'archive'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'calendar' | 'archive'>('board');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('All');
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  
+  // Tasks requiring attention (Overdue or Urgent)
+  const alertTasks = useMemo(() => {
+    return tasks.filter(t => {
+      if (t.status === 'Done' || t.status === 'Cancelled') return false;
+      const info = getDeadlineCountdown(t.due_date, t.due_time, t.status);
+      return info.type === 'overdue' || info.type === 'urgent';
+    });
+  }, [tasks]);
   
   // Task Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -178,6 +189,46 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
     setRecurrence('None');
     setVisibility('Public');
     setIsModalOpen(true);
+  };
+
+  const openNewTaskModalWithDate = (dateStr: string) => {
+    setEditingTask(null);
+    setTitle('');
+    setDescription('');
+    setAssigneeIds(manpowerList[0]?.id ? [manpowerList[0].id] : []);
+    setDueDate(dateStr);
+    setDueTime('');
+    setPriority('P2');
+    setCategory('Notulensi');
+    setRecurrence('None');
+    setVisibility('Public');
+    setIsModalOpen(true);
+  };
+
+  const handleSendWhatsappReminder = (task: TeamTask) => {
+    const assignees = manpowerList.filter(m => (task.assignee_ids || [task.assignee_id]).includes(m.id));
+    const assigneeNames = assignees.map(a => a.name).join(', ') || 'Rekan Tim';
+    const deadlineStr = formatIndonesianDateWithDay(task.due_date, task.due_time);
+    const countdownInfo = getDeadlineCountdown(task.due_date, task.due_time, task.status);
+
+    const message = `*🔔 PENGINGAT TUGAS - RIKSA SYNC*
+
+Halo *${assigneeNames}*,
+Berikut rincian tugas yang perlu ditindaklanjuti:
+
+📌 *Judul Tugas:* ${task.title}
+🏷️ *Kategori:* ${task.category}
+⚡ *Prioritas:* ${task.priority}
+📅 *Tenggat Waktu:* ${deadlineStr}
+⏱️ *Status Waktu:* ${countdownInfo.text}
+
+📝 *Deskripsi / Instruksi:*
+${task.description}
+
+Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 🙏`;
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const openEditTaskModal = (task: TeamTask) => {
@@ -567,9 +618,100 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
             )}
           </div>
 
+          {/* Notification Bell Button with Alert Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+              className={`p-2 rounded-xl border transition-all relative cursor-pointer ${
+                alertTasks.length > 0 
+                  ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100 shadow-2xs' 
+                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+              title="Notifikasi Pengingat Tugas"
+            >
+              <Bell className="h-4 w-4" />
+              {alertTasks.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
+                  {alertTasks.length}
+                </span>
+              )}
+            </button>
+
+            {/* Notification Popover */}
+            <AnimatePresence>
+              {isNotificationOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 space-y-3"
+                >
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <div className="flex items-center gap-1.5 font-bold text-sm text-slate-800">
+                      <Bell className="h-4 w-4 text-rose-500" />
+                      <span>Pengingat Tugas ({alertTasks.length})</span>
+                    </div>
+                    <button onClick={() => setIsNotificationOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {alertTasks.length === 0 ? (
+                    <div className="text-center py-6 text-slate-400 text-xs">
+                      <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto mb-1.5" />
+                      Tidak ada tugas mendesak atau terlewat saat ini.
+                    </div>
+                  ) : (
+                    <div className="max-h-72 overflow-y-auto space-y-2.5">
+                      {alertTasks.map(task => {
+                        const countdown = getDeadlineCountdown(task.due_date, task.due_time, task.status);
+                        return (
+                          <div
+                            key={task.id}
+                            className={`p-2.5 rounded-xl border text-xs flex flex-col gap-1.5 ${
+                              countdown.type === 'overdue' ? 'bg-rose-50/80 border-rose-200' : 'bg-amber-50/80 border-amber-200'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start gap-1">
+                              <span className="font-bold text-slate-800 line-clamp-1">{task.title}</span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-extrabold ${countdown.badgeClass}`}>
+                                {countdown.text}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              Tenggat: {formatIndonesianDateWithDay(task.due_date, task.due_time)}
+                            </div>
+                            <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
+                              <button
+                                onClick={() => {
+                                  setIsNotificationOpen(false);
+                                  openEditTaskModal(task);
+                                }}
+                                className="text-[10px] font-bold text-indigo-600 hover:underline cursor-pointer"
+                              >
+                                Buka Detail
+                              </button>
+                              <button
+                                onClick={() => handleSendWhatsappReminder(task)}
+                                className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.8 rounded-lg shadow-2xs transition-all cursor-pointer"
+                              >
+                                <Send className="h-2.5 w-2.5" />
+                                <span>Ingatkan via WA</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           <button
             onClick={openNewTaskModal}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 active:scale-95 shrink-0"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 active:scale-95 shrink-0 cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Buat Tugas</span>
@@ -662,7 +804,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
       <div className="flex px-5 border-b border-slate-200 bg-white shrink-0">
         <button
           onClick={() => setActiveTab('board')}
-          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all ${
+          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
             activeTab === 'board' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
           }`}
         >
@@ -670,8 +812,17 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
           Board Aktif ({visibleTasks.filter(t => t.status === 'To Do' || t.status === 'In Progress').length})
         </button>
         <button
+          onClick={() => setActiveTab('calendar')}
+          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === 'calendar' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+          }`}
+        >
+          <Calendar className="h-4 w-4" />
+          Kalender Tugas ({visibleTasks.length})
+        </button>
+        <button
           onClick={() => setActiveTab('archive')}
-          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all ${
+          className={`px-4 py-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
             activeTab === 'archive' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
           }`}
         >
@@ -700,6 +851,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
                         manpowerList={manpowerList}
                         onClick={() => openEditTaskModal(task)}
                         onStatusChange={(status, reason) => handleUpdateStatus(task.id, status as any, reason)}
+                        onSendWhatsapp={handleSendWhatsappReminder}
                       />
                     ))}
                     {colTasks.length === 0 && (
@@ -713,6 +865,14 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
             })}
           </div>
         </div>
+      ) : activeTab === 'calendar' ? (
+        <TaskCalendarView
+          tasks={visibleTasks}
+          manpowerList={manpowerList}
+          onSelectTask={openEditTaskModal}
+          onAddTaskOnDate={openNewTaskModalWithDate}
+          onSendWhatsappReminder={handleSendWhatsappReminder}
+        />
       ) : (
         <div className="flex-1 overflow-y-auto p-5 bg-slate-50/50">
           <div className="max-w-4xl mx-auto space-y-3">
@@ -1065,15 +1225,26 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
               {/* Footer Modal */}
               <div className="p-5 border-t border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                 {editingTask ? (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteTask(editingTask.id)}
-                    className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1.5 px-3 py-2 hover:bg-rose-50 rounded-xl transition-all"
-                    disabled={isSaving}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Hapus
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTask(editingTask.id)}
+                      className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1.5 px-3 py-2 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                      disabled={isSaving}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Hapus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSendWhatsappReminder(editingTask)}
+                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                      title="Kirim pengingat WhatsApp ke penerima tugas"
+                    >
+                      <Send className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>Kirim Pengingat WA</span>
+                    </button>
+                  </div>
                 ) : <div />}
                 
                 <div className="flex gap-3">
@@ -1186,11 +1357,12 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
 }
 
 // Subcomponent for individual task card
-function TaskCard({ task, manpowerList, onClick, onStatusChange }: { 
+function TaskCard({ task, manpowerList, onClick, onStatusChange, onSendWhatsapp }: { 
   task: TeamTask, 
   manpowerList: Manpower[], 
   onClick: () => void,
-  onStatusChange: (status: string, reason?: string) => void
+  onStatusChange: (status: string, reason?: string) => void,
+  onSendWhatsapp: (task: TeamTask) => void
 }) {
   // Multi-assignees resolution
   const assignees = useMemo(() => {
@@ -1316,9 +1488,22 @@ function TaskCard({ task, manpowerList, onClick, onStatusChange }: {
 
           {/* Actions */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {task.status !== 'Done' && task.status !== 'Cancelled' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSendWhatsapp(task);
+                }}
+                className="p-1.5 text-emerald-600 hover:text-white bg-emerald-50 hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded-md transition-all shadow-2xs cursor-pointer"
+                title="Kirim pengingat WhatsApp ke penerima tugas"
+              >
+                <Send className="h-3 w-3" />
+              </button>
+            )}
+
             <button
               onClick={handleCancelTask}
-              className="text-[10px] font-bold text-rose-500 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 px-2 py-1 rounded-md transition-all shadow-xs"
+              className="text-[10px] font-bold text-rose-500 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 px-2 py-1 rounded-md transition-all shadow-xs cursor-pointer"
               title="Batalkan tugas"
             >
               Batal
@@ -1329,7 +1514,7 @@ function TaskCard({ task, manpowerList, onClick, onStatusChange }: {
                 e.stopPropagation();
                 onStatusChange(nextStatus);
               }}
-              className="bg-indigo-50 hover:bg-indigo-600 border border-indigo-100 hover:border-indigo-600 text-indigo-600 hover:text-white text-[10px] font-bold px-2.5 py-1 rounded-md flex items-center gap-1 transition-all shadow-xs"
+              className="bg-indigo-50 hover:bg-indigo-600 border border-indigo-100 hover:border-indigo-600 text-indigo-600 hover:text-white text-[10px] font-bold px-2.5 py-1 rounded-md flex items-center gap-1 transition-all shadow-xs cursor-pointer"
               title={nextStatusLabel}
             >
               <span>{task.status === 'Done' ? 'Buka Lagi' : task.status === 'In Progress' ? 'Selesai' : 'Mulai'}</span>
