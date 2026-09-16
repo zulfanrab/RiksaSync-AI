@@ -189,7 +189,8 @@ export default function TaskCalendarView({
             return (
               <div
                 key={cell.dateStr + '-' + idx}
-                className={`min-h-[110px] p-2 flex flex-col transition-colors group relative ${
+                onClick={() => onAddTaskOnDate(cell.dateStr)}
+                className={`min-h-[110px] p-2 flex flex-col transition-colors group relative cursor-pointer ${
                   cell.isCurrentMonth ? 'bg-white' : 'bg-slate-50/40 text-slate-300'
                 } hover:bg-indigo-50/20`}
               >
@@ -209,7 +210,10 @@ export default function TaskCalendarView({
 
                   {/* Add Task on this day button on hover */}
                   <button
-                    onClick={() => onAddTaskOnDate(cell.dateStr)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddTaskOnDate(cell.dateStr);
+                    }}
                     className="opacity-0 group-hover:opacity-100 text-indigo-600 hover:bg-indigo-50 p-1 rounded-md transition-all text-[10px] font-bold flex items-center gap-0.5"
                     title={`Tambah tugas untuk ${cell.dateStr}`}
                   >
@@ -228,7 +232,10 @@ export default function TaskCalendarView({
                     return (
                       <div
                         key={task.id}
-                        onClick={() => onSelectTask(task)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectTask(task);
+                        }}
                         className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer group/task flex flex-col gap-0.5 shadow-2xs ${
                           isDone
                             ? 'bg-emerald-50/80 border-emerald-200 opacity-70 hover:opacity-100'
