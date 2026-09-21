@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList, Database, Code, Copy, X, BookOpen } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList, Database, Code, Copy, X, BookOpen, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
@@ -14,7 +14,9 @@ import ScheduleForm from './components/ScheduleForm';
 import ManpowerManagement from './components/ManpowerManagement';
 import WhatsappDispatcher from './components/WhatsappDispatcher';
 import TaskBoard from './components/TaskBoard';
-import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask, QuickLink } from './types';
+import RetentionModule from './components/RetentionModule';
+import InspectionPipelineModule from './components/InspectionPipelineModule';
+import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask, QuickLink, RetentionClient, ClientEquipment, FollowUpLog, InspectionJob } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -113,9 +115,15 @@ export default function App() {
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'retention' | 'inspection'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Retention & Inspection Module State
+  const [retentionClients, setRetentionClients] = useState<RetentionClient[]>([]);
+  const [clientEquipments, setClientEquipments] = useState<ClientEquipment[]>([]);
+  const [followUpLogs, setFollowUpLogs] = useState<FollowUpLog[]>([]);
+  const [inspectionJobs, setInspectionJobs] = useState<InspectionJob[]>([]);
 
   // System status
   const [supabaseConnected, setSupabaseConnected] = useState(false);
@@ -275,7 +283,67 @@ CREATE TABLE IF NOT EXISTS quick_links (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Note for EXISTING DB (jika tabel sudah ada):
+-- 10. Create client_equipments table for Retention Module
+CREATE TABLE IF NOT EXISTS client_equipments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  equipment_name TEXT NOT NULL,
+  equipment_type TEXT NOT NULL DEFAULT 'Lainnya',
+  last_inspection_date TEXT NOT NULL,
+  due_date TEXT NOT NULL,
+  certificate_number TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 11. Create follow_up_logs table for Retention Module
+CREATE TABLE IF NOT EXISTS follow_up_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  equipment_id UUID REFERENCES client_equipments(id) ON DELETE SET NULL,
+  stage TEXT NOT NULL DEFAULT 'FU 1' CHECK (stage IN ('FU 1', 'FU 2', 'FU 3')),
+  status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Contacted', 'Minta Mundur', 'Deal (Lanjut)', 'Lost (Lepas)')),
+  contacted_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  contacted_by TEXT,
+  notes TEXT,
+  offer_doc_url TEXT,
+  invoice_doc_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 12. Create inspection_jobs table for Progress Pemeriksaan Module
+CREATE TABLE IF NOT EXISTS inspection_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  equipment_id UUID REFERENCES client_equipments(id) ON DELETE SET NULL,
+  client_name TEXT NOT NULL,
+  pic_name TEXT NOT NULL DEFAULT '',
+  pic_phone TEXT,
+  equipment_name TEXT NOT NULL,
+  equipment_type TEXT NOT NULL DEFAULT 'Lainnya',
+  due_date TEXT,
+  stage TEXT NOT NULL DEFAULT 'Penawaran'
+    CHECK (stage IN ('Penawaran', 'SPK Diterima', 'Penjadwalan', 'Pelaksanaan', 'Laporan', 'Suket Terbit')),
+  offer_doc_url TEXT,
+  spk_doc_url TEXT,
+  report_doc_url TEXT,
+  suket_doc_url TEXT,
+  scheduled_date TEXT,
+  completed_date TEXT,
+  assigned_lead TEXT,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  created_by TEXT,
+  updated_by TEXT
+);
+
+-- 12b. Migration: Upgrade clients table with new columns for Retention Module
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS drive_folder_url TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
+
+-- Note for EXISTING DB:
 -- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
 -- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS assignee_ids TEXT[] DEFAULT '{}';
 -- ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_status_check;
@@ -323,37 +391,37 @@ CREATE TABLE IF NOT EXISTS quick_links (
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes, quickLinksRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes, quickLinksRes, equipmentsRes, logsRes, jobsRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
         supabase.from('schedules').select('*'),
         (async () => {
-          try {
-            return await supabase.from('clients').select('*');
-          } catch (e) {
-            return { data: [], error: e } as any;
-          }
+          try { return await supabase.from('clients').select('*'); }
+          catch (e) { return { data: [], error: e } as any; }
         })(),
         (async () => {
-          try {
-            return await supabase.from('manpower_absences').select('*');
-          } catch (e) {
-            return { data: [], error: e } as any;
-          }
+          try { return await supabase.from('manpower_absences').select('*'); }
+          catch (e) { return { data: [], error: e } as any; }
         })(),
         (async () => {
-          try {
-            return await supabase.from('team_tasks').select('*');
-          } catch (e) {
-            return { data: [], error: e } as any;
-          }
+          try { return await supabase.from('team_tasks').select('*'); }
+          catch (e) { return { data: [], error: e } as any; }
         })(),
         (async () => {
-          try {
-            return await supabase.from('quick_links').select('*').order('created_at', { ascending: false });
-          } catch (e) {
-            return { data: [], error: e } as any;
-          }
+          try { return await supabase.from('quick_links').select('*').order('created_at', { ascending: false }); }
+          catch (e) { return { data: [], error: e } as any; }
+        })(),
+        (async () => {
+          try { return await supabase.from('client_equipments').select('*').order('due_date', { ascending: true }); }
+          catch (e) { return { data: [], error: e } as any; }
+        })(),
+        (async () => {
+          try { return await supabase.from('follow_up_logs').select('*').order('created_at', { ascending: false }); }
+          catch (e) { return { data: [], error: e } as any; }
+        })(),
+        (async () => {
+          try { return await supabase.from('inspection_jobs').select('*').order('created_at', { ascending: false }); }
+          catch (e) { return { data: [], error: e } as any; }
         })()
       ]);
 
@@ -415,9 +483,7 @@ CREATE TABLE IF NOT EXISTS quick_links (
       if (!absencesRes || absencesRes.error) {
         const local = localStorage.getItem('local_manpower_absences');
         if (local) {
-          try {
-            absencesData = JSON.parse(local);
-          } catch (e) {}
+          try { absencesData = JSON.parse(local); } catch (e) {}
         }
       }
 
@@ -443,6 +509,10 @@ CREATE TABLE IF NOT EXISTS quick_links (
         } catch (e) {}
       }
 
+      const equipmentsData = equipmentsRes && !equipmentsRes.error ? (equipmentsRes.data || []) : [];
+      const logsData = logsRes && !logsRes.error ? (logsRes.data || []) : [];
+      const jobsData = jobsRes && !jobsRes.error ? (jobsRes.data || []) : [];
+
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
@@ -450,6 +520,10 @@ CREATE TABLE IF NOT EXISTS quick_links (
       setAbsences(absencesData as ManpowerAbsence[]);
       setTasks(tasksData);
       setQuickLinks(quickLinksData);
+      setRetentionClients(clientsData as RetentionClient[]);
+      setClientEquipments(equipmentsData as ClientEquipment[]);
+      setFollowUpLogs(logsData as FollowUpLog[]);
+      setInspectionJobs(jobsData as InspectionJob[]);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
@@ -706,6 +780,20 @@ CREATE TABLE IF NOT EXISTS quick_links (
 
     const uniqueClients = new Set(schedules.map(s => s.client_name)).size;
 
+    // 5. Retention critical count (H-30, belum deal/lost) — for red badge on tab
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const criticalRetentionCount = clientEquipments.filter(eq => {
+      const latestLog = followUpLogs
+        .filter(l => l.equipment_id === eq.id)
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+      if (latestLog?.status === 'Deal (Lanjut)' || latestLog?.status === 'Lost (Lepas)') return false;
+      const due = new Date(eq.due_date);
+      due.setHours(0, 0, 0, 0);
+      const days = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return days >= 0 && days <= 30;
+    }).length;
+
     return {
       todayCount: todaySchedules.length,
       todaySchedules,
@@ -714,9 +802,10 @@ CREATE TABLE IF NOT EXISTS quick_links (
       monthProgressPct,
       p1Count,
       activeManpowerTodayCount: activeManpowerSet.size,
-      uniqueClients
+      uniqueClients,
+      criticalRetentionCount
     };
-  }, [schedules]);
+  }, [schedules, clientEquipments, followUpLogs]);
 
   // Check login and display loading/login screen
   if (loading) {
@@ -807,6 +896,14 @@ CREATE TABLE IF NOT EXISTS quick_links (
       </div>
     );
   }
+
+  const handleCreateInspectionJob = async (job: Partial<InspectionJob>) => {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { error } = await supabase.from('inspection_jobs').insert([{ ...job, created_by: activeUser || undefined }]);
+    if (!error) {
+      await loadAllData();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#F8FAFB] text-slate-800 flex flex-col font-sans">
@@ -950,7 +1047,7 @@ CREATE TABLE IF NOT EXISTS quick_links (
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            🗓️ Kalender & Plotting
+            🗓️ Kalender &amp; Plotting
           </button>
           <button
             onClick={() => setActiveTab('tasks')}
@@ -960,7 +1057,32 @@ CREATE TABLE IF NOT EXISTS quick_links (
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            📝 Workspace & Tugas
+            📝 Workspace &amp; Tugas
+          </button>
+          <button
+            onClick={() => setActiveTab('retention')}
+            className={`relative px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
+              activeTab === 'retention'
+                ? 'border-rose-500 bg-white text-rose-600 shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            🔁 Retensi Klien
+            {stats.criticalRetentionCount > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white shadow-sm">
+                {stats.criticalRetentionCount > 9 ? '9+' : stats.criticalRetentionCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('inspection')}
+            className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
+              activeTab === 'inspection'
+                ? 'border-violet-600 bg-white text-violet-700 shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            ⚙️ Progress Pemeriksaan
           </button>
         </div>
 
@@ -1082,7 +1204,7 @@ CREATE TABLE IF NOT EXISTS quick_links (
               </div>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'tasks' ? (
           <div className="h-full flex-1">
             <TaskBoard
               tasks={tasks}
@@ -1090,6 +1212,46 @@ CREATE TABLE IF NOT EXISTS quick_links (
               manpowerList={manpowerList}
               activeUser={activeUser}
               onRefreshAll={loadAllData}
+            />
+          </div>
+        ) : activeTab === 'retention' ? (
+          <div className="h-full flex-1">
+            {/* Critical alert banner */}
+            {stats.criticalRetentionCount > 0 && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-800 px-5 py-3.5 rounded-2xl flex items-center gap-3 animate-fadeIn">
+                <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 animate-pulse" />
+                <div>
+                  <p className="text-xs font-black">
+                    ⚠️ {stats.criticalRetentionCount} alat klien dalam kondisi KRITIS (H-30 jatuh tempo, belum deal)
+                  </p>
+                  <p className="text-[10px] text-red-600 mt-0.5">Segera lakukan follow-up keras. Filter tab "Kritis" untuk melihat daftarnya.</p>
+                </div>
+              </div>
+            )}
+            <RetentionModule
+              clients={retentionClients}
+              equipments={clientEquipments}
+              logs={followUpLogs}
+              activeUser={activeUser || ''}
+              onRefresh={loadAllData}
+              onCreateInspectionJob={handleCreateInspectionJob}
+              onSwitchToInspection={() => setActiveTab('inspection')}
+            />
+          </div>
+        ) : (
+          <div className="h-full flex-1">
+            <div className="mb-4 bg-violet-50 border border-violet-200 px-5 py-3.5 rounded-2xl flex items-center gap-3">
+              <TrendingUp className="h-5 w-5 text-violet-500 shrink-0" />
+              <div>
+                <p className="text-xs font-black text-violet-800">⚙️ Pipeline Teknis & Operasional</p>
+                <p className="text-[10px] text-violet-600">Job muncul otomatis saat klien di-Deal dari modul Retensi, atau tambahkan manual via tombol Tambah Job.</p>
+              </div>
+            </div>
+            <InspectionPipelineModule
+              jobs={inspectionJobs}
+              manpowerList={manpowerList}
+              activeUser={activeUser || ''}
+              onRefresh={loadAllData}
             />
           </div>
         )}
