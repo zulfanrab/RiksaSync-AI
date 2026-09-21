@@ -1015,10 +1015,12 @@ export default function RetentionModule({
     return { overdue, critical, warning, deal, lost, safe, total: equipments.length };
   }, [equipments, logs]);
 
-  // Filter & Search logic
+  // Filter & Search & Sort logic
   const filteredClients = useMemo(() => {
     const q = search.toLowerCase();
-    return clients.filter(c => {
+    
+    // 1. Filter
+    const filtered = clients.filter(c => {
       const matchSearch = !q || c.client_name.toLowerCase().includes(q) || c.pic_name.toLowerCase().includes(q) || c.pic_phone.includes(q);
       if (!matchSearch) return false;
 
@@ -1030,6 +1032,35 @@ export default function RetentionModule({
           .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
         return getUrgency(eq, latestLog) === filter;
       });
+    });
+
+    // 2. Sort (Paling urgent / jatuh tempo terdekat di atas)
+    return filtered.sort((a, b) => {
+      const getScore = (client: RetentionClient) => {
+        const clientEqs = equipments.filter(e => e.client_id === client.id);
+        if (clientEqs.length === 0) return Number.MAX_SAFE_INTEGER;
+        
+        let minTime = Number.MAX_SAFE_INTEGER;
+        let hasActive = false;
+
+        clientEqs.forEach(eq => {
+          const latestLog = logs.filter(l => l.equipment_id === eq.id)
+            .sort((l1, l2) => new Date(l2.created_at || 0).getTime() - new Date(l1.created_at || 0).getTime())[0];
+          
+          const status = latestLog?.status;
+          // Abaikan alat yang sudah deal/lost dari penentuan prioritas atas
+          if (status === 'Deal (Lanjut)' || status === 'Lost (Lepas)') return; 
+
+          hasActive = true;
+          const dueTime = new Date(eq.due_date).getTime();
+          if (dueTime < minTime) minTime = dueTime;
+        });
+
+        if (!hasActive) return Number.MAX_SAFE_INTEGER - 1; // Taruh di paling bawah
+        return minTime;
+      };
+
+      return getScore(a) - getScore(b);
     });
   }, [clients, equipments, logs, search, filter]);
 
