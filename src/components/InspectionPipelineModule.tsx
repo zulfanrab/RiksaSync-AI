@@ -451,7 +451,7 @@ export default function InspectionPipelineModule({
         created_by: activeUser
       };
 
-      const { data: newTask, error: taskError } = await supabase.from('tasks').insert([taskData]).select('id').single();
+      const { data: newTask, error: taskError } = await supabase.from('team_tasks').insert([taskData]).select('id').single();
       if (taskError) throw new Error(taskError.message);
 
       // 2. Update the note in the current job
