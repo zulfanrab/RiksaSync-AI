@@ -8,21 +8,22 @@ import React, { useState, useMemo } from 'react';
 import {
   ClipboardList, FileText, Wrench, Calendar, CheckCircle2, Clock,
   Plus, Edit3, Trash2, ExternalLink, X, Save, RefreshCcw,
-  ChevronRight, ArrowRight, Building2, Phone, AlertTriangle, Download
+  ChevronRight, ArrowRight, Building2, Phone, AlertTriangle, Download, Handshake, Landmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InspectionJob, InspectionStage, Manpower } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-const STAGES: InspectionStage[] = ['Penawaran', 'SPK Diterima', 'Penjadwalan', 'Pelaksanaan', 'Laporan', 'Suket Terbit'];
+const STAGES: InspectionStage[] = ['Penawaran', 'Negosiasi', 'Penjadwalan', 'Pelaksanaan', 'Laporan', 'Proses Disnaker', 'Suket Terbit'];
 
 const STAGE_CONFIG: Record<InspectionStage, { icon: React.ElementType; color: string; bg: string; border: string; desc: string }> = {
-  'Penawaran':    { icon: FileText,       color: 'text-sky-600',     bg: 'bg-sky-50',     border: 'border-sky-200',     desc: 'Draf penawaran dikirim ke klien' },
-  'SPK Diterima': { icon: ClipboardList,  color: 'text-indigo-600',  bg: 'bg-indigo-50',  border: 'border-indigo-200',  desc: 'Surat Perintah Kerja sudah diterima' },
-  'Penjadwalan':  { icon: Calendar,       color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200',   desc: 'Tanggal pelaksanaan sedang dijadwalkan' },
-  'Pelaksanaan':  { icon: Wrench,         color: 'text-orange-600',  bg: 'bg-orange-50',  border: 'border-orange-200',  desc: 'Inspeksi/riksa uji sedang berlangsung' },
-  'Laporan':      { icon: ClipboardList,  color: 'text-purple-600',  bg: 'bg-purple-50',  border: 'border-purple-200',  desc: 'Laporan teknis sedang disusun' },
-  'Suket Terbit': { icon: CheckCircle2,   color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', desc: 'Sertifikat Disnaker sudah terbit' },
+  'Penawaran':       { icon: FileText,       color: 'text-sky-600',     bg: 'bg-sky-50',     border: 'border-sky-200',     desc: 'Draf penawaran dikirim ke klien' },
+  'Negosiasi':       { icon: Handshake,      color: 'text-indigo-600',  bg: 'bg-indigo-50',  border: 'border-indigo-200',  desc: 'Proses negosiasi penawaran harga' },
+  'Penjadwalan':     { icon: Calendar,       color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200',   desc: 'Tanggal pelaksanaan sedang dijadwalkan' },
+  'Pelaksanaan':     { icon: Wrench,         color: 'text-orange-600',  bg: 'bg-orange-50',  border: 'border-orange-200',  desc: 'Inspeksi/riksa uji sedang berlangsung' },
+  'Laporan':         { icon: ClipboardList,  color: 'text-purple-600',  bg: 'bg-purple-50',  border: 'border-purple-200',  desc: 'Laporan teknis sedang disusun' },
+  'Proses Disnaker': { icon: Landmark,       color: 'text-rose-600',    bg: 'bg-rose-50',    border: 'border-rose-200',    desc: 'Pengurusan berkas di dinas terkait' },
+  'Suket Terbit':    { icon: CheckCircle2,   color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', desc: 'Sertifikat Disnaker sudah terbit' },
 };
 
 const EQUIPMENT_TYPES = ['PTP', 'PAA', 'Elevator & Eskalator', 'PUBT', 'Instalasi Listrik', 'Angkur & TKPK', 'Lainnya'];
@@ -340,7 +341,7 @@ export default function InspectionPipelineModule({
   // Group jobs by stage
   const jobsByStage = useMemo(() => {
     const grouped: Record<InspectionStage, InspectionJob[]> = {
-      'Penawaran': [], 'SPK Diterima': [], 'Penjadwalan': [], 'Pelaksanaan': [], 'Laporan': [], 'Suket Terbit': []
+      'Penawaran': [], 'Negosiasi': [], 'Penjadwalan': [], 'Pelaksanaan': [], 'Laporan': [], 'Proses Disnaker': [], 'Suket Terbit': []
     };
     jobs.forEach(j => { if (grouped[j.stage]) grouped[j.stage].push(j); });
     return grouped;

@@ -164,10 +164,11 @@ export type UrgencyLevel = 'critical' | 'warning' | 'safe' | 'overdue' | 'deal' 
 
 export type InspectionStage =
   | 'Penawaran'
-  | 'SPK Diterima'
+  | 'Negosiasi'
   | 'Penjadwalan'
   | 'Pelaksanaan'
   | 'Laporan'
+  | 'Proses Disnaker'
   | 'Suket Terbit';
 
 export interface InspectionJob {
