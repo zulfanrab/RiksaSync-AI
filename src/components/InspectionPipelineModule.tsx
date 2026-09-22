@@ -8,10 +8,10 @@ import React, { useState, useMemo } from 'react';
 import {
   ClipboardList, FileText, Wrench, Calendar, CheckCircle2, Clock,
   Plus, Edit3, Trash2, ExternalLink, X, Save, RefreshCcw,
-  ChevronRight, ArrowRight, Building2, Phone, AlertTriangle, Download, Handshake, Landmark
+  ChevronRight, ArrowRight, Building2, Phone, AlertTriangle, Download, Handshake, Landmark, MessageSquare, Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InspectionJob, InspectionStage, Manpower } from '../types';
+import { InspectionJob, InspectionStage, Manpower, JobNote } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const STAGES: InspectionStage[] = ['Penawaran', 'Negosiasi', 'Penjadwalan', 'Pelaksanaan', 'Laporan', 'Proses Disnaker', 'Suket Terbit'];
@@ -39,11 +39,13 @@ function formatDate(dateStr?: string): string {
 interface JobFormProps {
   initial?: InspectionJob;
   manpowerList?: Manpower[];
+  activeUser?: string;
   onClose: () => void;
   onSave: (job: Partial<InspectionJob>) => Promise<void>;
+  onNoteToTask?: (note: JobNote) => void;
 }
 
-function JobForm({ initial, manpowerList = [], onClose, onSave }: JobFormProps) {
+function JobForm({ initial, manpowerList = [], activeUser = 'Admin', onClose, onSave, onNoteToTask }: JobFormProps) {
   const [clientName, setClientName] = useState(initial?.client_name || '');
   const [picName, setPicName] = useState(initial?.pic_name || '');
   const [picPhone, setPicPhone] = useState(initial?.pic_phone || '');
@@ -58,7 +60,35 @@ function JobForm({ initial, manpowerList = [], onClose, onSave }: JobFormProps) 
   const [spkUrl, setSpkUrl] = useState(initial?.spk_doc_url || '');
   const [reportUrl, setReportUrl] = useState(initial?.report_doc_url || '');
   const [suketUrl, setSuketUrl] = useState(initial?.suket_doc_url || '');
-  const [notes, setNotes] = useState(initial?.notes || '');
+  const [jobNotes, setJobNotes] = useState<JobNote[]>(() => {
+    try {
+      if (initial?.notes && initial.notes.startsWith('[')) {
+        return JSON.parse(initial.notes);
+      }
+    } catch(e) {}
+    if (initial?.notes) {
+      return [{
+        id: `note-legacy-${Date.now()}`,
+        text: initial.notes,
+        created_at: new Date().toISOString(),
+        created_by: 'Sistem (Migrasi)'
+      }];
+    }
+    return [];
+  });
+  const [newNoteText, setNewNoteText] = useState('');
+
+  const handleAddNote = () => {
+    if (!newNoteText.trim()) return;
+    const note: JobNote = {
+      id: `note-${Date.now()}`,
+      text: newNoteText.trim(),
+      created_at: new Date().toISOString(),
+      created_by: activeUser
+    };
+    setJobNotes([...jobNotes, note]);
+    setNewNoteText('');
+  };
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -74,7 +104,7 @@ function JobForm({ initial, manpowerList = [], onClose, onSave }: JobFormProps) 
         due_date: dueDate, scheduled_date: scheduledDate, completed_date: completedDate,
         assigned_lead: assignedLead, offer_doc_url: offerUrl,
         spk_doc_url: spkUrl, report_doc_url: reportUrl, suket_doc_url: suketUrl,
-        notes,
+        notes: JSON.stringify(jobNotes),
       });
       onClose();
     } catch (err: any) {
@@ -196,9 +226,53 @@ function JobForm({ initial, manpowerList = [], onClose, onSave }: JobFormProps) 
                 className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-sky-300 outline-none" />
             </div>
 
-            <textarea value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Catatan tambahan tentang job ini..." rows={2}
-              className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 resize-none focus:ring-2 focus:ring-indigo-300 outline-none" />
+            
+            {/* DISCUSSION TIMELINE */}
+            <div className="border-t border-slate-100 pt-4 space-y-3">
+              <h3 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <MessageSquare className="h-3.5 w-3.5 text-indigo-500" /> Diskusi & Catatan Progres
+              </h3>
+              
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-3">
+                {jobNotes.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 text-center py-2">Belum ada catatan.</p>
+                ) : (
+                  jobNotes.map(n => (
+                    <div key={n.id} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm relative group">
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="text-[9px] font-bold text-slate-700">{n.created_by}</span>
+                        <span className="text-[8px] text-slate-400">{new Date(n.created_at).toLocaleString('id-ID')}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed whitespace-pre-wrap">{n.text}</p>
+                      
+                      {n.linked_task_id ? (
+                        <div className="mt-2 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded inline-flex items-center gap-1 border border-emerald-100">
+                          <CheckCircle2 className="h-3 w-3" /> Telah ditugaskan
+                        </div>
+                      ) : (
+                        <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button type="button" onClick={() => onNoteToTask && onNoteToTask(n)}
+                            className="text-[9px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition-colors inline-flex items-center gap-1 border border-indigo-100 cursor-pointer">
+                            <Plus className="h-3 w-3" /> Jadikan Tugas
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <input value={newNoteText} onChange={e => setNewNoteText(e.target.value)}
+                  onKeyDown={e => { if(e.key === 'Enter') { e.preventDefault(); handleAddNote(); } }}
+                  placeholder="Ketik catatan baru..."
+                  className="flex-1 text-xs border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-300 outline-none" />
+                <button type="button" onClick={handleAddNote} disabled={!newNoteText.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center">
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
 
             {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl">{error}</p>}
           </div>
@@ -352,6 +426,63 @@ export default function InspectionPipelineModule({
     const inProgress = jobs.filter(j => j.stage !== 'Suket Terbit').length;
     return { total: jobs.length, done, inProgress };
   }, [jobs]);
+
+  
+  const handleNoteToTask = async (note: JobNote) => {
+    if (!editingJob) return;
+    if (!isSupabaseConfigured || !supabase) {
+      alert('Supabase tidak terkonfigurasi. Tidak dapat membuat tugas.');
+      return;
+    }
+
+    try {
+      // 1. Create a task in tasks table
+      const taskData = {
+        title: `Tindak Lanjut: ${editingJob.client_name} - ${editingJob.equipment_name}`,
+        description: `Berdasarkan catatan diskusi pada tahap "${editingJob.stage}":\n\n"${note.text}"\n\nMohon segera ditindaklanjuti.`,
+        assignee_id: editingJob.assigned_lead || manpowerList[0]?.id || '',
+        assignee_ids: editingJob.assigned_lead ? [editingJob.assigned_lead] : (manpowerList[0] ? [manpowerList[0].id] : []),
+        due_date: new Date().toISOString().split('T')[0],
+        priority: 'P2',
+        status: 'To Do',
+        category: 'Follow Up',
+        recurrence: 'None',
+        visibility: 'Public',
+        created_by: activeUser
+      };
+
+      const { data: newTask, error: taskError } = await supabase.from('tasks').insert([taskData]).select('id').single();
+      if (taskError) throw new Error(taskError.message);
+
+      // 2. Update the note in the current job
+      let currentNotes = [];
+      try {
+        if (editingJob.notes && editingJob.notes.startsWith('[')) {
+          currentNotes = JSON.parse(editingJob.notes);
+        }
+      } catch(e) {}
+      
+      const updatedNotes = currentNotes.map((n: JobNote) => 
+        n.id === note.id ? { ...n, linked_task_id: newTask.id } : n
+      );
+
+      // 3. Update the job's notes in DB
+      const { error: jobError } = await supabase.from('inspection_jobs')
+        .update({ notes: JSON.stringify(updatedNotes) })
+        .eq('id', editingJob.id);
+
+      if (jobError) throw new Error(jobError.message);
+
+      // 4. Close form and refresh to reflect changes
+      setIsFormOpen(false);
+      setEditingJob(null);
+      await onRefresh();
+      alert('Tugas berhasil dibuat dan ditautkan!');
+      
+    } catch (err: any) {
+      alert('Gagal membuat tugas: ' + err.message);
+    }
+  };
 
   const handleSave = async (jobData: Partial<InspectionJob>) => {
     if (!isSupabaseConfigured || !supabase) throw new Error('Supabase tidak terkonfigurasi.');
@@ -526,8 +657,10 @@ export default function InspectionPipelineModule({
           <JobForm
             initial={editingJob || undefined}
             manpowerList={manpowerList}
+            activeUser={activeUser}
             onClose={() => { setIsFormOpen(false); setEditingJob(null); }}
             onSave={handleSave}
+            onNoteToTask={handleNoteToTask}
           />
         )}
       </AnimatePresence>

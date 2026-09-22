@@ -171,6 +171,14 @@ export type InspectionStage =
   | 'Proses Disnaker'
   | 'Suket Terbit';
 
+export interface JobNote {
+  id: string;
+  text: string;
+  created_at: string;
+  created_by: string; // User Name
+  linked_task_id?: string;
+}
+
 export interface InspectionJob {
   id: string;
   client_id?: string;
