@@ -84,6 +84,10 @@ const INITIAL_SCHEDULES: Schedule[] = [
   }
 ];
 
+
+const INITIAL_CLIENTS: any[] = [];
+const INITIAL_CLIENT_EQUIPMENTS: any[] = [];
+
 const getLocalSchedules = (): Schedule[] => {
   if (typeof window === 'undefined') return INITIAL_SCHEDULES;
   const stored = localStorage.getItem('local_schedules');
@@ -115,7 +119,7 @@ export default function App() {
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'retention' | 'inspection'>('calendar');
+  const [activeTab, setActiveTab] = useState<'retention' | 'inspection'>('retention');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -532,7 +536,8 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
       setManpowerList(INITIAL_MANPOWER);
       setUnits(INITIAL_UNITS);
       setSchedules(getLocalSchedules());
-      setClients([]);
+      setClients(INITIAL_CLIENTS);
+      setRetentionClients(INITIAL_CLIENTS as RetentionClient[]);
       setTasks([]);
       setQuickLinks([]);
       const localAbs = localStorage.getItem('local_manpower_absences');
@@ -1086,135 +1091,7 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
           </button>
         </div>
 
-        {activeTab === 'calendar' ? (
-          <>
-          {/* Dashboard Analytics & Summary Bento Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              {/* Quick Stats Grid - Left 4 columns */}
-              <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
-                {/* Stat 1: Agenda Hari Ini */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm relative overflow-hidden">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-emerald-50 border border-emerald-100 p-1.5 rounded-lg text-emerald-600">
-                      <CalendarDays className="h-4 w-4" />
-                    </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Agenda Hari Ini</span>
-                  </div>
-                  <div className="mt-2">
-                    <p className="text-2xl font-black font-mono text-slate-800 tracking-tight leading-none">
-                      {stats.todayCount} <span className="text-xs font-sans text-slate-500 font-normal">Job</span>
-                    </p>
-                    <p className="text-[9px] text-emerald-600 font-medium mt-1 truncate">
-                      {stats.todayCount > 0 ? '● Aktif di lapangan' : 'Tidak ada agenda hari ini'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Stat 2: Agenda Bulan Ini & Progress % */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-sky-50 border border-sky-100 p-1.5 rounded-lg text-sky-600">
-                        <CheckCircle2 className="h-4 w-4" />
-                      </div>
-                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bulan Ini</span>
-                    </div>
-                    <span className="text-[10px] font-bold text-sky-600 font-mono">{stats.monthProgressPct}%</span>
-                  </div>
-                  <div className="mt-2 space-y-1.5">
-                    <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none">
-                      {stats.monthCompleted}<span className="text-xs font-normal text-slate-400">/{stats.monthTotal} Selesai</span>
-                    </p>
-                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-sky-500 h-full rounded-full transition-all duration-500" style={{ width: `${stats.monthProgressPct}%` }} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stat 3: Prioritas P1 Active */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-rose-50 border border-rose-100 p-1.5 rounded-lg text-rose-600">
-                      <Shield className="h-4 w-4" />
-                    </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
-                  </div>
-                  <div className="mt-2">
-                    <p className="text-2xl font-black font-mono text-rose-600 tracking-tight leading-none">{stats.p1Count}</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Job mendesak aktif</p>
-                  </div>
-                </div>
-
-                {/* Stat 4: Personil On-Site Hari Ini */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-amber-50 border border-amber-100 p-1.5 rounded-lg text-amber-600">
-                      <Users className="h-4 w-4" />
-                    </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Personil Lapangan</span>
-                  </div>
-                  <div className="mt-2">
-                    <p className="text-2xl font-black font-mono text-amber-600 tracking-tight leading-none">{stats.activeManpowerTodayCount}</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Bertugas hari ini</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* RiksaSync AI Assistant Unified Panel - Right 8 columns */}
-              <div className="lg:col-span-8">
-                <SummaryWidget />
-              </div>
-            </div>
-
-            {/* Central Calendar & Manpower Row */}
-            <div className="space-y-6">
-              {/* Main Calendar View with Selected Day Projects */}
-              <CalendarView
-                schedules={schedules}
-                units={units}
-                manpowerList={manpowerList}
-                absences={absences}
-                selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
-                onEditSchedule={handleEditTrigger}
-                onDeleteSchedule={handleDeleteSchedule}
-                onQuickAddSchedule={handleQuickAddSchedule}
-                onUpdateScheduleStatus={handleUpdateScheduleStatus}
-              />
-
-              {/* Manpower & WhatsApp Dispatcher Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-8">
-                  <ManpowerGrid
-                    manpowerList={manpowerList}
-                    schedules={schedules}
-                    absences={absences}
-                    selectedDate={selectedDate}
-                  />
-                </div>
-                <div className="lg:col-span-4">
-                  <WhatsappDispatcher
-                    schedules={schedules}
-                    units={units}
-                    manpowerList={manpowerList}
-                    absences={absences}
-                    selectedDate={selectedDate}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
-        ) : activeTab === 'tasks' ? (
-          <div className="h-full flex-1">
-            <TaskBoard
-              tasks={tasks}
-              quickLinks={quickLinks}
-              manpowerList={manpowerList}
-              activeUser={activeUser}
-              onRefreshAll={loadAllData}
-            />
-          </div>
-        ) : activeTab === 'retention' ? (
+        {activeTab === 'retention' ? (
           <div className="h-full flex-1">
             {/* Critical alert banner */}
             {stats.criticalRetentionCount > 0 && (
