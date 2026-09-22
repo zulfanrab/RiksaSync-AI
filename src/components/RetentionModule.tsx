@@ -1111,12 +1111,12 @@ interface RetentionModuleProps {
   logs: FollowUpLog[];
   activeUser: string;
   onRefresh: () => Promise<void>;
-  onCreateInspectionJob: (job: Partial<InspectionJob>) => Promise<void>;
+  onCreateInspectionJobs: (jobs: Partial<InspectionJob>[]) => Promise<void>;
   onSwitchToInspection: () => void;
 }
 
 export default function RetentionModule({
-  clients, equipments, logs, activeUser, onRefresh, onCreateInspectionJob, onSwitchToInspection
+  clients, equipments, logs, activeUser, onRefresh, onCreateInspectionJobs, onSwitchToInspection
 }: RetentionModuleProps) {
   // UI State
   const [search, setSearch] = useState('');
@@ -1325,22 +1325,31 @@ export default function RetentionModule({
 
   const handleDealConfirm = () => setDealModal(null);
 
-  const handleCreateInspectionJob = async () => {
-    if (!dealModal) return;
-    const { client, equipment } = dealModal;
-    await onCreateInspectionJob({
-      client_id: client.id,
-      equipment_id: equipment.id,
-      client_name: client.client_name,
-      pic_name: client.pic_name,
-      pic_phone: client.pic_phone,
-      equipment_name: equipment.equipment_name,
-      equipment_type: equipment.equipment_type,
-      due_date: equipment.due_date,
-      stage: 'Penawaran',
-      created_by: activeUser,
-    });
-    setDealModal(null);
+    const handleBulkDeal = async () => {
+    if (selectedEquipmentIds.length === 0) return;
+    
+    const jobsToCreate = selectedEquipmentIds.map(eqId => {
+      const equipment = equipments.find(e => e.id === eqId);
+      const client = clients.find(c => c.id === equipment?.client_id);
+      
+      if (!equipment || !client) return null;
+      
+      return {
+        client_id: client.id,
+        equipment_id: equipment.id,
+        client_name: client.client_name,
+        pic_name: client.pic_name,
+        pic_phone: client.pic_phone,
+        equipment_name: equipment.equipment_name,
+        equipment_type: equipment.equipment_type,
+        due_date: equipment.due_date,
+        stage: 'Penawaran',
+        created_by: activeUser,
+      };
+    }).filter(Boolean) as any;
+
+    await onCreateInspectionJobs(jobsToCreate);
+    setSelectedEquipmentIds([]);
     onSwitchToInspection();
   };
 

@@ -187,7 +187,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
     setEditingTask(null);
     setTitle('');
     setDescription('');
-    setAssigneeIds(manpowerList[0]?.id ? [manpowerList[0].id] : []);
+    setAssigneeIds([]);
     setDueDate(new Date().toISOString().split('T')[0]);
     setDueTime('');
     setPriority('P2');
@@ -201,7 +201,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
     setEditingTask(null);
     setTitle('');
     setDescription('');
-    setAssigneeIds(manpowerList[0]?.id ? [manpowerList[0].id] : []);
+    setAssigneeIds([]);
     setDueDate(dateStr);
     setDueTime('');
     setPriority('P2');

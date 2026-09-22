@@ -902,9 +902,9 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
     );
   }
 
-  const handleCreateInspectionJob = async (job: Partial<InspectionJob>) => {
+  const handleCreateInspectionJobs = async (jobs: Partial<InspectionJob>[]) => {
     if (!isSupabaseConfigured || !supabase) return;
-    const { error } = await supabase.from('inspection_jobs').insert([{ ...job, created_by: activeUser || undefined }]);
+    const { error } = await supabase.from('inspection_jobs').insert(jobs.map(j => ({ ...j, created_by: activeUser || undefined })));
     if (!error) {
       await loadAllData();
     }
@@ -1239,7 +1239,7 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
               logs={followUpLogs}
               activeUser={activeUser || ''}
               onRefresh={loadAllData}
-              onCreateInspectionJob={handleCreateInspectionJob}
+              onCreateInspectionJobs={handleCreateInspectionJobs}
               onSwitchToInspection={() => setActiveTab('inspection')}
             />
           </div>
