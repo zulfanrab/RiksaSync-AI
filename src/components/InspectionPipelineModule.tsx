@@ -512,19 +512,7 @@ export default function InspectionPipelineModule({
     await onRefresh();
   };
 
-  const exportJobsCSV = () => {
-    const rows = [['Nama PT', 'PIC', 'No WA', 'Nama Alat', 'Tipe', 'Stage', 'Jatuh Tempo', 'Rencana', 'Lead', 'Penawaran', 'SPK', 'Laporan', 'Suket']];
-    jobs.forEach(j => {
-      const lead = manpowerList.find(m => m.id === j.assigned_lead);
-      rows.push([j.client_name, j.pic_name, j.pic_phone || '', j.equipment_name, j.equipment_type, j.stage, j.due_date || '', j.scheduled_date || '', lead?.name || '', j.offer_doc_url || '', j.spk_doc_url || '', j.report_doc_url || '', j.suket_doc_url || '']);
-    });
-    const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `progress_pemeriksaan_${new Date().toISOString().split('T')[0]}.csv`; a.click();
-    URL.revokeObjectURL(url);
-  };
+  
 
   return (
     <div className="space-y-5">
@@ -543,24 +531,53 @@ export default function InspectionPipelineModule({
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white border border-slate-200 p-3 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
           <button onClick={() => setViewMode('kanban')}
-            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'kanban' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:text-slate-700'}`}>
+            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${viewMode === 'kanban' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:text-slate-700'}`}>
             🗂️ Kanban
           </button>
           <button onClick={() => setViewMode('table')}
-            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'table' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:text-slate-700'}`}>
+            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${viewMode === 'table' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:text-slate-700'}`}>
             📋 Tabel
           </button>
         </div>
+
+        <div className="flex flex-1 items-center gap-2 w-full sm:max-w-md">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Cari PT atau Alat..."
+              className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none bg-slate-50"
+            />
+          </div>
+
+          {/* Month Filter */}
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <select
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+              className="pl-9 pr-8 py-1.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none bg-slate-50 appearance-none font-bold text-slate-700 cursor-pointer"
+            >
+              {MONTHS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
-          <button onClick={exportJobsCSV}
-            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer">
-            <Download className="h-3.5 w-3.5" />Export
+          <button onClick={() => exportInspectionToExcel(filteredJobs, manpowerList, MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua')}
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer whitespace-nowrap">
+            <FileSpreadsheet className="h-3.5 w-3.5" />Export Excel
           </button>
           <button onClick={() => { setEditingJob(null); setIsFormOpen(true); }}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md transition-all cursor-pointer">
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md transition-all cursor-pointer whitespace-nowrap">
             <Plus className="h-3.5 w-3.5" />Tambah Job
           </button>
         </div>

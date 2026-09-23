@@ -1120,6 +1120,7 @@ export default function RetentionModule({
 }: RetentionModuleProps) {
   // UI State
   const [search, setSearch] = useState('');
+  const [selectedMonth, setSelectedMonth] = React.useState('all');
   const [filter, setFilter] = useState<'all' | 'overdue' | 'critical' | 'warning' | 'deal' | 'lost'>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -1169,7 +1170,7 @@ export default function RetentionModule({
     // 2. Sort (Paling urgent / jatuh tempo terdekat di atas)
     return filtered.sort((a, b) => {
       const getScore = (client: RetentionClient) => {
-        const clientEqs = equipments.filter(e => e.client_id === client.id);
+        const clientEqs = equipments.filter(e => e.client_id === client.id && filterByMonth(e.due_date, selectedMonth));
         if (clientEqs.length === 0) return Number.MAX_SAFE_INTEGER;
         
         let minTime = Number.MAX_SAFE_INTEGER;
@@ -1394,16 +1395,33 @@ export default function RetentionModule({
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Cari nama PT, PIC, atau nomor WA..."
+              placeholder="Cari nama PT, PIC..."
               className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-300 outline-none bg-slate-50"
             />
           </div>
 
+          {/* Month Filter */}
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <select
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+              className="pl-9 pr-8 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-300 outline-none bg-slate-50 appearance-none font-bold text-slate-700 cursor-pointer"
+            >
+              {MONTHS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Actions */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => exportToCSV(filteredClients, equipments.filter(e => filteredClients.some(c => c.id === e.client_id)), logs)}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer">
-              <Download className="h-3.5 w-3.5" />Export CSV
+            <button onClick={() => {
+              const eqFiltered = equipments.filter(e => filteredClients.some(c => c.id === e.client_id) && filterByMonth(e.due_date, selectedMonth));
+              exportRetentionToExcel(filteredClients, eqFiltered, logs, MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua');
+            }}
+              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer shadow-sm">
+              <FileSpreadsheet className="h-3.5 w-3.5" />Export Excel
             </button>
             <button onClick={() => setIsImportOpen(true)}
               className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer">
