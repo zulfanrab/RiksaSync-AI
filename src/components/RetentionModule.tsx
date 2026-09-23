@@ -8,7 +8,7 @@ import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   AlertTriangle, CheckCircle2, Clock, TrendingDown, TrendingUp,
   Plus, Download, Upload, Search, Filter, MessageCircle,
-  FileText, ChevronDown, ChevronRight, Edit3, Trash2, History,
+  FileText, FileSpreadsheet, ChevronDown, ChevronRight, Edit3, Trash2, History,
   Eye, X, Save, RefreshCcw, ExternalLink, Phone, Building2,
   Wrench, Calendar, Bell, ArrowRight, MoreHorizontal, Copy
 } from 'lucide-react';
@@ -18,6 +18,7 @@ import {
   FollowUpStage, FollowUpStatus, UrgencyLevel, InspectionJob
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { exportRetentionToExcel, exportRetentionToPDF, filterByDate, MONTHS, YEARS } from '../lib/exportUtils';
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -1121,6 +1122,7 @@ export default function RetentionModule({
   // UI State
   const [search, setSearch] = useState('');
   const [selectedMonth, setSelectedMonth] = React.useState('all');
+  const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
   const [filter, setFilter] = useState<'all' | 'overdue' | 'critical' | 'warning' | 'deal' | 'lost'>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -1129,6 +1131,7 @@ export default function RetentionModule({
   const [logModal, setLogModal] = useState<{ client: RetentionClient; equipment: ClientEquipment } | null>(null);
   const [dealModal, setDealModal] = useState<{ client: RetentionClient; equipment: ClientEquipment } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
 
   // Bento stats
   const stats = useMemo(() => {
@@ -1170,7 +1173,7 @@ export default function RetentionModule({
     // 2. Sort (Paling urgent / jatuh tempo terdekat di atas)
     return filtered.sort((a, b) => {
       const getScore = (client: RetentionClient) => {
-        const clientEqs = equipments.filter(e => e.client_id === client.id && filterByMonth(e.due_date, selectedMonth));
+        const clientEqs = equipments.filter(e => e.client_id === client.id && filterByDate(e.due_date, selectedMonth, selectedYear));
         if (clientEqs.length === 0) return Number.MAX_SAFE_INTEGER;
         
         let minTime = Number.MAX_SAFE_INTEGER;
@@ -1413,15 +1416,39 @@ export default function RetentionModule({
               ))}
             </select>
           </div>
+          {/* Year Filter */}
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <select
+              value={selectedYear}
+              onChange={e => setSelectedYear(e.target.value)}
+              className="pl-9 pr-8 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-300 outline-none bg-slate-50 appearance-none font-bold text-slate-700 cursor-pointer"
+            >
+              {YEARS.map(y => (
+                <option key={y.value} value={y.value}>{y.label}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Actions */}
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={() => {
-              const eqFiltered = equipments.filter(e => filteredClients.some(c => c.id === e.client_id) && filterByMonth(e.due_date, selectedMonth));
-              exportRetentionToExcel(filteredClients, eqFiltered, logs, MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua');
+              const eqFiltered = equipments.filter(e => filteredClients.some(c => c.id === e.client_id) && filterByDate(e.due_date, selectedMonth, selectedYear));
+              const mLabel = MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua';
+              const yLabel = selectedYear === 'all' ? 'Semua' : selectedYear;
+              exportRetentionToExcel(filteredClients, eqFiltered, logs, `${mLabel}_${yLabel}`);
             }}
               className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer shadow-sm">
               <FileSpreadsheet className="h-3.5 w-3.5" />Export Excel
+            </button>
+            <button onClick={() => {
+              const eqFiltered = equipments.filter(e => filteredClients.some(c => c.id === e.client_id) && filterByDate(e.due_date, selectedMonth, selectedYear));
+              const mLabel = MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua';
+              const yLabel = selectedYear === 'all' ? 'Semua' : selectedYear;
+              exportRetentionToPDF(filteredClients, eqFiltered, logs, `${mLabel}_${yLabel}`);
+            }}
+              className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer shadow-sm">
+              <FileText className="h-3.5 w-3.5" />Export PDF
             </button>
             <button onClick={() => setIsImportOpen(true)}
               className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer">

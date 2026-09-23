@@ -9,10 +9,11 @@ import {
   ClipboardList, FileText, Wrench, Calendar, CheckCircle2, Clock,
   Plus, Edit3, Trash2, ExternalLink, X, Save, RefreshCcw,
   ChevronRight, ArrowRight, Building2, Phone, AlertTriangle, Download, Handshake, Landmark, MessageSquare, Send
-} from 'lucide-react';
+, FileSpreadsheet, Filter, Search} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InspectionJob, InspectionStage, Manpower, JobNote } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { exportInspectionToExcel, exportInspectionToPDF, filterByDate, MONTHS, YEARS } from '../lib/exportUtils';
 
 const STAGES: InspectionStage[] = ['Penawaran', 'Negosiasi', 'Penjadwalan', 'Pelaksanaan', 'Laporan', 'Proses Disnaker', 'Suket Terbit'];
 
@@ -411,15 +412,26 @@ export default function InspectionPipelineModule({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<InspectionJob | null>(null);
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+  const [search, setSearch] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
   // Group jobs by stage
+  const filteredJobs = useMemo(() => {
+    return jobs.filter(job => {
+      const matchSearch = !search || job.client_name?.toLowerCase().includes(search.toLowerCase()) || job.equipment_name.toLowerCase().includes(search.toLowerCase());
+      const matchDate = filterByDate(job.due_date, selectedMonth, selectedYear);
+      return matchSearch && matchDate;
+    });
+  }, [jobs, search, selectedMonth, selectedYear]);
+
   const jobsByStage = useMemo(() => {
     const grouped: Record<InspectionStage, InspectionJob[]> = {
       'Penawaran': [], 'Negosiasi': [], 'Penjadwalan': [], 'Pelaksanaan': [], 'Laporan': [], 'Proses Disnaker': [], 'Suket Terbit': []
     };
-    jobs.forEach(j => { if (grouped[j.stage]) grouped[j.stage].push(j); });
+    filteredJobs.forEach(j => { if (grouped[j.stage]) grouped[j.stage].push(j); });
     return grouped;
-  }, [jobs]);
+  }, [filteredJobs]);
 
   const stats = useMemo(() => {
     const done = jobs.filter(j => j.stage === 'Suket Terbit').length;
@@ -569,12 +581,37 @@ export default function InspectionPipelineModule({
               ))}
             </select>
           </div>
+          {/* Year Filter */}
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <select
+              value={selectedYear}
+              onChange={e => setSelectedYear(e.target.value)}
+              className="pl-9 pr-8 py-1.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none bg-slate-50 appearance-none font-bold text-slate-700 cursor-pointer"
+            >
+              {YEARS.map(y => (
+                <option key={y.value} value={y.value}>{y.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={() => exportInspectionToExcel(filteredJobs, manpowerList, MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua')}
+          <button onClick={() => {
+              const mLabel = MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua';
+              const yLabel = selectedYear === 'all' ? 'Semua' : selectedYear;
+              exportInspectionToExcel(filteredJobs, manpowerList, `${mLabel}_${yLabel}`);
+            }}
             className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer whitespace-nowrap">
             <FileSpreadsheet className="h-3.5 w-3.5" />Export Excel
+          </button>
+          <button onClick={() => {
+              const mLabel = MONTHS.find(m => m.value === selectedMonth)?.label || 'Semua';
+              const yLabel = selectedYear === 'all' ? 'Semua' : selectedYear;
+              exportInspectionToPDF(filteredJobs, manpowerList, `${mLabel}_${yLabel}`);
+            }}
+            className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer whitespace-nowrap">
+            <FileText className="h-3.5 w-3.5" />Export PDF
           </button>
           <button onClick={() => { setEditingJob(null); setIsFormOpen(true); }}
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md transition-all cursor-pointer whitespace-nowrap">
