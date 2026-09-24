@@ -1011,7 +1011,7 @@ function ClientGroupRow({
   client, equipments, logs, activeUser,
   onOpenLog, onEditEquipment, onDeleteEquipment, onAddEquipment,
   onEditClient, onDeleteClient, onStatusChange, defaultExpanded = false
-}: ClientGroupRowProps) {
+, selectedEquipmentIds, onToggleSelectEquipment }: ClientGroupRowProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const worstUrgency: UrgencyLevel = useMemo(() => {
@@ -1571,6 +1571,12 @@ export default function RetentionModule({
                     onDeleteClient={handleDeleteClient}
                     onStatusChange={handleStatusChange}
                     defaultExpanded={filteredClients.length <= 5}
+                    selectedEquipmentIds={selectedEquipmentIds}
+                    onToggleSelectEquipment={(id) => {
+                      setSelectedEquipmentIds(prev => 
+                        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                      );
+                    }}
                   />
                 ))}
               </tbody>
