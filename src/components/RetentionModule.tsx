@@ -835,9 +835,13 @@ interface EquipmentRowProps {
   onEditEquipment: (c: RetentionClient, e: ClientEquipment) => void;
   onDeleteEquipment: (equipmentId: string) => void;
   onStatusChange: (equipmentId: string, clientId: string, status: FollowUpStatus, stage: FollowUpStage) => Promise<void>;
+  selectedEquipmentIds?: string[];
+  onToggleSelectEquipment?: (id: string) => void;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEquipment, onDeleteEquipment, onStatusChange }: EquipmentRowProps) {
+function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEquipment, onDeleteEquipment, onStatusChange, isSelected, onToggleSelect }: EquipmentRowProps) {
   const latestLog = useMemo(() => {
     return logs
       .filter(l => l.equipment_id === equipment.id || (!l.equipment_id && l.client_id === client.id))
@@ -870,6 +874,11 @@ function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEq
       {/* Equipment name + type */}
       <td className="px-3 py-2.5 pl-8">
         <div className="flex items-start gap-2">
+          {onToggleSelect && (
+            <div className="mt-0.5" onClick={e => e.stopPropagation()}>
+              <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer h-3.5 w-3.5" />
+            </div>
+          )}
           <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${uc.dot} ${urgency === 'critical' || urgency === 'overdue' ? 'animate-pulse' : ''}`} />
           <div>
             <p className="text-xs font-bold text-slate-700">{equipment.equipment_name}</p>
@@ -1096,6 +1105,8 @@ function ClientGroupRow({
             onEditEquipment={onEditEquipment}
             onDeleteEquipment={onDeleteEquipment}
             onStatusChange={onStatusChange}
+            isSelected={selectedEquipmentIds?.includes(eq.id)}
+            onToggleSelect={() => onToggleSelectEquipment && onToggleSelectEquipment(eq.id)}
           />
         ))}
       </AnimatePresence>
@@ -1160,9 +1171,11 @@ export default function RetentionModule({
       const matchSearch = !q || c.client_name.toLowerCase().includes(q) || c.pic_name.toLowerCase().includes(q) || c.pic_phone.includes(q);
       if (!matchSearch) return false;
 
+      const clientEqs = equipments.filter(e => e.client_id === c.id && filterByDate(e.due_date, selectedMonth, selectedYear));
+      if (clientEqs.length === 0) return false;
+
       if (filter === 'all') return true;
 
-      const clientEqs = equipments.filter(e => e.client_id === c.id);
       return clientEqs.some(eq => {
         const latestLog = logs.filter(l => l.equipment_id === eq.id)
           .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
@@ -1198,7 +1211,7 @@ export default function RetentionModule({
 
       return getScore(a) - getScore(b);
     });
-  }, [clients, equipments, logs, search, filter]);
+  }, [clients, equipments, logs, search, filter, selectedMonth, selectedYear]);
 
   // === DATA OPERATIONS ===
 
@@ -1329,7 +1342,38 @@ export default function RetentionModule({
 
   const handleDealConfirm = () => setDealModal(null);
 
-    const handleBulkDeal = async () => {
+    
+  const handleBulkStatusChange = async (status: FollowUpStatus, stage: FollowUpStage) => {
+    if (selectedEquipmentIds.length === 0) return;
+    if (!isSupabaseConfigured || !supabase) return;
+    
+    setIsSaving(true);
+    try {
+      const logsToInsert = selectedEquipmentIds.map(eqId => {
+        const equipment = equipments.find(e => e.id === eqId);
+        return {
+          client_id: equipment?.client_id,
+          equipment_id: eqId,
+          stage,
+          status,
+          contacted_by: activeUser,
+          contacted_at: new Date().toISOString()
+        };
+      }).filter(l => l.client_id);
+
+      const { error } = await supabase.from('follow_up_logs').insert(logsToInsert);
+      if (error) throw new Error(error.message);
+      
+      setSelectedEquipmentIds([]);
+      await onRefresh();
+    } catch (err: any) {
+      alert('Gagal update status massal: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBulkDeal = async () => {
     if (selectedEquipmentIds.length === 0) return;
     
     const jobsToCreate = selectedEquipmentIds.map(eqId => {
