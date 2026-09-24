@@ -1659,6 +1659,71 @@ export default function RetentionModule({
             onClose={() => setDealModal(null)}
           />
         )}
+            </AnimatePresence>
+
+      {/* === BULK ACTION FLOATING BAR === */}
+      <AnimatePresence>
+        {selectedEquipmentIds.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 50, x: '-50%' }}
+            className="fixed bottom-6 left-1/2 z-40 bg-slate-800 text-white px-6 py-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center gap-4 sm:gap-6 border border-slate-700"
+          >
+            <div className="flex items-center gap-3">
+              <div className="bg-emerald-500/20 text-emerald-400 p-2 rounded-xl">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-black">{selectedEquipmentIds.length} Alat Dipilih</p>
+                <p className="text-[10px] text-slate-400">Terapkan update status massal ke alat yang dipilih</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <select
+                className="bg-slate-700 text-xs font-bold border border-slate-600 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 flex-1 sm:w-48"
+                onChange={async (e) => {
+                  const val = e.target.value as FollowUpStatus;
+                  if (!val) return;
+                  if (!confirm(`Update status menjadi ${val} untuk ${selectedEquipmentIds.length} alat?`)) {
+                    e.target.value = '';
+                    return;
+                  }
+                  
+                  setIsSaving(true);
+                  try {
+                    for (const eqId of selectedEquipmentIds) {
+                      const eq = equipments.find(x => x.id === eqId);
+                      if (eq) {
+                        await handleStatusChange(eqId, eq.client_id, val, 'Follow-Up');
+                      }
+                    }
+                    setSelectedEquipmentIds([]);
+                  } finally {
+                    setIsSaving(false);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                <option value="">-- Pilih Status Baru --</option>
+                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button
+                onClick={() => setSelectedEquipmentIds([])}
+                className="bg-slate-700 hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-colors text-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-600"
+              >
+                Batal
+              </button>
+            </div>
+            
+            {isSaving && (
+              <div className="absolute inset-0 bg-slate-800/80 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                <RefreshCcw className="h-5 w-5 animate-spin text-emerald-400" />
+              </div>
+            )}
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
