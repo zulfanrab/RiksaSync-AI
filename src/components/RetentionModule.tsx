@@ -541,48 +541,77 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
     'Tangki Timbun', 'Compressor'
   ];
 
-  const [eqNames, setEqNames] = useState<string[]>(
-    initialEquipment ? [initialEquipment.equipment_name] : ['']
+  const [historyTerms, setHistoryTerms] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('equipment_history') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const [eqInputs, setEqInputs] = useState<{name: string, type: string}[]>(
+    initialEquipment 
+      ? [{name: initialEquipment.equipment_name, type: initialEquipment.equipment_type || 'PAA'}] 
+      : [{name: '', type: 'PAA'}]
   );
   const [activeEqIndex, setActiveEqIndex] = useState<number | null>(null);
   const [showEqSuggestions, setShowEqSuggestions] = useState(false);
 
   const eqSuggestions = useMemo(() => {
     if (activeEqIndex === null) return [];
-    const val = eqNames[activeEqIndex].toLowerCase();
-    if (!val) return COMMON_K3_TOOLS.slice(0, 5);
-    return COMMON_K3_TOOLS.filter(t => t.toLowerCase().includes(val));
-  }, [eqNames, activeEqIndex]);
+    const val = eqInputs[activeEqIndex].name.toLowerCase();
+    
+    const allTerms = Array.from(new Set([...COMMON_K3_TOOLS, ...historyTerms]));
+    
+    if (!val) return allTerms.slice(0, 8);
+    
+    const matches = allTerms.filter(t => t.toLowerCase().includes(val));
+    matches.sort((a, b) => {
+      const aLower = a.toLowerCase();
+      const bLower = b.toLowerCase();
+      const aStarts = aLower.startsWith(val);
+      const bStarts = bLower.startsWith(val);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return a.localeCompare(b);
+    });
+    return matches.slice(0, 15);
+  }, [eqInputs, activeEqIndex, historyTerms]);
 
-  const handleEqChange = (index: number, val: string) => {
-    const newArr = [...eqNames];
-    newArr[index] = val;
-    setEqNames(newArr);
+  const handleEqNameChange = (index: number, val: string) => {
+    const newArr = [...eqInputs];
+    newArr[index] = { ...newArr[index], name: val };
+    setEqInputs(newArr);
+  };
+  
+  const handleEqTypeChange = (index: number, val: string) => {
+    const newArr = [...eqInputs];
+    newArr[index] = { ...newArr[index], type: val };
+    setEqInputs(newArr);
   };
 
-  const handleAddEqRow = () => setEqNames(prev => [...prev, '']);
+  const handleAddEqRow = () => setEqInputs(prev => [...prev, {name: '', type: 'PAA'}]);
   const handleRemoveEqRow = (index: number) => {
-    if (eqNames.length > 1) setEqNames(prev => prev.filter((_, i) => i !== index));
+    if (eqInputs.length > 1) setEqInputs(prev => prev.filter((_, i) => i !== index));
   };
   const handleDuplicateEqRow = (index: number) => {
-    const newArr = [...eqNames];
+    const newArr = [...eqInputs];
     newArr.splice(index + 1, 0, newArr[index]);
-    setEqNames(newArr);
+    setEqInputs(newArr);
   };
   const selectEqSuggestion = (val: string) => {
     if (activeEqIndex !== null) {
-      handleEqChange(activeEqIndex, val);
+      handleEqNameChange(activeEqIndex, val);
       setShowEqSuggestions(false);
     }
   };
   const handleAppendChip = (chip: string) => {
     if (activeEqIndex !== null) {
-      const current = eqNames[activeEqIndex];
-      handleEqChange(activeEqIndex, current ? `${current} ${chip}` : chip);
+      const current = eqInputs[activeEqIndex].name;
+      handleEqNameChange(activeEqIndex, current ? `${current} ${chip}` : chip);
     }
   };
 
-  const [eqType, setEqType] = useState(initialEquipment?.equipment_type || 'PAA');
   const [lastDate, setLastDate] = useState(initialEquipment?.last_inspection_date || '');
   const [dueDate, setDueDate] = useState(initialEquipment?.due_date || '');
   const [certNo, setCertNo] = useState(initialEquipment?.certificate_number || '');
@@ -597,18 +626,23 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim()) { setError('Nama PT wajib diisi.'); return; }
-    if (eqNames.filter(n => n.trim()).length === 0) { setError('Minimal isi 1 Nama Alat.'); return; }
+    if (eqInputs.filter(n => n.name.trim()).length === 0) { setError('Minimal isi 1 Nama Alat.'); return; }
     if (!lastDate) { setError('Tanggal pemeriksaan terakhir wajib diisi.'); return; }
     setError(''); setIsLoading(true);
     try {
-      const equipmentsArray = eqNames.filter(n => n.trim()).map(name => ({
+      const equipmentsArray = eqInputs.filter(n => n.name.trim()).map(input => ({
         ...(initialEquipment || {}),
-        equipment_name: name.trim(),
-        equipment_type: eqType,
+        equipment_name: input.name.trim(),
+        equipment_type: input.type,
         last_inspection_date: lastDate,
         due_date: dueDate,
         certificate_number: certNo
       }));
+
+      // Update history
+      const newTerms = eqInputs.filter(n => n.name.trim()).map(i => i.name.trim());
+      const updatedHistory = Array.from(new Set([...newTerms, ...historyTerms])).slice(0, 50);
+      localStorage.setItem('equipment_history', JSON.stringify(updatedHistory));
 
       await onSave(
         { ...(initialClient || {}), client_name: clientName.trim(), pic_name: picName, pic_phone: picPhone, pic_email: picEmail, drive_folder_url: driveUrl, notes: clientNotes },
@@ -693,8 +727,8 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
                 {/* Dynamic Equipment Array */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-slate-600 block mb-1">Daftar Nama Alat *</label>
-                    <span className="text-[10px] text-slate-400 font-medium">{eqNames.filter(d => d.trim() !== '').length} terisi</span>
+                    <label className="text-[10px] font-bold text-slate-600 block mb-1">Daftar Nama Alat & Jenis *</label>
+                    <span className="text-[10px] text-slate-400 font-medium">{eqInputs.filter(d => d.name.trim() !== '').length} terisi</span>
                   </div>
 
                   {!initialEquipment && (
@@ -718,21 +752,21 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
                   )}
 
                   <div className="space-y-2 max-h-48 overflow-y-auto p-1">
-                    {eqNames.map((desc, index) => (
-                      <div key={index} className="flex items-center gap-2 relative">
-                        <div className="flex-1 relative">
+                    {eqInputs.map((item, index) => (
+                      <div key={index} className="flex gap-2 relative bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                        <div className="flex-1 space-y-2 relative">
                           <input
                             type="text"
-                            value={desc}
-                            onChange={e => handleEqChange(index, e.target.value)}
+                            value={item.name}
+                            onChange={e => handleEqNameChange(index, e.target.value)}
                             onFocus={() => { setActiveEqIndex(index); setShowEqSuggestions(true); }}
                             onBlur={() => setTimeout(() => setShowEqSuggestions(false), 250)}
                             placeholder="Misal: Forklift 5 Ton Unit-01"
-                            className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300 outline-none"
+                            className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300 outline-none bg-white"
                           />
                           
                           {activeEqIndex === index && showEqSuggestions && eqSuggestions.length > 0 && (
-                            <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-40 overflow-y-auto divide-y divide-slate-50">
+                            <div className="absolute left-0 right-0 top-11 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-40 overflow-y-auto divide-y divide-slate-50">
                               {eqSuggestions.map(tool => (
                                 <button
                                   key={tool}
@@ -745,20 +779,25 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
                               ))}
                             </div>
                           )}
+                          
+                          <select value={item.type} onChange={e => handleEqTypeChange(index, e.target.value)}
+                            className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 bg-white focus:ring-2 focus:ring-emerald-300 outline-none cursor-pointer">
+                            {EQUIPMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
                         </div>
                         
                         {!initialEquipment && (
-                          <>
+                          <div className="flex flex-col gap-1 justify-center">
                             <button type="button" onClick={() => handleDuplicateEqRow(index)} title="Duplikat"
-                              className="p-2 bg-slate-100 hover:bg-emerald-50 text-slate-600 rounded-lg transition-all h-[36px] w-[36px] flex items-center justify-center">
+                              className="p-2 bg-white hover:bg-emerald-50 text-slate-600 border border-slate-200 rounded-lg transition-all h-[32px] w-[32px] flex items-center justify-center">
                               <Copy className="h-3.5 w-3.5" />
                             </button>
                             <button type="button" onClick={() => handleRemoveEqRow(index)} title="Hapus"
-                              className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-all h-[36px] w-[36px] flex items-center justify-center disabled:opacity-50"
-                              disabled={eqNames.length === 1}>
+                              className="p-2 bg-white text-rose-600 border border-slate-200 hover:bg-rose-50 rounded-lg transition-all h-[32px] w-[32px] flex items-center justify-center disabled:opacity-50"
+                              disabled={eqInputs.length === 1}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          </>
+                          </div>
                         )}
                       </div>
                     ))}
@@ -772,21 +811,14 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
                   )}
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-600 block mb-1">Tipe / Jenis Alat</label>
-                    <select value={eqType} onChange={e => setEqType(e.target.value)}
-                      className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 bg-white focus:ring-2 focus:ring-emerald-300 outline-none cursor-pointer">
-                      {EQUIPMENT_TYPES.map(t => <option key={t}>{t}</option>)}
-                    </select>
-                  </div>
+                <div className="grid grid-cols-1 mt-3">
                   <div>
                     <label className="text-[10px] font-bold text-slate-600 block mb-1">No. Suket Disnaker</label>
                     <input value={certNo} onChange={e => setCertNo(e.target.value)} placeholder="PK.04/1234/X/2024"
                       className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300 outline-none" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 mt-3">
                   <div>
                     <label className="text-[10px] font-bold text-slate-600 block mb-1 flex items-center gap-1">
                       <Calendar className="h-2.5 w-2.5" /> Tgl Pemeriksaan Terakhir *
@@ -821,7 +853,6 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
     </div>
   );
 }
-
 // ============================================================
 // EQUIPMENT ROW
 // ============================================================
