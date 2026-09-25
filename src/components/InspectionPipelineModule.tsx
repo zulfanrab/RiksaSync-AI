@@ -95,7 +95,7 @@ function JobForm({ initial, manpowerList = [], activeUser = 'Admin', onClose, on
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim() || !eqName.trim()) { setError('Nama PT dan Nama Alat wajib diisi.'); return; }
+    // if (!clientName.trim() || !eqName.trim()) { setError('Nama PT dan Nama Alat wajib diisi.'); return; }
     setError(''); setIsLoading(true);
     try {
       await onSave({

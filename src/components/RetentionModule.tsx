@@ -625,9 +625,9 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim()) { setError('Nama PT wajib diisi.'); return; }
-    if (eqInputs.filter(n => n.name.trim()).length === 0) { setError('Minimal isi 1 Nama Alat.'); return; }
-    if (!lastDate) { setError('Tanggal pemeriksaan terakhir wajib diisi.'); return; }
+    // if (!clientName.trim()) { setError('Nama PT wajib diisi.'); return; }
+    // if (eqInputs.filter(n => n.name.trim()).length === 0) { setError('Minimal isi 1 Nama Alat.'); return; }
+    // if (!lastDate) { setError('Tanggal pemeriksaan terakhir wajib diisi.'); return; }
     setError(''); setIsLoading(true);
     try {
       const equipmentsArray = eqInputs.filter(n => n.name.trim()).map(input => ({
@@ -679,7 +679,7 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
               </h3>
               <div className="space-y-3">
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">Nama Perusahaan (PT) *</label>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">Nama Perusahaan (PT)</label>
                   <input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="PT Contoh Jaya Abadi"
                     className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300 outline-none" />
                 </div>
@@ -727,7 +727,7 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
                 {/* Dynamic Equipment Array */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-slate-600 block mb-1">Daftar Nama Alat & Jenis *</label>
+                    <label className="text-[10px] font-bold text-slate-600 block mb-1">Daftar Nama Alat & Jenis</label>
                     <span className="text-[10px] text-slate-400 font-medium">{eqInputs.filter(d => d.name.trim() !== '').length} terisi</span>
                   </div>
 
@@ -821,7 +821,7 @@ function FollowUpForm({ initialClient, initialEquipment, onClose, onSave }: Foll
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div>
                     <label className="text-[10px] font-bold text-slate-600 block mb-1 flex items-center gap-1">
-                      <Calendar className="h-2.5 w-2.5" /> Tgl Pemeriksaan Terakhir *
+                      <Calendar className="h-2.5 w-2.5" /> Tgl Pemeriksaan Terakhir
                     </label>
                     <input type="date" value={lastDate} onChange={e => handleLastDateChange(e.target.value)}
                       className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300 outline-none cursor-pointer" />
