@@ -42,7 +42,8 @@ const INITIAL_UNITS: Unit[] = [
   { id: 'u4', unit_name: 'Pesawat Uap dan Bejana Tekan (PUBT)', required_skp: 'PUBT' },
   { id: 'u5', unit_name: 'Instalasi Penyalur Petir', required_skp: 'Instalasi Listrik' },
   { id: 'u6', unit_name: 'Angkur & TKPK', required_skp: 'Angkur TKPK' },
-  { id: 'u7', unit_name: 'Instalasi Listrik', required_skp: 'Instalasi Listrik' }
+  { id: 'u7', unit_name: 'Instalasi Listrik', required_skp: 'Instalasi Listrik' },
+  { id: 'u8', unit_name: 'Instalasi Proteksi Kebakaran', required_skp: '' }
 ];
 
 const INITIAL_SCHEDULES: Schedule[] = [
@@ -471,7 +472,8 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
           { id: 'u4', unit_name: 'Pesawat Uap dan Bejana Tekan (PUBT)', required_skp: 'PUBT' },
           { id: 'u5', unit_name: 'Instalasi Penyalur Petir', required_skp: 'Instalasi Listrik' },
           { id: 'u6', unit_name: 'Angkur & TKPK', required_skp: 'Angkur TKPK' },
-          { id: 'u7', unit_name: 'Instalasi Listrik', required_skp: 'Instalasi Listrik' }
+          { id: 'u7', unit_name: 'Instalasi Listrik', required_skp: 'Instalasi Listrik' },
+          { id: 'u8', unit_name: 'Instalasi Proteksi Kebakaran', required_skp: '' }
         ];
         const { data: seeded, error: err } = await supabase.from('units').insert(initialUnits).select();
         if (!err && seeded) {

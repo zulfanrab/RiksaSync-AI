@@ -1179,6 +1179,49 @@ export default function ScheduleForm({
               );
             })}
           </div>
+          {/* Add Vendor Input */}
+          <div className="mt-2 p-3 bg-slate-50/50 rounded-xl border border-slate-200">
+            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">Tambah Vendor / Tim Eksternal (Opsional)</label>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                list="vendor-options"
+                placeholder="Ketik nama vendor & tekan Enter (Cth: Multi Hijau)..."
+                className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 shadow-sm outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = e.currentTarget.value.trim();
+                    if (val && !selectedSupportIds.includes(`vendor:${val}`)) {
+                      setSelectedSupportIds(prev => [...prev, `vendor:${val}`]);
+                      e.currentTarget.value = '';
+                    }
+                  }
+                }}
+              />
+              <datalist id="vendor-options">
+                <option value="Multi Hijau" />
+              </datalist>
+            </div>
+            <p className="text-[9px] text-slate-400 mt-1.5">Tekan Enter untuk menambah vendor ke dalam daftar support. Bebas diisi vendor apa saja, ini akan otomatis tampil di kalender.</p>
+          </div>
+          {/* Render Selected Vendors */}
+          {selectedSupportIds.filter(id => id.startsWith('vendor:')).map(vendorId => (
+            <div key={vendorId} className="mt-2 p-2.5 rounded-lg border flex flex-col justify-between transition-all bg-emerald-50/40 border-emerald-300">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={true}
+                  onChange={() => setSelectedSupportIds(prev => prev.filter(id => id !== vendorId))}
+                  className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer shrink-0"
+                />
+                <div className="text-[11px]">
+                  <span className="font-bold text-slate-800 block leading-tight">{vendorId.replace('vendor:', '')}</span>
+                  <span className="text-[9px] text-slate-500 block mt-1 font-medium">Vendor / Eksternal</span>
+                </div>
+              </label>
+            </div>
+          ))}
         </div>
       </div>
 
