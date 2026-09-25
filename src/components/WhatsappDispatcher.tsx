@@ -125,28 +125,33 @@ export default function WhatsappDispatcher({
         // Personnel (Combine Lead and Supports, no SKP)
         const lead = manpowerList.find(m => m.id === s.lead_expert_id);
         const supports = s.support_ids
-          .map(sid => manpowerList.find(m => m.id === sid)?.name)
+          .map(sid => manpowerList.find(m => m.id === sid)?.name || (sid.startsWith('vendor:') ? sid.substring(7) : null))
           .filter(Boolean);
 
         const teamMembers: string[] = [];
         if (lead) {
           teamMembers.push(`${lead.name} (Lead)`);
         }
-        supports.forEach(name => teamMembers.push(name));
+        supports.forEach(name => teamMembers.push(name as string));
 
         const teamStr = teamMembers.length > 0 ? teamMembers.join(', ') : 'Belum ditentukan';
         text += `• ${isRiksa ? 'Tim Eksekusi' : 'Tim Penugasan'}: ${teamStr}\n`;
 
         // Unit descriptions if any
         if (s.unit_descriptions && s.unit_descriptions.length > 0) {
-          text += `• Deskripsi: ${s.unit_descriptions.join(', ')}\n`;
+          text += `• Detail / Daftar Alat:\n`;
+          s.unit_descriptions.forEach(desc => {
+            text += `   - ${desc}\n`;
+          });
         } else if (s.unit_ids && s.unit_ids.length > 0) {
           const matchedUnits = s.unit_ids
             .map(uid => units.find(u => u.id === uid)?.unit_name)
-            .filter(Boolean)
-            .join(' & ');
-          if (matchedUnits) {
-            text += `• Unit Alat: ${matchedUnits}\n`;
+            .filter(Boolean);
+          if (matchedUnits.length > 0) {
+            text += `• Detail / Daftar Alat:\n`;
+            matchedUnits.forEach(u => {
+              text += `   - ${u}\n`;
+            });
           }
         }
         text += `\n`;
