@@ -27,7 +27,7 @@ const STAGE_CONFIG: Record<InspectionStage, { icon: React.ElementType; color: st
   'Suket Terbit':    { icon: CheckCircle2,   color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', desc: 'Sertifikat Disnaker sudah terbit' },
 };
 
-const EQUIPMENT_TYPES = ['PTP', 'PAA', 'Elevator & Eskalator', 'PUBT', 'Instalasi Listrik', 'Angkur & TKPK', 'Lainnya'];
+const EQUIPMENT_TYPES = ['PTP', 'PAA', 'Elevator & Eskalator', 'PUBT', 'Instalasi Listrik & Penyalur Petir', 'Instalasi Proteksi Kebakaran', 'Angkur & TKPK', 'Lainnya'];
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '-';

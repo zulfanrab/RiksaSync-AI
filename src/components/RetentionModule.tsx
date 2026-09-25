@@ -65,7 +65,7 @@ const URGENCY_CONFIG: Record<UrgencyLevel, { label: string; color: string; bg: s
   lost:     { label: '❌ Lost (Lepas)',  color: 'text-slate-600',  bg: 'bg-slate-50',  border: 'border-slate-200',  dot: 'bg-slate-400',  textColor: 'text-slate-700'  },
 };
 
-const EQUIPMENT_TYPES = ['PTP', 'PAA', 'Elevator & Eskalator', 'PUBT', 'Instalasi Listrik', 'Angkur & TKPK', 'Lainnya'];
+const EQUIPMENT_TYPES = ['PTP', 'PAA', 'Elevator & Eskalator', 'PUBT', 'Instalasi Listrik & Penyalur Petir', 'Instalasi Proteksi Kebakaran', 'Angkur & TKPK', 'Lainnya'];
 const STAGES: FollowUpStage[] = ['FU 1', 'FU 2', 'FU 3'];
 const STATUSES: FollowUpStatus[] = ['Pending', 'Contacted', 'Minta Mundur', 'Deal (Lanjut)', 'Lost (Lepas)'];
 
@@ -901,7 +901,7 @@ function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEq
   };
 
   return (
-    <tr className={`border-b border-slate-50 hover:bg-slate-50/70 transition-colors group ${urgency === 'critical' ? 'bg-red-50/30' : urgency === 'overdue' ? 'bg-purple-50/30' : ''}`}>
+    <tr className={`border-b border-slate-100/50 hover:bg-slate-50/80 transition-colors group ${isSelected ? 'bg-emerald-50/50' : 'bg-white'}`}>
       {/* Equipment name + type */}
       <td className="px-3 py-2.5 pl-8">
         <div className="flex items-start gap-2">
@@ -917,6 +917,8 @@ function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEq
           </div>
         </div>
       </td>
+      {/* Empty Jml Alat */}
+      <td className="px-3 py-2.5"></td>
       {/* Due date */}
       <td className="px-3 py-2.5">
         <div>
@@ -926,12 +928,6 @@ function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEq
       </td>
       {/* Countdown */}
       <td className="px-3 py-2.5 text-xs font-mono">{countdownDisplay()}</td>
-      {/* Urgency badge */}
-      <td className="px-3 py-2.5">
-        <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${uc.bg} ${uc.border} ${uc.textColor}`}>
-          {uc.label}
-        </span>
-      </td>
       {/* Stage & Status */}
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-1.5">
@@ -968,6 +964,12 @@ function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEq
           </div>
         </div>
         {latestLog?.notes && <p className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[120px]" title={latestLog.notes}>{latestLog.notes}</p>}
+      </td>
+      {/* Urgency badge */}
+      <td className="px-3 py-2.5">
+        <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${uc.bg} ${uc.border} ${uc.textColor}`}>
+          {uc.label}
+        </span>
       </td>
       {/* Offer doc */}
       <td className="px-3 py-2.5">
@@ -1007,9 +1009,9 @@ function EquipmentRow({ client, equipment, logs, activeUser, onOpenLog, onEditEq
           </button>
           {/* Delete */}
           <button
-            onClick={() => onDeleteEquipment(equipment.id)}
+            onClick={() => { if (confirm(`Hapus alat "${equipment.equipment_name}"?`)) onDeleteEquipment(equipment.id); }}
             className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-lg transition-all cursor-pointer"
-            title="Hapus"
+            title="Hapus Alat"
           >
             <Trash2 className="h-3 w-3" />
           </button>
@@ -1070,7 +1072,7 @@ function ClientGroupRow({
         className={`border-b border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors ${worstUrgency === 'critical' ? 'bg-red-50/20' : worstUrgency === 'overdue' ? 'bg-purple-50/20' : 'bg-white'}`}
         onClick={() => setExpanded(!expanded)}
       >
-        <td className="px-3 py-3" colSpan={2}>
+        <td className="px-3 py-3">
           <div className="flex items-center gap-3">
             <div className={`p-1 rounded-lg transition-transform duration-200 ${expanded ? 'rotate-0' : '-rotate-90'}`}>
               <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -1087,12 +1089,15 @@ function ClientGroupRow({
           </div>
         </td>
         <td className="px-3 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-600">{equipments.length} alat</span>
+          <div className="flex flex-col items-start gap-1">
+            <span className="text-xs font-bold text-slate-600">{equipments.length} Tipe Unit</span>
             {dealCount > 0 && <span className="text-[9px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full">{dealCount} deal</span>}
           </div>
         </td>
-        <td className="px-3 py-3" colSpan={2}>
+        <td className="px-3 py-3"></td>
+        <td className="px-3 py-3"></td>
+        <td className="px-3 py-3"></td>
+        <td className="px-3 py-3">
           <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${uc.bg} ${uc.border} ${uc.textColor}`}>
             {uc.label}
           </span>
