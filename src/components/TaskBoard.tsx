@@ -157,6 +157,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TeamTask | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isViewMode, setIsViewMode] = useState(false);
   
   // Task Form State
   const [title, setTitle] = useState('');
@@ -185,6 +186,8 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
 
   const openNewTaskModal = () => {
     setEditingTask(null);
+    setIsViewMode(false);
+    setIsViewMode(false);
     setTitle('');
     setDescription('');
     setAssigneeIds([]);
@@ -199,6 +202,8 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
 
   const openNewTaskModalWithDate = (dateStr: string) => {
     setEditingTask(null);
+    setIsViewMode(false);
+    setIsViewMode(false);
     setTitle('');
     setDescription('');
     setAssigneeIds([]);
@@ -239,6 +244,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
   const openEditTaskModal = (task: TeamTask) => {
     setEditingTask(task);
+    setIsViewMode(true);
+    setIsViewMode(true);
     setTitle(task.title);
     setDescription(task.description);
     
@@ -984,6 +991,37 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
               {/* Body Form */}
               <div className="p-6 overflow-y-auto flex-1">
+                {isViewMode && editingTask ? (
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900 leading-snug break-words">{title}</h2>
+                      <div className="flex flex-wrap items-center gap-2 mt-3">
+                         <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-[11px] font-extrabold rounded-lg border border-indigo-100 flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> {category}</span>
+                         <span className={`px-3 py-1.5 text-[11px] font-extrabold rounded-lg border flex items-center gap-1.5 ${priorityColors[priority] || 'bg-slate-100 text-slate-700'}`}><AlertTriangle className="h-3.5 w-3.5" /> {priority} Priority</span>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-xl border border-slate-100">
+                       <div>
+                         <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><CalendarIcon className="h-3.5 w-3.5" /> Tenggat Waktu (Deadline)</p>
+                         <p className="text-sm font-bold text-slate-800">{formatIndonesianDateWithDay(dueDate)} {dueTime ? `• ${dueTime} WIB` : ''}</p>
+                       </div>
+                       <div>
+                         <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><User className="h-3.5 w-3.5" /> Ditugaskan Kepada (PIC)</p>
+                         <p className="text-sm font-bold text-slate-800">
+                           {assigneeIds.map(id => manpowerList.find(m => m.id === id)?.name).filter(Boolean).join(', ') || 'Belum ditugaskan'}
+                         </p>
+                       </div>
+                    </div>
+                    
+                    <div>
+                      <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3 border-b border-slate-100 pb-2"><FileText className="h-4 w-4" /> Detail / Notulensi</label>
+                      <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed bg-white p-1">
+                        {description || <span className="text-slate-400 italic font-medium">Tidak ada detail deskripsi yang dilampirkan.</span>}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                 <form id="task-form" onSubmit={handleSubmitTask} className="space-y-4">
                   {/* Judul */}
                   <div>
@@ -1238,6 +1276,7 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                     <span>Tenggat Pengerjaan: <strong>{formatIndonesianDateWithDay(dueDate, dueTime)}</strong></span>
                   </div>
                 </form>
+                )}
               </div>
 
               {/* Footer Modal */}
@@ -1306,22 +1345,40 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={() => {
+                        if (editingTask && !isViewMode) {
+                            setIsViewMode(true);
+                        } else {
+                            setIsModalOpen(false);
+                        }
+                    }}
                     className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/60 rounded-xl transition-all"
                     disabled={isSaving}
                   >
                     Tutup
                   </button>
-                  {canEdit && (
-                    <button
-                      type="submit"
-                      form="task-form"
-                      disabled={isSaving}
-                      className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
-                    >
-                      {isSaving ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      {editingTask ? 'Simpan' : 'Buat'}
-                    </button>
+                  {isViewMode ? (
+                      canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setIsViewMode(false)}
+                          className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95"
+                        >
+                          <EditIcon className="h-4 w-4" /> Edit Detail Tugas
+                        </button>
+                      )
+                  ) : (
+                      canEdit && (
+                        <button
+                          type="submit"
+                          form="task-form"
+                          disabled={isSaving}
+                          className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                        >
+                          {isSaving ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          {editingTask ? 'Simpan' : 'Buat'}
+                        </button>
+                      )
                   )}
                 </div>
               </div>
