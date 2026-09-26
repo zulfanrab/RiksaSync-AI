@@ -5,7 +5,7 @@ import {
   Plus, Clock, User, Users, AlertCircle, AlertTriangle, CheckCircle2, 
   ChevronRight, X, Loader, Trash2, Calendar, FileText, Link as LinkIcon, 
   ExternalLink, Archive, LayoutDashboard, Search, Bold, List, 
-  ListOrdered, CheckSquare, Sparkles, Filter, Bell, Send, MessageSquare 
+  ListOrdered, CheckSquare, Sparkles, Filter, Bell, Send, MessageSquare, Tag, Eye
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import TaskCalendarView from './TaskCalendarView';
@@ -157,7 +157,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TeamTask | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isViewMode, setIsViewMode] = useState(false);
+  const [viewingTask, setViewingTask] = useState<TeamTask | null>(null);
   
   // Task Form State
   const [title, setTitle] = useState('');
@@ -186,8 +186,6 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
 
   const openNewTaskModal = () => {
     setEditingTask(null);
-    setIsViewMode(false);
-    setIsViewMode(false);
     setTitle('');
     setDescription('');
     setAssigneeIds([]);
@@ -202,8 +200,6 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
 
   const openNewTaskModalWithDate = (dateStr: string) => {
     setEditingTask(null);
-    setIsViewMode(false);
-    setIsViewMode(false);
     setTitle('');
     setDescription('');
     setAssigneeIds([]);
@@ -244,8 +240,6 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
   const openEditTaskModal = (task: TeamTask) => {
     setEditingTask(task);
-    setIsViewMode(true);
-    setIsViewMode(true);
     setTitle(task.title);
     setDescription(task.description);
     
@@ -262,6 +256,10 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
     setRecurrence(task.recurrence || 'None');
     setVisibility(task.visibility || 'Public');
     setIsModalOpen(true);
+  };
+
+  const openViewTaskModal = (task: TeamTask) => {
+    setViewingTask(task);
   };
 
   // Helper formatting for Word/Docs toolbar in description
@@ -698,7 +696,7 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                               <button
                                 onClick={() => {
                                   setIsNotificationOpen(false);
-                                  openEditTaskModal(task);
+                                  openViewTaskModal(task);
                                 }}
                                 className="text-[10px] font-bold text-indigo-600 hover:underline cursor-pointer"
                               >
@@ -862,7 +860,7 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                         key={task.id}
                         task={task}
                         manpowerList={manpowerList}
-                        onClick={() => openEditTaskModal(task)}
+                        onClick={() => openViewTaskModal(task)}
                         onStatusChange={(status, reason) => handleUpdateStatus(task.id, status as any, reason)}
                         onSendWhatsapp={handleSendWhatsappReminder}
                       />
@@ -904,7 +902,7 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                     <div 
                       key={task.id} 
                       className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-all cursor-pointer group" 
-                      onClick={() => openEditTaskModal(task)}
+                      onClick={() => openViewTaskModal(task)}
                     >
                       <div className="flex items-start gap-3 flex-1 min-w-0">
                         <div className={`mt-0.5 p-2 rounded-lg shrink-0 ${task.status === 'Done' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
@@ -991,37 +989,6 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
               {/* Body Form */}
               <div className="p-6 overflow-y-auto flex-1">
-                {isViewMode && editingTask ? (
-                  <div className="space-y-6">
-                    <div>
-                      <h2 className="text-xl font-black text-slate-900 leading-snug break-words">{title}</h2>
-                      <div className="flex flex-wrap items-center gap-2 mt-3">
-                         <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-[11px] font-extrabold rounded-lg border border-indigo-100 flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> {category}</span>
-                         <span className={`px-3 py-1.5 text-[11px] font-extrabold rounded-lg border flex items-center gap-1.5 ${priorityColors[priority] || 'bg-slate-100 text-slate-700'}`}><AlertTriangle className="h-3.5 w-3.5" /> {priority} Priority</span>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-xl border border-slate-100">
-                       <div>
-                         <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><CalendarIcon className="h-3.5 w-3.5" /> Tenggat Waktu (Deadline)</p>
-                         <p className="text-sm font-bold text-slate-800">{formatIndonesianDateWithDay(dueDate)} {dueTime ? `• ${dueTime} WIB` : ''}</p>
-                       </div>
-                       <div>
-                         <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><User className="h-3.5 w-3.5" /> Ditugaskan Kepada (PIC)</p>
-                         <p className="text-sm font-bold text-slate-800">
-                           {assigneeIds.map(id => manpowerList.find(m => m.id === id)?.name).filter(Boolean).join(', ') || 'Belum ditugaskan'}
-                         </p>
-                       </div>
-                    </div>
-                    
-                    <div>
-                      <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3 border-b border-slate-100 pb-2"><FileText className="h-4 w-4" /> Detail / Notulensi</label>
-                      <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed bg-white p-1">
-                        {description || <span className="text-slate-400 italic font-medium">Tidak ada detail deskripsi yang dilampirkan.</span>}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
                 <form id="task-form" onSubmit={handleSubmitTask} className="space-y-4">
                   {/* Judul */}
                   <div>
@@ -1276,7 +1243,6 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                     <span>Tenggat Pengerjaan: <strong>{formatIndonesianDateWithDay(dueDate, dueTime)}</strong></span>
                   </div>
                 </form>
-                )}
               </div>
 
               {/* Footer Modal */}
@@ -1345,40 +1311,22 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
                   <button
                     type="button"
-                    onClick={() => {
-                        if (editingTask && !isViewMode) {
-                            setIsViewMode(true);
-                        } else {
-                            setIsModalOpen(false);
-                        }
-                    }}
+                    onClick={() => setIsModalOpen(false)}
                     className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/60 rounded-xl transition-all"
                     disabled={isSaving}
                   >
                     Tutup
                   </button>
-                  {isViewMode ? (
-                      canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => setIsViewMode(false)}
-                          className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95"
-                        >
-                          <EditIcon className="h-4 w-4" /> Edit Detail Tugas
-                        </button>
-                      )
-                  ) : (
-                      canEdit && (
-                        <button
-                          type="submit"
-                          form="task-form"
-                          disabled={isSaving}
-                          className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
-                        >
-                          {isSaving ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                          {editingTask ? 'Simpan' : 'Buat'}
-                        </button>
-                      )
+                  {canEdit && (
+                    <button
+                      type="submit"
+                      form="task-form"
+                      disabled={isSaving}
+                      className="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                    >
+                      {isSaving ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      {editingTask ? 'Simpan' : 'Buat'}
+                    </button>
                   )}
                 </div>
               </div>
@@ -1387,7 +1335,139 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
         )}
       </AnimatePresence>
 
-      {/* 2. Quick Link Modal */}
+      {/* ===== 2. VIEW DETAIL TASK MODAL ===== */}
+      <AnimatePresence>
+        {viewingTask && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={() => setViewingTask(null)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-start bg-gradient-to-br from-indigo-50 to-white shrink-0">
+                <div className="flex-1 pr-4">
+                  <p className="text-[10px] font-extrabold text-indigo-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <Eye className="h-3 w-3" /> Detail Tugas
+                  </p>
+                  <h2 className="text-lg sm:text-xl font-black text-slate-900 leading-snug break-words">{viewingTask.title}</h2>
+                  <p className="text-[11px] text-slate-400 mt-1">{formatCreatedInfo(viewingTask.created_at, viewingTask.created_by)}</p>
+                </div>
+                <button onClick={() => setViewingTask(null)} className="text-slate-400 hover:text-slate-600 p-1.5 bg-white hover:bg-slate-100 rounded-full transition-all shadow-sm shrink-0 mt-1">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                {/* Badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(() => {
+                    const catInfo = TASK_CATEGORIES.find(c => c.id === viewingTask.category);
+                    return (
+                      <span className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${catInfo?.badgeColor || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                        <Tag className="h-3.5 w-3.5" />
+                        {catInfo?.icon} {viewingTask.category}
+                      </span>
+                    );
+                  })()}
+                  <span className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${
+                    viewingTask.priority === 'P1' ? 'bg-rose-100 text-rose-700 border-rose-200'
+                    : viewingTask.priority === 'P2' ? 'bg-amber-100 text-amber-700 border-amber-200'
+                    : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                  }`}>
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Prioritas {viewingTask.priority}
+                  </span>
+                  <span className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 ${
+                    viewingTask.status === 'Done' ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                    : viewingTask.status === 'In Progress' ? 'bg-blue-100 text-blue-700 border-blue-200'
+                    : viewingTask.status === 'Cancelled' ? 'bg-slate-100 text-slate-500 border-slate-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {viewingTask.status}
+                  </span>
+                </div>
+
+                {/* Info grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <div>
+                    <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Calendar className="h-3.5 w-3.5" /> Deadline
+                    </p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {formatIndonesianDateWithDay(viewingTask.due_date)}
+                      {viewingTask.due_time ? <span className="text-slate-500 font-semibold"> • {viewingTask.due_time} WIB</span> : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <User className="h-3.5 w-3.5" /> PIC / Ditugaskan Ke
+                    </p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {(viewingTask.assignee_ids && viewingTask.assignee_ids.length > 0
+                        ? viewingTask.assignee_ids
+                        : viewingTask.assignee_id ? [viewingTask.assignee_id] : []
+                      ).map(id => manpowerList.find(m => m.id === id)?.name).filter(Boolean).join(', ') || <span className="text-slate-400 font-medium">Belum ditugaskan</span>}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Deskripsi */}
+                <div>
+                  <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5 pb-2 border-b border-slate-100">
+                    <FileText className="h-3.5 w-3.5" /> Detail / Notulensi / Instruksi
+                  </p>
+                  <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {viewingTask.description
+                      ? viewingTask.description
+                      : <span className="text-slate-400 italic">Tidak ada deskripsi detail yang dilampirkan.</span>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { handleSendWhatsappReminder(viewingTask); }}
+                    className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200 transition-all cursor-pointer"
+                  >
+                    <Send className="h-3.5 w-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">Kirim Pengingat WA</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewingTask(null)}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/60 rounded-xl transition-all"
+                  >
+                    Tutup
+                  </button>
+                  {(activeUser === 'Zulfan' || viewingTask.created_by === activeUser) && (
+                    <button
+                      type="button"
+                      onClick={() => { setViewingTask(null); openEditTaskModal(viewingTask); }}
+                      className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 active:scale-95"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                      Edit Tugas
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 3. Quick Link Modal */}
       <AnimatePresence>
         {isLinkModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/50 backdrop-blur-sm">
