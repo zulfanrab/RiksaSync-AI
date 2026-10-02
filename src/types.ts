@@ -95,6 +95,9 @@ export interface QuickLink {
   title: string;
   url: string;
   emoji: string;
+  division?: string;
+  is_locked?: boolean;
+  pin?: string;
   created_by?: string;
   created_at: string;
 }

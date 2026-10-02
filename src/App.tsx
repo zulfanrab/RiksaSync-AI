@@ -284,9 +284,17 @@ CREATE TABLE IF NOT EXISTS quick_links (
   title TEXT NOT NULL,
   url TEXT NOT NULL,
   emoji TEXT NOT NULL DEFAULT '🔗',
+  division TEXT NOT NULL DEFAULT 'Umum',
+  is_locked BOOLEAN NOT NULL DEFAULT true,
+  pin TEXT NOT NULL DEFAULT '0000',
   created_by TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- 9b. Upgrade quick_links table with division and PIN protection
+ALTER TABLE quick_links ADD COLUMN IF NOT EXISTS division TEXT DEFAULT 'Umum';
+ALTER TABLE quick_links ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT true;
+ALTER TABLE quick_links ADD COLUMN IF NOT EXISTS pin TEXT DEFAULT '0000';
 
 -- 10. Create client_equipments table for Retention Module
 CREATE TABLE IF NOT EXISTS client_equipments (
@@ -495,14 +503,34 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
 
       let quickLinksData = quickLinksRes && !quickLinksRes.error && Array.isArray(quickLinksRes.data) ? quickLinksRes.data : [];
       const localLinksStr = localStorage.getItem('local_quick_links');
+      let localLinks: any[] = [];
       if (localLinksStr) {
         try {
-          const parsed = JSON.parse(localLinksStr);
-          const urls = new Set(quickLinksData.map((l: any) => l.url));
-          const uniqueLocal = parsed.filter((l: any) => !urls.has(l.url));
-          quickLinksData = [...quickLinksData, ...uniqueLocal];
+          localLinks = JSON.parse(localLinksStr);
+          if (Array.isArray(localLinks)) {
+            const urls = new Set(quickLinksData.map((l: any) => l.url));
+            const uniqueLocal = localLinks.filter((l: any) => !urls.has(l.url));
+            quickLinksData = [...quickLinksData, ...uniqueLocal];
+          }
         } catch (e) {}
       }
+
+      // Enrich metadata with defaults and local storage overrides if available
+      let metaMap: Record<string, any> = {};
+      try {
+        metaMap = JSON.parse(localStorage.getItem('quick_links_metadata') || '{}');
+      } catch (e) {}
+
+      quickLinksData = quickLinksData.map((l: any) => {
+        const localMatch = localLinks.find((loc: any) => loc.id === l.id || loc.url === l.url);
+        const meta = metaMap[l.url] || metaMap[l.id] || {};
+        return {
+          ...l,
+          division: l.division || localMatch?.division || meta.division || 'Umum',
+          is_locked: l.is_locked !== undefined ? l.is_locked : (localMatch?.is_locked !== undefined ? localMatch.is_locked : (meta.is_locked !== undefined ? meta.is_locked : true)),
+          pin: l.pin || localMatch?.pin || meta.pin || '0000'
+        };
+      });
 
       let tasksData = tasksRes && !tasksRes.error && Array.isArray(tasksRes.data) ? tasksRes.data : [];
       const localTasksStr = localStorage.getItem('local_team_tasks');
