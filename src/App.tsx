@@ -515,20 +515,53 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
         } catch (e) {}
       }
 
-      // Enrich metadata with defaults and local storage overrides if available
+      // 1. Extract and sync system pins config if present
+      const configRow = quickLinksData.find((l: any) => l.url === 'sys://quick-links/pins-config');
+      if (configRow && configRow.created_by) {
+        try {
+          const parsedConfig = JSON.parse(configRow.created_by);
+          if (parsedConfig && typeof parsedConfig === 'object') {
+            localStorage.setItem('quick_links_pins_config', JSON.stringify(parsedConfig));
+          }
+        } catch (e) {}
+      }
+
+      // 2. Filter out config row from visible links list
+      quickLinksData = quickLinksData.filter((l: any) => l.url !== 'sys://quick-links/pins-config');
+
+      // 3. Enrich metadata from created_by JSON and local storage
       let metaMap: Record<string, any> = {};
       try {
         metaMap = JSON.parse(localStorage.getItem('quick_links_metadata') || '{}');
       } catch (e) {}
 
       quickLinksData = quickLinksData.map((l: any) => {
+        let div = l.division;
+        let locked = l.is_locked;
+        let pin = l.pin;
+        let author = l.created_by || 'System';
+
+        if (typeof l.created_by === 'string' && l.created_by.startsWith('{')) {
+          try {
+            const meta = JSON.parse(l.created_by);
+            if (meta && typeof meta === 'object') {
+              author = meta.u || meta.author || author;
+              if (!div) div = meta.d || meta.division;
+              if (locked === undefined) locked = meta.l !== undefined ? meta.l : meta.is_locked;
+              if (!pin) pin = meta.p || meta.pin;
+            }
+          } catch (e) {}
+        }
+
         const localMatch = localLinks.find((loc: any) => loc.id === l.id || loc.url === l.url);
         const meta = metaMap[l.url] || metaMap[l.id] || {};
+
         return {
           ...l,
-          division: l.division || localMatch?.division || meta.division || 'Umum',
-          is_locked: l.is_locked !== undefined ? l.is_locked : (localMatch?.is_locked !== undefined ? localMatch.is_locked : (meta.is_locked !== undefined ? meta.is_locked : true)),
-          pin: l.pin || localMatch?.pin || meta.pin || '0000'
+          created_by: author,
+          division: div || localMatch?.division || meta.division || 'Umum',
+          is_locked: locked !== undefined ? locked : (localMatch?.is_locked !== undefined ? localMatch.is_locked : (meta.is_locked !== undefined ? meta.is_locked : true)),
+          pin: pin || localMatch?.pin || meta.pin || ''
         };
       });
 

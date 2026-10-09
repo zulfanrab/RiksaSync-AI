@@ -90,6 +90,11 @@ export interface TeamTask {
   updated_at?: string;
 }
 
+export interface QuickLinkPinsConfig {
+  masterPin: string;
+  divisionPins: Record<string, string>;
+}
+
 export interface QuickLink {
   id: string;
   title: string;

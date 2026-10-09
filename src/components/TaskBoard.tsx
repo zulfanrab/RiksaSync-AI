@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TeamTask, Manpower, QuickLink, TaskCategory } from '../types';
+import { TeamTask, Manpower, QuickLink, TaskCategory, QuickLinkPinsConfig } from '../types';
 import { 
   Plus, Clock, User, Users, AlertCircle, AlertTriangle, CheckCircle2, 
   ChevronRight, X, Loader, Trash2, Calendar, FileText, Link as LinkIcon, 
@@ -17,6 +17,18 @@ export const LINK_DIVISIONS = [
   'Admin & HRD',
   'Umum / Shared'
 ];
+
+export const DEFAULT_PINS_CONFIG: QuickLinkPinsConfig = {
+  masterPin: '0000',
+  divisionPins: {
+    'Teknik & Operasional': '0000',
+    'Marketing & Sales': '0000',
+    'Keuangan & Finance': '0000',
+    'IT & Sistem': '0000',
+    'Admin & HRD': '0000',
+    'Umum / Shared': '0000'
+  }
+};
 
 export function getDivisionStyle(division?: string) {
   switch (division) {
@@ -230,6 +242,42 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
     return activeUser === 'Zulfan' || editingTask.created_by === activeUser;
   }, [editingTask, activeUser]);
 
+  // Centralized PIN Security Configuration (Synced to Supabase DB)
+  const [pinsConfig, setPinsConfig] = useState<QuickLinkPinsConfig>(() => {
+    try {
+      const saved = localStorage.getItem('quick_links_pins_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          masterPin: parsed.masterPin || '0000',
+          divisionPins: { ...DEFAULT_PINS_CONFIG.divisionPins, ...(parsed.divisionPins || {}) }
+        };
+      }
+    } catch (e) {}
+    return DEFAULT_PINS_CONFIG;
+  });
+
+  // Keep pinsConfig synchronized when quickLinks data refreshes
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('quick_links_pins_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setPinsConfig({
+          masterPin: parsed.masterPin || '0000',
+          divisionPins: { ...DEFAULT_PINS_CONFIG.divisionPins, ...(parsed.divisionPins || {}) }
+        });
+      }
+    } catch (e) {}
+  }, [quickLinks]);
+
+  // PIN Settings Modal State
+  const [isPinSettingsOpen, setIsPinSettingsOpen] = useState(false);
+  const [tempMasterPin, setTempMasterPin] = useState('0000');
+  const [tempDivisionPins, setTempDivisionPins] = useState<Record<string, string>>({});
+  const [isSavingPins, setIsSavingPins] = useState(false);
+  const [pinSettingsSuccess, setPinSettingsSuccess] = useState(false);
+
   // Quick Link States (Division Scoped & PIN Protected)
   const [selectedLinkDivision, setSelectedLinkDivision] = useState<string>('all');
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
@@ -240,7 +288,8 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
   const [linkDivision, setLinkDivision] = useState('Teknik & Operasional');
   const [customDivision, setCustomDivision] = useState('');
   const [linkIsLocked, setLinkIsLocked] = useState(true);
-  const [linkPin, setLinkPin] = useState('0000');
+  const [useCustomPin, setUseCustomPin] = useState(false);
+  const [linkPin, setLinkPin] = useState('');
   const [isSavingLink, setIsSavingLink] = useState(false);
 
   // PIN Unlock Modal State
@@ -255,10 +304,19 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
   const pinInput3 = useRef<HTMLInputElement>(null);
   const pinInputs = [pinInput0, pinInput1, pinInput2, pinInput3];
 
-  // Session-based unlocked links (so users don't re-type PIN every click)
+  // Session-based unlocked links & divisions (unlocking division unlocks ALL links in that division!)
   const [unlockedLinkIds, setUnlockedLinkIds] = useState<Set<string>>(() => {
     try {
       const saved = sessionStorage.getItem('unlocked_quick_links');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const [unlockedDivisions, setUnlockedDivisions] = useState<Set<string>>(() => {
+    try {
+      const saved = sessionStorage.getItem('unlocked_divisions');
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch {
       return new Set();
@@ -570,6 +628,69 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
     }
   };
 
+  // Open PIN Settings Modal
+  const openPinSettingsModal = () => {
+    setTempMasterPin(pinsConfig.masterPin || '0000');
+    setTempDivisionPins({ ...DEFAULT_PINS_CONFIG.divisionPins, ...pinsConfig.divisionPins });
+    setPinSettingsSuccess(false);
+    setIsPinSettingsOpen(true);
+  };
+
+  // Save PIN Settings to Supabase and sync to all devices
+  const handleSavePinsConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingPins(true);
+
+    const cleanMaster = tempMasterPin.replace(/\D/g, '').slice(0, 4) || '0000';
+    const cleanDivPins: Record<string, string> = {};
+    for (const [k, v] of Object.entries(tempDivisionPins)) {
+      cleanDivPins[k] = v.replace(/\D/g, '').slice(0, 4) || cleanMaster;
+    }
+
+    const newConfig: QuickLinkPinsConfig = {
+      masterPin: cleanMaster,
+      divisionPins: cleanDivPins
+    };
+
+    try {
+      const payload = {
+        title: '__SYS_PINS_CONFIG__',
+        url: 'sys://quick-links/pins-config',
+        emoji: '🔐',
+        created_by: JSON.stringify(newConfig)
+      };
+
+      const { data: existing } = await supabase
+        .from('quick_links')
+        .select('id')
+        .eq('url', 'sys://quick-links/pins-config')
+        .maybeSingle();
+
+      if (existing && existing.id) {
+        await supabase
+          .from('quick_links')
+          .update(payload)
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('quick_links')
+          .insert([payload]);
+      }
+    } catch (err) {
+      console.warn('Error saving pins config to Supabase:', err);
+    }
+
+    setPinsConfig(newConfig);
+    localStorage.setItem('quick_links_pins_config', JSON.stringify(newConfig));
+    setPinSettingsSuccess(true);
+    await onRefreshAll();
+    setTimeout(() => {
+      setIsSavingPins(false);
+      setIsPinSettingsOpen(false);
+      setPinSettingsSuccess(false);
+    }, 600);
+  };
+
   const openAddLinkModal = () => {
     setEditingLink(null);
     setLinkTitle('');
@@ -578,7 +699,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
     setLinkDivision(selectedLinkDivision !== 'all' ? selectedLinkDivision : 'Teknik & Operasional');
     setCustomDivision('');
     setLinkIsLocked(true);
-    setLinkPin('0000');
+    setUseCustomPin(false);
+    setLinkPin('');
     setIsLinkModalOpen(true);
   };
 
@@ -597,7 +719,13 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
       setCustomDivision(link.division || '');
     }
     setLinkIsLocked(link.is_locked !== false);
-    setLinkPin(link.pin || '0000');
+    if (link.pin && link.pin.trim() !== '') {
+      setUseCustomPin(true);
+      setLinkPin(link.pin);
+    } else {
+      setUseCustomPin(false);
+      setLinkPin('');
+    }
     setIsLinkModalOpen(true);
   };
 
@@ -607,7 +735,16 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
     setIsSavingLink(true);
 
     const resolvedDiv = linkDivision === 'Kustom' ? (customDivision.trim() || 'Umum') : linkDivision;
-    const resolvedPin = linkIsLocked ? (linkPin.replace(/\D/g, '').slice(0, 4) || '0000') : '';
+    // Default PIN comes from division PIN or master PIN
+    const divPin = pinsConfig.divisionPins[resolvedDiv] || pinsConfig.masterPin || '0000';
+    const resolvedPin = linkIsLocked ? (useCustomPin && linkPin ? linkPin.replace(/\D/g, '').slice(0, 4) : divPin) : '';
+
+    const authorMetadata = JSON.stringify({
+      u: activeUser || 'System',
+      d: resolvedDiv,
+      l: linkIsLocked,
+      p: resolvedPin
+    });
 
     const linkPayload: QuickLink = {
       id: editingLink ? editingLink.id : ('ql-' + Date.now()),
@@ -617,12 +754,11 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
       division: resolvedDiv,
       is_locked: linkIsLocked,
       pin: resolvedPin,
-      created_by: editingLink ? (editingLink.created_by || activeUser || 'System') : (activeUser || 'System'),
+      created_by: authorMetadata,
       created_at: editingLink ? editingLink.created_at : new Date().toISOString()
     };
 
     try {
-      // 1. Try to save with full columns to Supabase
       if (editingLink && !editingLink.id.startsWith('ql-')) {
         const { error } = await supabase.from('quick_links').update({
           title: linkPayload.title,
@@ -630,15 +766,16 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
           emoji: linkPayload.emoji,
           division: linkPayload.division,
           is_locked: linkPayload.is_locked,
-          pin: linkPayload.pin
+          pin: linkPayload.pin,
+          created_by: authorMetadata
         }).eq('id', editingLink.id);
 
         if (error) {
-          console.warn('Supabase update note (falling back to standard columns):', error.message);
           await supabase.from('quick_links').update({
             title: linkPayload.title,
             url: linkPayload.url,
-            emoji: linkPayload.emoji
+            emoji: linkPayload.emoji,
+            created_by: authorMetadata
           }).eq('id', editingLink.id);
         }
       } else {
@@ -649,16 +786,15 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
           division: linkPayload.division,
           is_locked: linkPayload.is_locked,
           pin: linkPayload.pin,
-          created_by: linkPayload.created_by
+          created_by: authorMetadata
         }]).select();
 
         if (error) {
-          console.warn('Supabase insert note (falling back to standard columns):', error.message);
           const { data: fbData } = await supabase.from('quick_links').insert([{
             title: linkPayload.title,
             url: linkPayload.url,
             emoji: linkPayload.emoji,
-            created_by: linkPayload.created_by
+            created_by: authorMetadata
           }]).select();
           if (fbData && fbData[0]) {
             linkPayload.id = fbData[0].id;
@@ -671,22 +807,9 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
       console.warn('Fallback save quick link locally:', err);
     }
 
-    // 2. Persist full metadata locally as offline guarantee
     const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
     const filtered = local.filter((l: any) => l.id !== linkPayload.id && l.url !== linkPayload.url);
     localStorage.setItem('local_quick_links', JSON.stringify([linkPayload, ...filtered]));
-
-    // Also persist division & PIN metadata mapping by URL & ID
-    const metaMap = JSON.parse(localStorage.getItem('quick_links_metadata') || '{}');
-    metaMap[linkPayload.url] = {
-      division: linkPayload.division,
-      is_locked: linkPayload.is_locked,
-      pin: linkPayload.pin
-    };
-    if (linkPayload.id) {
-      metaMap[linkPayload.id] = metaMap[linkPayload.url];
-    }
-    localStorage.setItem('quick_links_metadata', JSON.stringify(metaMap));
 
     await onRefreshAll();
     setIsSavingLink(false);
@@ -705,7 +828,6 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
       const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
       localStorage.setItem('local_quick_links', JSON.stringify(local.filter((l: any) => l.id !== id)));
       
-      // Also remove from unlocked set
       const updated = new Set(unlockedLinkIds);
       updated.delete(id);
       setUnlockedLinkIds(updated);
@@ -720,7 +842,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
   const handleOpenLink = (link: QuickLink, e: React.MouseEvent) => {
     e.preventDefault();
     const isLocked = link.is_locked !== false; // default true
-    const isUnlocked = unlockedLinkIds.has(link.id);
+    const div = link.division || 'Umum';
+    const isUnlocked = unlockedLinkIds.has(link.id) || unlockedDivisions.has(div);
 
     if (isLocked && !isUnlocked) {
       setPinModalLink(link);
@@ -736,16 +859,30 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
   const handleVerifyPin = (link: QuickLink, enteredDigits: string[]) => {
     const entered = enteredDigits.join('');
-    const target = (link.pin && link.pin.trim() !== '') ? link.pin.trim() : '0000';
+    const div = link.division || 'Umum';
+    const divPin = (pinsConfig.divisionPins && pinsConfig.divisionPins[div]) ? pinsConfig.divisionPins[div] : (pinsConfig.masterPin || '0000');
+    const master = pinsConfig.masterPin || '0000';
+    const customPin = (link.pin && link.pin.trim() !== '') ? link.pin.trim() : null;
 
-    if (entered === target) {
+    // Check if matches custom PIN, Division PIN, or Master PIN!
+    const isMatch = (customPin && entered === customPin) || entered === divPin || entered === master;
+
+    if (isMatch) {
       setPinSuccess(true);
       setPinError('');
-      const updated = new Set(unlockedLinkIds);
-      updated.add(link.id);
-      setUnlockedLinkIds(updated);
+
+      // Unlock BOTH this link AND the whole division for the session!
+      const updatedLinks = new Set(unlockedLinkIds);
+      updatedLinks.add(link.id);
+      setUnlockedLinkIds(updatedLinks);
+
+      const updatedDivs = new Set(unlockedDivisions);
+      updatedDivs.add(div);
+      setUnlockedDivisions(updatedDivs);
+
       try {
-        sessionStorage.setItem('unlocked_quick_links', JSON.stringify(Array.from(updated)));
+        sessionStorage.setItem('unlocked_quick_links', JSON.stringify(Array.from(updatedLinks)));
+        sessionStorage.setItem('unlocked_divisions', JSON.stringify(Array.from(updatedDivs)));
       } catch {}
 
       setTimeout(() => {
@@ -771,7 +908,6 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
       pinInputs[index + 1]?.current?.focus();
     }
 
-    // Auto verify when 4th digit entered
     if (char && index === 3 && pinModalLink) {
       handleVerifyPin(pinModalLink, newDigits);
     }
@@ -804,14 +940,14 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
     }
   };
 
-  const handleRelockLink = (linkId: string, e: React.MouseEvent) => {
+  const handleRelockDivision = (division: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const updated = new Set(unlockedLinkIds);
-    updated.delete(linkId);
-    setUnlockedLinkIds(updated);
+    const updated = new Set(unlockedDivisions);
+    updated.delete(division);
+    setUnlockedDivisions(updated);
     try {
-      sessionStorage.setItem('unlocked_quick_links', JSON.stringify(Array.from(updated)));
+      sessionStorage.setItem('unlocked_divisions', JSON.stringify(Array.from(updated)));
     } catch {}
   };
 
@@ -1048,14 +1184,25 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
             })}
           </div>
 
-          {/* Add Link Button */}
-          <button
-            onClick={openAddLinkModal}
-            className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-3 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs shrink-0 cursor-pointer active:scale-95"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Tambah Tautan</span>
-          </button>
+          {/* Actions: PIN Settings & Add Link */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={openPinSettingsModal}
+              className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 hover:border-amber-300 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+              title="Atur PIN Keamanan Seluruh Divisi (Tersinkronisasi ke Seluruh Perangkat)"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-amber-600" />
+              <span>Atur PIN Divisi</span>
+            </button>
+
+            <button
+              onClick={openAddLinkModal}
+              className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-3 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Tambah Tautan</span>
+            </button>
+          </div>
         </div>
 
         {/* Links Horizontal Scroll List */}
@@ -1075,7 +1222,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
             return filtered.map(link => {
               const isLocked = link.is_locked !== false;
-              const isUnlocked = unlockedLinkIds.has(link.id);
+              const div = link.division || 'Umum';
+              const isUnlocked = unlockedLinkIds.has(link.id) || unlockedDivisions.has(div);
               const divStyle = getDivisionStyle(link.division);
 
               return (
@@ -1117,9 +1265,9 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                     {/* Re-lock button if currently unlocked */}
                     {isLocked && isUnlocked && (
                       <button
-                        onClick={(e) => handleRelockLink(link.id, e)}
+                        onClick={(e) => handleRelockDivision(div, e)}
                         className="p-1 hover:bg-amber-50 text-slate-400 hover:text-amber-600 rounded transition-all cursor-pointer"
-                        title="Kunci kembali tautan ini"
+                        title="Kunci kembali seluruh tautan divisi ini"
                       >
                         <Lock className="h-3 w-3" />
                       </button>
@@ -1957,8 +2105,10 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                           <Lock className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-xs font-bold text-slate-800">Kunci dengan PIN Keamanan</p>
-                          <p className="text-[10px] text-slate-500">Hanya yang memasukkan PIN yang dapat membuka tautan ini</p>
+                          <p className="text-xs font-bold text-slate-800">Kunci dengan PIN Divisi</p>
+                          <p className="text-[10px] text-slate-500">
+                            Menggunakan PIN Divisi <strong className="text-amber-800">{linkDivision === 'Kustom' ? (customDivision || 'Umum') : linkDivision}</strong>
+                          </p>
                         </div>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -1973,32 +2123,37 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                     </div>
 
                     {linkIsLocked && (
-                      <div className="pt-2 border-t border-amber-200/60">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
-                            <KeyRound className="h-3 w-3 text-amber-600" />
-                            PIN 4-Digit:
-                          </label>
-                          <span className="text-[10px] text-amber-700 font-semibold bg-amber-100/70 px-2 py-0.5 rounded-full">
-                            Default: 0000
+                      <div className="pt-2 border-t border-amber-200/60 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[11px] text-slate-600">
+                            PIN Aktif Divisi Ini: <strong className="font-mono text-amber-800">{pinsConfig.divisionPins[linkDivision === 'Kustom' ? (customDivision || 'Umum') : linkDivision] || pinsConfig.masterPin || '0000'}</strong>
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => setUseCustomPin(!useCustomPin)}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                          >
+                            {useCustomPin ? 'Gunakan PIN Divisi Saja' : 'Custom PIN Khusus Link Ini?'}
+                          </button>
                         </div>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          maxLength={4}
-                          value={linkPin}
-                          onChange={e => {
-                            const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                            setLinkPin(val);
-                          }}
-                          className="w-full bg-white border border-amber-300 rounded-xl px-4 py-2.5 text-center text-lg font-mono font-bold tracking-[0.5em] text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
-                          placeholder="0000"
-                        />
-                        <p className="text-[10px] text-amber-800/80 mt-1.5 leading-relaxed">
-                          Tautan akan dikunci dengan PIN ini. Anggota divisi harus memasukkan 4 angka ini untuk membuka tautan.
-                        </p>
+
+                        {useCustomPin && (
+                          <div>
+                            <label className="text-[11px] font-bold text-amber-900 block mb-1">
+                              Custom PIN 4-Digit Khusus:
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={4}
+                              value={linkPin}
+                              onChange={e => setLinkPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                              className="w-full bg-white border border-amber-300 rounded-xl px-4 py-2 text-center text-base font-mono font-bold tracking-[0.5em] text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                              placeholder="0000"
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2138,6 +2293,153 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                 >
                   <KeyRound className="h-3.5 w-3.5" />
                   <span>Buka Tautan</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 5. Centralized PIN Settings Modal (Atur PIN Divisi & Master PIN) */}
+      <AnimatePresence>
+        {isPinSettingsOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsPinSettingsOpen(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-amber-50/80 via-white to-slate-50 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shadow-2xs">
+                    <KeyRound className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-800">
+                      Pengaturan PIN Keamanan Divisi
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Tersinkronisasi otomatis ke seluruh perangkat tim melalui database.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsPinSettingsOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 bg-white hover:bg-slate-100 rounded-full transition-all shadow-xs"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Form Content */}
+              <div className="p-6 overflow-y-auto space-y-5">
+                <form id="pin-settings-form" onSubmit={handleSavePinsConfig} className="space-y-5">
+                  {/* Master PIN Section */}
+                  <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <label className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <ShieldCheck className="h-4 w-4 text-indigo-600" />
+                          Master PIN Global (4-Digit)
+                        </label>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          PIN master yang berlaku untuk semua divisi dan tautan terkunci secara umum.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      value={tempMasterPin}
+                      onChange={e => setTempMasterPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      className="w-full bg-white border border-indigo-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-xl px-4 py-2.5 text-center text-xl font-mono font-bold tracking-[0.5em] text-indigo-900 shadow-2xs"
+                      placeholder="0000"
+                      required
+                    />
+                  </div>
+
+                  {/* Division PINs Grid */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <label className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <Lock className="h-3.5 w-3.5 text-amber-600" />
+                        PIN Khusus per Divisi
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const resetMap: Record<string, string> = {};
+                          LINK_DIVISIONS.forEach(d => { resetMap[d] = tempMasterPin || '0000'; });
+                          setTempDivisionPins(resetMap);
+                        }}
+                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+                      >
+                        Samakan Semua dengan Master PIN
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {LINK_DIVISIONS.map(divName => {
+                        const style = getDivisionStyle(divName);
+                        return (
+                          <div key={divName} className="bg-white border border-slate-200 p-3 rounded-xl shadow-2xs flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border inline-block mb-1 ${style.pill}`}>
+                                {divName}
+                              </span>
+                              <p className="text-[10px] text-slate-400">PIN 4-digit divisi</p>
+                            </div>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={4}
+                              value={tempDivisionPins[divName] ?? tempMasterPin}
+                              onChange={e => {
+                                const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                setTempDivisionPins(prev => ({ ...prev, [divName]: val }));
+                              }}
+                              className="w-24 bg-slate-50 focus:bg-white border border-slate-200 focus:border-amber-400 rounded-lg px-2 py-1.5 text-center text-sm font-mono font-bold tracking-widest text-slate-800 focus:outline-none"
+                              placeholder={tempMasterPin}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Feedback Banner */}
+                  {pinSettingsSuccess && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <span>PIN berhasil disimpan dan disinkronkan ke seluruh tim!</span>
+                    </div>
+                  )}
+                </form>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsPinSettingsOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 bg-slate-200/60 rounded-xl transition-all cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  form="pin-settings-form"
+                  disabled={isSavingPins}
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  {isSavingPins ? <Loader className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                  <span>{isSavingPins ? 'Menyimpan & Sinkron...' : 'Simpan & Sinkronkan'}</span>
                 </button>
               </div>
             </motion.div>
