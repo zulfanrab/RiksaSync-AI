@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TeamTask, Manpower, QuickLink, TaskCategory, QuickLinkPinsConfig } from '../types';
 import { 
@@ -207,7 +207,7 @@ export function getDeadlineCountdown(dueDate: string, dueTime?: string | null, s
 // Helper: Parse and Render Rich Formatted Text (Word/Docs style with Clickable Links)
 // =========================================================================
 export function parseFormattedText(text: string): React.ReactNode[] {
-  if (!text) return [];
+  if (!text || typeof text !== 'string') return [];
 
   // Match:
   // 1. Markdown link: [Label](https://url)
@@ -277,6 +277,9 @@ export function parseFormattedText(text: string): React.ReactNode[] {
     }
 
     lastIndex = match.index + fullMatch.length;
+    if (regex.lastIndex <= match.index) {
+      regex.lastIndex = match.index + 1;
+    }
   }
 
   if (lastIndex < text.length) {
@@ -286,8 +289,10 @@ export function parseFormattedText(text: string): React.ReactNode[] {
   return result;
 }
 
-export function RenderFormattedDescription({ text, className = '' }: { text: string; className?: string }) {
-  if (!text) return <span className="text-slate-400 italic">Tidak ada deskripsi detail yang dilampirkan.</span>;
+export function RenderFormattedDescription({ text, className = '' }: { text?: string | null; className?: string }) {
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return <span className="text-slate-400 italic">Tidak ada deskripsi detail yang dilampirkan.</span>;
+  }
 
   const lines = text.split('\n');
 
@@ -365,84 +370,6 @@ export function RenderFormattedDescription({ text, className = '' }: { text: str
           </div>
         );
       })}
-      {/* 6. Insert Link Dialog Modal (Word/Docs style URL inserter) */}
-      <AnimatePresence>
-        {isInsertLinkModalOpen && (
-          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsInsertLinkModalOpen(false)}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col"
-            >
-              <div className="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-indigo-50/70 to-slate-50">
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
-                    <LinkIcon className="h-3.5 w-3.5" />
-                  </div>
-                  Sisipkan Tautan (Link / URL)
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setIsInsertLinkModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1 bg-white hover:bg-slate-100 rounded-full transition-all shadow-xs"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleConfirmInsertLink} className="p-5 space-y-3.5">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    Teks Tautan (Nama yang Ditampilkan)
-                  </label>
-                  <input
-                    type="text"
-                    value={insertLinkText}
-                    onChange={e => setInsertLinkText(e.target.value)}
-                    placeholder="Contoh: Dokumen SOP / Folder Drive"
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-2xs font-semibold"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Bila kosong, alamat URL yang akan ditampilkan.</p>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    Alamat URL / Link Web <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={insertLinkUrl}
-                    onChange={e => setInsertLinkUrl(e.target.value)}
-                    placeholder="https://drive.google.com/..."
-                    required
-                    autoFocus
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-2xs font-mono"
-                  />
-                </div>
-
-                <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsInsertLinkModalOpen(false)}
-                    className="px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>Sisipkan Link</span>
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -509,7 +436,7 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
   });
 
   // Keep pinsConfig synchronized when quickLinks data refreshes
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       const saved = localStorage.getItem('quick_links_pins_config');
       if (saved) {
@@ -2776,6 +2703,85 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                   <span>{isSavingPins ? 'Menyimpan & Sinkron...' : 'Simpan & Sinkronkan'}</span>
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 6. Insert Link Dialog Modal (Word/Docs style URL inserter) */}
+      <AnimatePresence>
+        {isInsertLinkModalOpen && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsInsertLinkModalOpen(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col"
+            >
+              <div className="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-indigo-50/70 to-slate-50">
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                    <LinkIcon className="h-3.5 w-3.5" />
+                  </div>
+                  Sisipkan Tautan (Link / URL)
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsInsertLinkModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 bg-white hover:bg-slate-100 rounded-full transition-all shadow-xs"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmInsertLink} className="p-5 space-y-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    Teks Tautan (Nama yang Ditampilkan)
+                  </label>
+                  <input
+                    type="text"
+                    value={insertLinkText}
+                    onChange={e => setInsertLinkText(e.target.value)}
+                    placeholder="Contoh: Dokumen SOP / Folder Drive"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-2xs font-semibold"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Bila kosong, alamat URL yang akan ditampilkan.</p>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    Alamat URL / Link Web <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={insertLinkUrl}
+                    onChange={e => setInsertLinkUrl(e.target.value)}
+                    placeholder="https://drive.google.com/..."
+                    required
+                    autoFocus
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-2xs font-mono"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsInsertLinkModalOpen(false)}
+                    className="px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Sisipkan Link</span>
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
