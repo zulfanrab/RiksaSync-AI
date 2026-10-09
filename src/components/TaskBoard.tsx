@@ -817,41 +817,79 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
         updateData.cancel_reason = reason;
       }
 
-      const { error } = await supabase.from('team_tasks').update(updateData).eq('id', id);
+      let { error } = await supabase.from('team_tasks').update(updateData).eq('id', id);
+
+      // Fallback 1: If cancel_reason column doesn't exist in Supabase schema cache
+      if (error && (error.message?.includes('cancel_reason') || error.message?.includes('schema cache'))) {
+        console.warn('[TaskBoard] cancel_reason column not found in schema cache, appending to description:', error.message);
+        const fallbackData: any = { status: newStatus, updated_at: updateData.updated_at };
+        if (reason) {
+          fallbackData.description = `${task.description || ''}\n\n[Alasan Batal: ${reason}]`.trim();
+        }
+        const retryRes = await supabase.from('team_tasks').update(fallbackData).eq('id', id);
+        error = retryRes.error;
+      }
+
+      // Fallback 2: If team_tasks_status_check constraint rejects 'Cancelled'
+      if (error && error.message?.includes('team_tasks_status_check')) {
+        console.warn('[TaskBoard] team_tasks_status_check constraint rejected Cancelled, falling back to Done:', error.message);
+        const fallbackStatusData: any = { 
+          status: 'Done', 
+          updated_at: updateData.updated_at,
+          description: `${task.description || ''}\n\n[DIBATALKAN: ${reason || 'Tidak ada keterangan'}]`.trim()
+        };
+        const retryRes2 = await supabase.from('team_tasks').update(fallbackStatusData).eq('id', id);
+        error = retryRes2.error;
+      }
+
       if (error) throw error;
 
-      // Auto-generate recurring task if marked as Done
+      // Auto-generate recurring task if marked as Done (safely guarded)
       if (newStatus === 'Done' && task.recurrence && task.recurrence !== 'None') {
-        const [y, m, d] = task.due_date.split('-').map(Number);
-        const newDueDate = new Date(y, m - 1, d);
-        if (task.recurrence === 'Daily') newDueDate.setDate(newDueDate.getDate() + 1);
-        else if (task.recurrence === 'Weekly') newDueDate.setDate(newDueDate.getDate() + 7);
-        else if (task.recurrence === 'Monthly') newDueDate.setMonth(newDueDate.getMonth() + 1);
+        try {
+          if (task.due_date && task.due_date.includes('-')) {
+            const [y, m, d] = task.due_date.split('-').map(Number);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+              const newDueDate = new Date(y, m - 1, d);
+              if (task.recurrence === 'Daily') newDueDate.setDate(newDueDate.getDate() + 1);
+              else if (task.recurrence === 'Weekly') newDueDate.setDate(newDueDate.getDate() + 7);
+              else if (task.recurrence === 'Monthly') newDueDate.setMonth(newDueDate.getMonth() + 1);
 
-        const nextYear = newDueDate.getFullYear();
-        const nextMonth = String(newDueDate.getMonth() + 1).padStart(2, '0');
-        const nextDay = String(newDueDate.getDate()).padStart(2, '0');
+              const nextYear = newDueDate.getFullYear();
+              const nextMonth = String(newDueDate.getMonth() + 1).padStart(2, '0');
+              const nextDay = String(newDueDate.getDate()).padStart(2, '0');
 
-        const newTask = {
-          title: task.title,
-          description: task.description,
-          assignee_id: task.assignee_id,
-          assignee_ids: task.assignee_ids || [task.assignee_id],
-          due_date: `${nextYear}-${nextMonth}-${nextDay}`,
-          due_time: task.due_time,
-          priority: task.priority,
-          status: 'To Do',
-          category: task.category,
-          recurrence: task.recurrence,
-          visibility: task.visibility,
-          created_by: 'System (Auto-Recurring)'
-        };
-        await supabase.from('team_tasks').insert([newTask]);
+              const newTask: any = {
+                title: task.title,
+                description: task.description,
+                assignee_id: task.assignee_id,
+                due_date: `${nextYear}-${nextMonth}-${nextDay}`,
+                due_time: task.due_time,
+                priority: task.priority,
+                status: 'To Do',
+                category: task.category,
+                recurrence: task.recurrence,
+                visibility: task.visibility,
+                created_by: 'System (Auto-Recurring)'
+              };
+              if (task.assignee_ids && task.assignee_ids.length > 0) {
+                newTask.assignee_ids = task.assignee_ids;
+              }
+              const { error: insertErr } = await supabase.from('team_tasks').insert([newTask]);
+              if (insertErr && insertErr.message?.includes('assignee_ids')) {
+                delete newTask.assignee_ids;
+                await supabase.from('team_tasks').insert([newTask]);
+              }
+            }
+          }
+        } catch (recurringErr) {
+          console.warn('[TaskBoard] Recurring task creation skipped:', recurringErr);
+        }
       }
 
       await onRefreshAll();
     } catch (err: any) {
-      alert(`Gagal memindahkan tugas: ${err.message}`);
+      alert(`Gagal memindahkan tugas: ${err.message || String(err)}`);
     }
   };
 
@@ -1219,7 +1257,8 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
   const activeColumns = [
     { id: 'To Do', title: '📋 To Do', color: 'bg-slate-100 border-slate-200 text-slate-700' },
-    { id: 'In Progress', title: '⏳ In Progress', color: 'bg-amber-50 border-amber-200 text-amber-800' }
+    { id: 'In Progress', title: '⏳ In Progress', color: 'bg-amber-50 border-amber-200 text-amber-800' },
+    { id: 'Done', title: '✅ Selesai', color: 'bg-emerald-50 border-emerald-200 text-emerald-800' }
   ];
 
   const archivedTasks = visibleTasks.filter(t => t.status === 'Done' || t.status === 'Cancelled');
@@ -1678,11 +1717,15 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                           </h4>
                           <p className="text-xs text-slate-500 line-clamp-1 mt-0.5 whitespace-pre-line">{task.description}</p>
                           
-                          {task.cancel_reason && (
-                            <div className="mt-2 text-xs bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-lg font-medium">
-                              <strong>Alasan Batal:</strong> {task.cancel_reason}
-                            </div>
-                          )}
+                          {(() => {
+                            const reasonStr = task.cancel_reason || (task.description?.match(/\[(?:Alasan Batal|DIBATALKAN): ([^\]]+)\]/i)?.[1]);
+                            if (!reasonStr) return null;
+                            return (
+                              <div className="mt-2 text-xs bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-lg font-medium">
+                                <strong>Alasan Batal:</strong> {reasonStr}
+                              </div>
+                            );
+                          })()}
 
                           <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400">
                             <span>PIC: <strong className="text-slate-600">{assignees.map(a => a.name).join(', ') || 'Unknown'}</strong></span>
@@ -2205,6 +2248,21 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                     </p>
                   </div>
                 </div>
+
+                {/* Alasan Batal jika Dibatalkan */}
+                {(() => {
+                  const reasonStr = viewingTask.cancel_reason || (viewingTask.description?.match(/\[(?:Alasan Batal|DIBATALKAN): ([^\]]+)\]/i)?.[1]);
+                  if (!reasonStr && viewingTask.status !== 'Cancelled') return null;
+                  return (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-rose-800">
+                      <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-bold">Tugas Ini Telah Dibatalkan</p>
+                        {reasonStr && <p className="text-xs text-rose-700 mt-0.5"><strong>Alasan:</strong> {reasonStr}</p>}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Deskripsi dengan Clickable Links & Formatted Output */}
                 <div>

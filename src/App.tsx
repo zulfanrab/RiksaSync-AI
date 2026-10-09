@@ -356,12 +356,12 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS drive_folder_url TEXT;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS pic_email TEXT;
 
--- Note for EXISTING DB:
--- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
--- ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS assignee_ids TEXT[] DEFAULT '{}';
--- ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_status_check;
--- ALTER TABLE team_tasks ADD CONSTRAINT team_tasks_status_check CHECK (status IN ('To Do', 'In Progress', 'Done', 'Cancelled'));
--- ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
+-- 12c. Migration: Upgrade team_tasks table
+ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+ALTER TABLE team_tasks ADD COLUMN IF NOT EXISTS assignee_ids TEXT[] DEFAULT '{}';
+ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_status_check;
+ALTER TABLE team_tasks ADD CONSTRAINT team_tasks_status_check CHECK (status IN ('To Do', 'In Progress', 'Done', 'Cancelled'));
+ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
 `;
 
   const handleCopySql = () => {
