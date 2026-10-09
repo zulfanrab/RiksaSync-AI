@@ -202,6 +202,251 @@ export function getDeadlineCountdown(dueDate: string, dueTime?: string | null, s
   };
 }
 
+
+// =========================================================================
+// Helper: Parse and Render Rich Formatted Text (Word/Docs style with Clickable Links)
+// =========================================================================
+export function parseFormattedText(text: string): React.ReactNode[] {
+  if (!text) return [];
+
+  // Match:
+  // 1. Markdown link: [Label](https://url)
+  // 2. Raw URL: https?://\S+
+  // 3. Bold text: \*\*text\*\*
+  const regex = /(\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)|https?:\/\/[^\s<]+|\*\*([^*]+)\*\*)/g;
+
+  const result: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      result.push(text.substring(lastIndex, match.index));
+    }
+
+    const fullMatch = match[0];
+
+    if (fullMatch.startsWith('[') && match[2] && match[3]) {
+      // Markdown link: [Label](URL)
+      const label = match[2];
+      const url = match[3];
+      result.push(
+        <a
+          key={`mdlink-${match.index}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/90 border border-indigo-200/70 hover:border-indigo-300 px-2 py-0.5 rounded-md font-bold text-xs transition-all shadow-2xs hover:shadow-xs group cursor-pointer my-0.5 mx-0.5"
+          title={`Buka tautan: ${url}`}
+        >
+          <ExternalLink className="h-3 w-3 text-indigo-500 group-hover:text-indigo-700 shrink-0" />
+          <span className="underline decoration-indigo-300 group-hover:decoration-indigo-600">{label}</span>
+        </a>
+      );
+    } else if (fullMatch.startsWith('http')) {
+      // Raw URL
+      const url = fullMatch;
+      const cleanUrl = url.replace(/[.,;)]+$/, '');
+      const trailing = url.substring(cleanUrl.length);
+
+      result.push(
+        <a
+          key={`rawurl-${match.index}`}
+          href={cleanUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/70 hover:border-indigo-300 px-2 py-0.5 rounded-md font-semibold text-xs transition-all underline decoration-indigo-300 hover:decoration-indigo-600 group cursor-pointer my-0.5 mx-0.5 max-w-full"
+          title={`Buka: ${cleanUrl}`}
+        >
+          <ExternalLink className="h-3 w-3 text-indigo-500 group-hover:text-indigo-700 shrink-0" />
+          <span className="truncate max-w-[260px] sm:max-w-[420px]">{cleanUrl}</span>
+        </a>
+      );
+      if (trailing) {
+        result.push(trailing);
+      }
+    } else if (fullMatch.startsWith('**') && match[4]) {
+      // Bold text
+      result.push(
+        <strong key={`bold-${match.index}`} className="font-extrabold text-slate-900">
+          {match[4]}
+        </strong>
+      );
+    }
+
+    lastIndex = match.index + fullMatch.length;
+  }
+
+  if (lastIndex < text.length) {
+    result.push(text.substring(lastIndex));
+  }
+
+  return result;
+}
+
+export function RenderFormattedDescription({ text, className = '' }: { text: string; className?: string }) {
+  if (!text) return <span className="text-slate-400 italic">Tidak ada deskripsi detail yang dilampirkan.</span>;
+
+  const lines = text.split('\n');
+
+  return (
+    <div className={`space-y-1.5 text-sm leading-relaxed text-slate-700 ${className}`}>
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+
+        if (!trimmed) {
+          return <div key={idx} className="h-2" />;
+        }
+
+        // Bullet point
+        if (line.startsWith('• ') || line.startsWith('- ')) {
+          const content = line.replace(/^[•\-]\s*/, '');
+          return (
+            <div key={idx} className="flex items-start gap-2 pl-1">
+              <span className="text-indigo-600 font-bold mt-1 select-none leading-none">•</span>
+              <div className="flex-1">{parseFormattedText(content)}</div>
+            </div>
+          );
+        }
+
+        // Numbered list
+        const numMatch = line.match(/^(\d+)\.\s*(.*)$/);
+        if (numMatch) {
+          return (
+            <div key={idx} className="flex items-start gap-2 pl-1">
+              <span className="text-indigo-600 font-bold text-xs mt-0.5 select-none min-w-[1.25rem]">
+                {numMatch[1]}.
+              </span>
+              <div className="flex-1">{parseFormattedText(numMatch[2])}</div>
+            </div>
+          );
+        }
+
+        // Checklist item
+        if (line.startsWith('☐ ') || line.startsWith('[ ] ')) {
+          const content = line.replace(/^(☐|\[ \])\s*/, '');
+          return (
+            <div key={idx} className="flex items-start gap-2 pl-1">
+              <span className="w-4 h-4 rounded border border-slate-300 bg-white flex items-center justify-center text-[10px] text-slate-400 mt-0.5 select-none shrink-0">
+                ☐
+              </span>
+              <div className="flex-1 text-slate-700">{parseFormattedText(content)}</div>
+            </div>
+          );
+        }
+
+        if (line.startsWith('☑ ') || line.startsWith('[x] ') || line.startsWith('[X] ')) {
+          const content = line.replace(/^(☑|\[[xX]\])\s*/, '');
+          return (
+            <div key={idx} className="flex items-start gap-2 pl-1">
+              <span className="w-4 h-4 rounded border border-emerald-500 bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold mt-0.5 select-none shrink-0">
+                ✓
+              </span>
+              <div className="flex-1 line-through text-slate-400">{parseFormattedText(content)}</div>
+            </div>
+          );
+        }
+
+        // Section header lines
+        if (line.startsWith('📌 ') || line.startsWith('🎯 ') || line.startsWith('📋 ') || line.startsWith('✅ ') || line.startsWith('📎 ')) {
+          return (
+            <div key={idx} className="font-bold text-slate-800 pt-1 pb-0.5">
+              {parseFormattedText(line)}
+            </div>
+          );
+        }
+
+        // Normal paragraph line
+        return (
+          <div key={idx}>
+            {parseFormattedText(line)}
+          </div>
+        );
+      })}
+      {/* 6. Insert Link Dialog Modal (Word/Docs style URL inserter) */}
+      <AnimatePresence>
+        {isInsertLinkModalOpen && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsInsertLinkModalOpen(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col"
+            >
+              <div className="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-indigo-50/70 to-slate-50">
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                    <LinkIcon className="h-3.5 w-3.5" />
+                  </div>
+                  Sisipkan Tautan (Link / URL)
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsInsertLinkModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 bg-white hover:bg-slate-100 rounded-full transition-all shadow-xs"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmInsertLink} className="p-5 space-y-3.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    Teks Tautan (Nama yang Ditampilkan)
+                  </label>
+                  <input
+                    type="text"
+                    value={insertLinkText}
+                    onChange={e => setInsertLinkText(e.target.value)}
+                    placeholder="Contoh: Dokumen SOP / Folder Drive"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-2xs font-semibold"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Bila kosong, alamat URL yang akan ditampilkan.</p>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    Alamat URL / Link Web <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={insertLinkUrl}
+                    onChange={e => setInsertLinkUrl(e.target.value)}
+                    placeholder="https://drive.google.com/..."
+                    required
+                    autoFocus
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-2xs font-mono"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsInsertLinkModalOpen(false)}
+                    className="px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Sisipkan Link</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser, onRefreshAll }: TaskBoardProps) {
   const [activeTab, setActiveTab] = useState<'board' | 'calendar' | 'archive'>('board');
   const [searchQuery, setSearchQuery] = useState('');
@@ -235,6 +480,12 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
   const [visibility, setVisibility] = useState<'Public' | 'Private'>('Public');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Link Insertion Modal & Preview State for Description
+  const [isInsertLinkModalOpen, setIsInsertLinkModalOpen] = useState(false);
+  const [insertLinkText, setInsertLinkText] = useState('');
+  const [insertLinkUrl, setInsertLinkUrl] = useState('');
+  const [descriptionViewTab, setDescriptionViewTab] = useState<'write' | 'preview'>('write');
 
   // Check if current user can edit the task
   const canEdit = useMemo(() => {
@@ -357,6 +608,9 @@ export default function TaskBoard({ tasks, quickLinks, manpowerList, activeUser,
     const deadlineStr = formatIndonesianDateWithDay(task.due_date, task.due_time);
     const countdownInfo = getDeadlineCountdown(task.due_date, task.due_time, task.status);
 
+    // Clean and format links for WhatsApp: [Label](URL) -> Label (URL)
+    const formattedDescForWa = (task.description || '').replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$1 ($2)');
+
     const message = `*🔔 PENGINGAT TUGAS - RIKSA SYNC*
 
 Halo *${assigneeNames}*,
@@ -369,7 +623,7 @@ Berikut rincian tugas yang perlu ditindaklanjuti:
 ⏱️ *Status Waktu:* ${countdownInfo.text}
 
 📝 *Deskripsi / Instruksi:*
-${task.description}
+${formattedDescForWa}
 
 Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 🙏`;
 
@@ -399,6 +653,52 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
   const openViewTaskModal = (task: TeamTask) => {
     setViewingTask(task);
+  };
+
+  // Link Insertion Modal Handlers for Description
+  const openInsertLinkModal = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const selected = description.substring(start, end).trim();
+      setInsertLinkText(selected);
+    } else {
+      setInsertLinkText('');
+    }
+    setInsertLinkUrl('');
+    setIsInsertLinkModalOpen(true);
+  };
+
+  const handleConfirmInsertLink = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!insertLinkUrl.trim()) return;
+
+    let cleanUrl = insertLinkUrl.trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = 'https://' + cleanUrl;
+    }
+
+    const displayText = insertLinkText.trim() || cleanUrl;
+    const markdownLink = `[${displayText}](${cleanUrl})`;
+
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newVal = description.substring(0, start) + markdownLink + description.substring(end);
+      setDescription(newVal);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.selectionStart = textarea.selectionEnd = start + markdownLink.length;
+      }, 50);
+    } else {
+      setDescription(prev => prev ? `${prev} ${markdownLink}` : markdownLink);
+    }
+
+    setIsInsertLinkModalOpen(false);
+    setInsertLinkText('');
+    setInsertLinkUrl('');
   };
 
   // Helper formatting for Word/Docs toolbar in description
@@ -1542,83 +1842,120 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
 
                     {/* Format Toolbar - Only show if can Edit */}
                     {canEdit && (
-                      <div className="bg-slate-100 border border-slate-200 border-b-0 rounded-t-xl px-2.5 py-1.5 flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => insertFormatting('• ')}
-                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                          title="Buat Daftar Poin (Bullet List)"
-                        >
-                          <List className="h-3.5 w-3.5" />
-                          <span>Pointing</span>
-                        </button>
+                      <div className="bg-slate-100 border border-slate-200 border-b-0 rounded-t-xl px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => insertFormatting('• ')}
+                            className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Buat Daftar Poin (Bullet List)"
+                          >
+                            <List className="h-3.5 w-3.5" />
+                            <span>Pointing</span>
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => insertFormatting('1. ')}
-                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                          title="Buat Daftar Bernomor (Numbered List)"
-                        >
-                          <ListOrdered className="h-3.5 w-3.5" />
-                          <span>Numbering</span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => insertFormatting('1. ')}
+                            className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Buat Daftar Bernomor (Numbered List)"
+                          >
+                            <ListOrdered className="h-3.5 w-3.5" />
+                            <span>Numbering</span>
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => insertFormatting('☐ ')}
-                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                          title="Buat To-Do Checklist"
-                        >
-                          <CheckSquare className="h-3.5 w-3.5" />
-                          <span>Checklist</span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => insertFormatting('☐ ')}
+                            className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Buat To-Do Checklist"
+                          >
+                            <CheckSquare className="h-3.5 w-3.5" />
+                            <span>Checklist</span>
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => insertFormatting('**', '**')}
-                          className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-extrabold text-slate-700 flex items-center gap-1 transition-all shadow-xs"
-                          title="Teks Tebal (Bold)"
-                        >
-                          <Bold className="h-3.5 w-3.5" />
-                          <span>Tebal</span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => insertFormatting('**', '**')}
+                            className="px-2 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded-lg text-xs font-extrabold text-slate-700 flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Teks Tebal (Bold)"
+                          >
+                            <Bold className="h-3.5 w-3.5" />
+                            <span>Tebal</span>
+                          </button>
 
-                        <div className="h-4 w-px bg-slate-300 mx-1" />
+                          {/* Link / URL Button */}
+                          <button
+                            type="button"
+                            onClick={openInsertLinkModal}
+                            className="px-2.5 py-1 bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-700 flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Sisipkan Tautan URL / Dokumen (Google Drive, Docs, SPK, dll.)"
+                          >
+                            <LinkIcon className="h-3.5 w-3.5 text-indigo-600" />
+                            <span>Link / URL</span>
+                          </button>
 
-                        {/* Template Cepat */}
-                        <button
-                          type="button"
-                          onClick={() => insertTemplate('notulensi')}
-                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                          title="Sisipkan Format Notulensi Rapat"
-                        >
-                          <Sparkles className="h-3 w-3" />
-                          Template Notulensi
-                        </button>
+                          <div className="h-4 w-px bg-slate-300 mx-1 hidden sm:block" />
 
-                        <button
-                          type="button"
-                          onClick={() => insertTemplate('instruksi')}
-                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                          title="Sisipkan Format Tugas Kerja"
-                        >
-                          <Sparkles className="h-3 w-3" />
-                          Template Tugas
-                        </button>
+                          {/* Template Cepat */}
+                          <button
+                            type="button"
+                            onClick={() => insertTemplate('notulensi')}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                            title="Sisipkan Format Notulensi Rapat"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            <span className="hidden sm:inline">Template Notulensi</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => insertTemplate('instruksi')}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                            title="Sisipkan Format Tugas Kerja"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            <span className="hidden sm:inline">Template Tugas</span>
+                          </button>
+                        </div>
+
+                        {/* Write vs Preview Toggle */}
+                        <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg text-[11px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setDescriptionViewTab('write')}
+                            className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${descriptionViewTab === 'write' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            Tulis
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDescriptionViewTab('preview')}
+                            className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${descriptionViewTab === 'preview' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            Pratinjau
+                          </button>
+                        </div>
                       </div>
                     )}
 
-                    <textarea
-                      ref={textareaRef}
-                      value={description}
-                      onChange={e => setDescription(e.target.value)}
-                      onKeyDown={handleKeyDownDescription}
-                      disabled={!canEdit}
-                      rows={6}
-                      className={`w-full bg-white border border-slate-200 ${canEdit ? 'rounded-b-xl' : 'rounded-xl'} px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all font-sans leading-relaxed ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
-                      placeholder="Tuliskan poin-poin notulensi rapat, daftar pemeriksaan, instruksi kerja, atau nomor surat..."
-                      required
-                    />
+                    {descriptionViewTab === 'write' ? (
+                      <textarea
+                        ref={textareaRef}
+                        value={description}
+                        onChange={e => setDescription(e.target.value)}
+                        onKeyDown={handleKeyDownDescription}
+                        disabled={!canEdit}
+                        rows={6}
+                        className={`w-full bg-white border border-slate-200 ${canEdit ? 'rounded-b-xl' : 'rounded-xl'} px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all font-sans leading-relaxed ${!canEdit ? 'bg-slate-50 opacity-80 cursor-not-allowed' : ''}`}
+                        placeholder="Tuliskan poin-poin notulensi rapat, daftar pemeriksaan, instruksi kerja, tautan Google Drive / link dokumen..."
+                        required
+                      />
+                    ) : (
+                      <div className={`w-full bg-slate-50/70 border border-slate-200 ${canEdit ? 'rounded-b-xl' : 'rounded-xl'} p-4 min-h-[148px] max-h-[300px] overflow-y-auto`}>
+                        <RenderFormattedDescription text={description} />
+                      </div>
+                    )}
                   </div>
 
                   {/* Multi Assignee Picker */}
@@ -1942,16 +2279,13 @@ Mohon segera diselesaikan atau diperbarui statusnya di RiksaSync. Terima kasih! 
                   </div>
                 </div>
 
-                {/* Deskripsi */}
+                {/* Deskripsi dengan Clickable Links & Formatted Output */}
                 <div>
                   <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5 pb-2 border-b border-slate-100">
-                    <FileText className="h-3.5 w-3.5" /> Detail / Notulensi / Instruksi
+                    <FileText className="h-3.5 w-3.5 text-indigo-600" /> Detail / Notulensi / Instruksi
                   </p>
-                  <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                    {viewingTask.description
-                      ? viewingTask.description
-                      : <span className="text-slate-400 italic">Tidak ada deskripsi detail yang dilampirkan.</span>
-                    }
+                  <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs">
+                    <RenderFormattedDescription text={viewingTask.description} />
                   </div>
                 </div>
               </div>
@@ -2540,9 +2874,9 @@ function TaskCard({ task, manpowerList, onClick, onStatusChange, onSendWhatsapp 
         </div>
       </div>
       
-      {/* Description Snippet with formatted breaks */}
+      {/* Description Snippet with clean preview */}
       <div className="text-[11px] text-slate-500 line-clamp-2 cursor-pointer whitespace-pre-line leading-relaxed font-normal" onClick={onClick}>
-        {task.description}
+        {(task.description || '').replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$1')}
       </div>
 
       {/* Info Details & Actions Footer */}
