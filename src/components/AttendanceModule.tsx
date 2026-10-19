@@ -67,8 +67,8 @@ export default function AttendanceModule({
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // GAS Web App URL from environment
-  const gasUrl = import.meta.env.VITE_GAS_ATTENDANCE_URL || '';
+  // GAS Web App URL from environment or default deployment
+  const gasUrl = import.meta.env.VITE_GAS_ATTENDANCE_URL || 'https://script.google.com/macros/s/AKfycbyiadDMZ26IN47tohPSUNnv_Bsj4mzuTJOf9Z8fhWgm8C4EmyLISB1XwHbbW_EqMPwr/exec';
 
   // Update live clock every second
   useEffect(() => {
