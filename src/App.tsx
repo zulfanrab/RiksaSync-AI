@@ -396,6 +396,39 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
     }
   }, [activeUser]);
 
+  // UX Otomatis: Arahkan ke tab 'Absensi' jika belum absen masuk, atau saat jam pulang belum absen pulang
+  useEffect(() => {
+    if (!activeUser) return;
+
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const localAttendance = JSON.parse(localStorage.getItem('local_attendance_logs') || '[]');
+      const userToday = localAttendance.filter((r) => {
+        const d = r.timestamp ? new Date(r.timestamp).toISOString().split('T')[0] : '';
+        const matchName = r.employee_name && r.employee_name.toLowerCase() === activeUser.toLowerCase();
+        return d === todayStr && matchName;
+      });
+
+      const hasMasuk = userToday.some((r) => r.type === 'Masuk');
+      const hasPulang = userToday.some((r) => r.type === 'Pulang');
+
+      // Jika hari ini belum absen masuk, langsung buka tab absensi
+      if (!hasMasuk) {
+        setActiveTab('attendance');
+      } else {
+        // Jika sudah masuk tapi sudah sore dan belum absen pulang, arahkan ke absensi
+        const hour = new Date().getHours();
+        const isSat = new Date().getDay() === 6;
+        const targetPulangHour = isSat ? 14 : 17;
+        if (hour >= targetPulangHour && !hasPulang) {
+          setActiveTab('attendance');
+        }
+      }
+    } catch (e) {
+      console.warn('[Attendance UX Auto-Tab]', e);
+    }
+  }, [activeUser]);
+
   // Fetch all initial data directly from Supabase
   const loadAllData = async () => {
     setIsRefreshing(true);
@@ -989,7 +1022,7 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 py-3 sm:px-6 sm:py-6 space-y-4 sm:space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 py-3 sm:px-6 sm:py-6 space-y-4 sm:space-y-6 pb-20 md:pb-6">
 
         {/* New user welcome and guide recommendation banner */}
         {showWelcomeBanner && (
@@ -1509,13 +1542,82 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       </AnimatePresence>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-5 text-center text-[10px] text-slate-400 font-medium tracking-wide mt-auto">
+      <footer className="border-t border-slate-200 bg-white py-5 text-center text-[10px] text-slate-400 font-medium tracking-wide mt-auto pb-20 md:pb-5">
         <p>© 2026 AksaraSync AI. Hak Cipta Dilindungi Undang-Undang.</p>
         <p className="mt-1 text-slate-500">Dikembangkan khusus sebagai Solusi Manajemen Sumber Daya PJK3</p>
       </footer>
 
+      {/* Mobile Floating Quick Action (Jika belum absen hari ini) */}
+      {activeTab !== 'attendance' && (
+        <div className="md:hidden fixed bottom-18 left-1/2 -translate-x-1/2 z-40 animate-bounce">
+          <button
+            onClick={() => setActiveTab('attendance')}
+            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs px-4 py-2 rounded-full shadow-xl border border-emerald-400 active:scale-95 cursor-pointer whitespace-nowrap"
+          >
+            <span className="text-sm">📍</span>
+            <span>Buka Kamera Absensi</span>
+          </button>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Dock (Thumb-friendly untuk pengguna HP) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-2xl">
+        <button
+          onClick={() => setActiveTab('calendar')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+            activeTab === 'calendar' ? 'text-emerald-600 bg-emerald-50/80' : 'text-slate-500'
+          }`}
+        >
+          <CalendarDays className="h-4 w-4" />
+          <span>Jadwal</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('tasks')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+            activeTab === 'tasks' ? 'text-indigo-600 bg-indigo-50/80' : 'text-slate-500'
+          }`}
+        >
+          <ClipboardList className="h-4 w-4" />
+          <span>Tugas</span>
+        </button>
+
+        {/* Highlighted Attendance Button in Center */}
+        <button
+          onClick={() => setActiveTab('attendance')}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-2xl text-[10px] font-black transition-all cursor-pointer -mt-3 shadow-lg ${
+            activeTab === 'attendance'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white ring-2 ring-emerald-300 scale-105'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}
+        >
+          <span className="text-base leading-none">📍</span>
+          <span>Absensi</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('retention')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+            activeTab === 'retention' ? 'text-rose-600 bg-rose-50/80' : 'text-slate-500'
+          }`}
+        >
+          <RefreshCcw className="h-4 w-4" />
+          <span>Retensi</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('inspection')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+            activeTab === 'inspection' ? 'text-violet-600 bg-violet-50/80' : 'text-slate-500'
+          }`}
+        >
+          <TrendingUp className="h-4 w-4" />
+          <span>Pipeline</span>
+        </button>
+      </nav>
+
       {/* Floating Mobile Notification Center */}
-      <NotificationCenter isFloating={true} className="md:hidden" />
+      <NotificationCenter isFloating={true} className="hidden" />
     </div>
   );
 }
