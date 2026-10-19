@@ -17,7 +17,8 @@ import {
   Send,
   Navigation,
   Sparkles,
-  Info
+  Info,
+  Check
 } from 'lucide-react';
 
 interface Coords {
@@ -50,6 +51,7 @@ export default function AttendanceModule() {
   // Submit & History state
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -61,6 +63,72 @@ export default function AttendanceModule() {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Helper to format local YYYY-MM-DD
+  const getLocalDateString = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const todayStr = getLocalDateString(now);
+
+  // Check attendance records done today by active user
+  const userTodayRecords = history.filter((r) => {
+    try {
+      const recDate = getLocalDateString(new Date(r.timestamp));
+      const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase() === activeUserEmail.toLowerCase());
+      const matchName = Boolean(r.employee_name && activeUser && r.employee_name.toLowerCase() === activeUser.toLowerCase());
+      return recDate === todayStr && (matchEmail || matchName);
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const todayMasuk = userTodayRecords.find((r) => r.type === 'Masuk');
+  const todayPulang = userTodayRecords.find((r) => r.type === 'Pulang');
+  const todaySakit = userTodayRecords.find((r) => r.type === 'Sakit');
+  const todayCuti = userTodayRecords.find((r) => r.type === 'Cuti');
+
+  const formatTimeOnly = (isoStr: string) => {
+    try {
+      return new Date(isoStr).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+    } catch {
+      return '';
+    }
+  };
+
+  // Auto-switch default attendanceType to 'Pulang' if 'Masuk' is already done today
+  useEffect(() => {
+    if (todayMasuk && !todayPulang && attendanceType === 'Masuk') {
+      setAttendanceType('Pulang');
+    }
+  }, [todayMasuk, todayPulang, attendanceType]);
+
+  // Check if selected type is already done today
+  const isSelectedTypeAlreadyDone = Boolean(
+    (attendanceType === 'Masuk' && todayMasuk) ||
+    (attendanceType === 'Pulang' && todayPulang) ||
+    (attendanceType === 'Sakit' && todaySakit) ||
+    (attendanceType === 'Cuti' && todayCuti)
+  );
+
+  const getAlreadyDoneMessage = () => {
+    if (attendanceType === 'Masuk' && todayMasuk) {
+      return `Anda sudah melakukan Absen Masuk hari ini pada pukul ${formatTimeOnly(todayMasuk.timestamp)}. Absen Masuk hanya bisa dilakukan 1 kali per hari.`;
+    }
+    if (attendanceType === 'Pulang' && todayPulang) {
+      return `Anda sudah melakukan Absen Pulang hari ini pada pukul ${formatTimeOnly(todayPulang.timestamp)}. Absen Pulang hanya bisa dilakukan 1 kali per hari.`;
+    }
+    if (attendanceType === 'Sakit' && todaySakit) {
+      return `Anda sudah mencatat izin Sakit hari ini pada pukul ${formatTimeOnly(todaySakit.timestamp)}.`;
+    }
+    if (attendanceType === 'Cuti' && todayCuti) {
+      return `Anda sudah mencatat Cuti/Izin hari ini pada pukul ${formatTimeOnly(todayCuti.timestamp)}.`;
+    }
+    return null;
+  };
 
   // Request GPS Location
   const requestLocation = useCallback(() => {
@@ -156,6 +224,11 @@ export default function AttendanceModule() {
 
   // Capture photo from video and apply anti-cheat watermark
   const capturePhoto = () => {
+    if (isSelectedTypeAlreadyDone) {
+      setValidationError(getAlreadyDoneMessage());
+      return;
+    }
+
     if (!videoRef.current) return;
     const video = videoRef.current;
 
@@ -246,7 +319,7 @@ export default function AttendanceModule() {
           .from('attendance_logs')
           .select('*')
           .order('timestamp', { ascending: false })
-          .limit(20);
+          .limit(30);
 
         if (!error && data) {
           setHistory(data as AttendanceRecord[]);
@@ -273,6 +346,10 @@ export default function AttendanceModule() {
 
   // Submit attendance record
   const handleSubmit = async () => {
+    if (isSelectedTypeAlreadyDone) {
+      alert(getAlreadyDoneMessage());
+      return;
+    }
     if (!capturedImage) {
       alert('Silakan ambil foto selfie terlebih dahulu.');
       return;
@@ -284,6 +361,7 @@ export default function AttendanceModule() {
 
     setSubmitting(true);
     setSubmitSuccess(null);
+    setValidationError(null);
 
     const empName = currentUser?.full_name || activeUser || 'Karyawan';
     const empEmail = activeUserEmail || `${(activeUser || 'user').toLowerCase()}@aksarariksapjk3.com`;
@@ -416,7 +494,7 @@ export default function AttendanceModule() {
             <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
             <div>
               <p className="text-xs font-bold">{submitSuccess}</p>
-              <p className="text-[10px] text-emerald-600">Data absensi telah disinkronkan ke server & spreadsheet.</p>
+              <p className="text-[10px] text-emerald-600">Data absensi telah tersimpan di server.</p>
             </div>
           </div>
           <button
@@ -428,20 +506,110 @@ export default function AttendanceModule() {
         </div>
       )}
 
+      {/* Validation / Already Done Error Warning */}
+      {validationError && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between text-amber-800 animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Peringatan Presensi</p>
+              <p className="text-[11px] text-amber-700 mt-0.5">{validationError}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setValidationError(null)}
+            className="text-xs text-amber-700 hover:text-amber-900 font-bold px-2 py-1 rounded-lg hover:bg-amber-100/60"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
       {/* Main Grid: Left = Camera & Submit, Right = Status & Riwayat */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (8 cols): Camera & Form */}
+        {/* Left Column (7 cols): Camera & Form */}
         <div className="lg:col-span-7 space-y-5">
+          
+          {/* Status Presensi Hari Ini (Daily Status Card) */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 p-4 rounded-2xl text-white shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400 flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3" />
+                Status Presensi Hari Ini ({todayStr})
+              </span>
+              <span className="text-[10px] text-slate-300 font-semibold">{currentUser?.full_name || activeUser}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Masuk Status */}
+              <div className={`p-3 rounded-xl border flex items-center justify-between ${
+                todayMasuk ? 'bg-emerald-900/40 border-emerald-500/50' : 'bg-slate-800/60 border-slate-700/60'
+              }`}>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase">Absen Masuk</span>
+                  <span className={`text-xs font-bold ${todayMasuk ? 'text-emerald-300' : 'text-slate-400'}`}>
+                    {todayMasuk ? formatTimeOnly(todayMasuk.timestamp) : 'Belum Absen'}
+                  </span>
+                </div>
+                {todayMasuk ? (
+                  <div className="h-6 w-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <Check className="h-3.5 w-3.5" />
+                  </div>
+                ) : (
+                  <div className="h-6 w-6 rounded-full bg-slate-700 text-slate-400 flex items-center justify-center text-[10px]">
+                    ⏳
+                  </div>
+                )}
+              </div>
+
+              {/* Pulang Status */}
+              <div className={`p-3 rounded-xl border flex items-center justify-between ${
+                todayPulang ? 'bg-sky-900/40 border-sky-500/50' : 'bg-slate-800/60 border-slate-700/60'
+              }`}>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase">Absen Pulang</span>
+                  <span className={`text-xs font-bold ${todayPulang ? 'text-sky-300' : 'text-slate-400'}`}>
+                    {todayPulang ? formatTimeOnly(todayPulang.timestamp) : 'Belum Absen'}
+                  </span>
+                </div>
+                {todayPulang ? (
+                  <div className="h-6 w-6 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                    <Check className="h-3.5 w-3.5" />
+                  </div>
+                ) : (
+                  <div className="h-6 w-6 rounded-full bg-slate-700 text-slate-400 flex items-center justify-center text-[10px]">
+                    ⏳
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* 1. Selection Button: 4 Types */}
           <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm space-y-3">
             <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
               <span>Pilih Status Kehadiran</span>
-              <span className="text-[10px] text-slate-400 font-normal">Wajib dipilih sebelum ambil foto</span>
+              <span className="text-[10px] text-slate-400 font-normal">Maksimal 1x absen Masuk & 1x absen Pulang per hari</span>
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {(['Masuk', 'Pulang', 'Sakit', 'Cuti'] as AttendanceType[]).map((type) => {
                 const isSelected = attendanceType === type;
                 const cfg = typeConfig[type];
+
+                const isAlreadyDone = (
+                  (type === 'Masuk' && !!todayMasuk) ||
+                  (type === 'Pulang' && !!todayPulang) ||
+                  (type === 'Sakit' && !!todaySakit) ||
+                  (type === 'Cuti' && !!todayCuti)
+                );
+
+                const doneTimestamp = (
+                  type === 'Masuk' ? todayMasuk?.timestamp :
+                  type === 'Pulang' ? todayPulang?.timestamp :
+                  type === 'Sakit' ? todaySakit?.timestamp :
+                  todayCuti?.timestamp
+                );
+
                 return (
                   <button
                     key={type}
@@ -449,15 +617,23 @@ export default function AttendanceModule() {
                     onClick={() => {
                       setAttendanceType(type);
                       setSubmitSuccess(null);
+                      setValidationError(null);
                     }}
-                    className={`py-3 px-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 cursor-pointer active:scale-95 ${
+                    className={`py-3 px-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 cursor-pointer relative ${
                       isSelected
                         ? `${cfg.border} ${cfg.bg} ${cfg.text} shadow-sm ring-2 ring-emerald-200`
+                        : isAlreadyDone
+                        ? 'border-slate-200 bg-slate-50 text-slate-400'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     <span className="text-base">{cfg.icon}</span>
-                    <span>{cfg.label}</span>
+                    <span className="leading-tight">{cfg.label}</span>
+                    {isAlreadyDone && (
+                      <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
+                        ✓ {doneTimestamp ? formatTimeOnly(doneTimestamp) : 'Sudah'}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -478,6 +654,16 @@ export default function AttendanceModule() {
                 <span>Anti-Kecurangan Aktif</span>
               </div>
             </div>
+
+            {/* Already Done Warning Banner */}
+            {isSelectedTypeAlreadyDone && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                <p className="font-medium text-[11px] leading-relaxed">
+                  {getAlreadyDoneMessage()}
+                </p>
+              </div>
+            )}
 
             {/* Camera Error Message */}
             {cameraError && (
@@ -548,11 +734,13 @@ export default function AttendanceModule() {
                 <button
                   type="button"
                   onClick={capturePhoto}
-                  disabled={!isCameraActive || gpsLoading}
+                  disabled={!isCameraActive || gpsLoading || isSelectedTypeAlreadyDone}
                   className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
                 >
                   <Camera className="h-4 w-4" />
-                  <span>Ambil Foto Selfie & Watermark</span>
+                  <span>
+                    {isSelectedTypeAlreadyDone ? `Sudah Absen ${attendanceType} Hari Ini` : `Ambil Foto Selfie [Absen ${attendanceType}]`}
+                  </span>
                 </button>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -568,7 +756,7 @@ export default function AttendanceModule() {
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    disabled={submitting || !coords}
+                    disabled={submitting || !coords || isSelectedTypeAlreadyDone}
                     className="py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
                   >
                     {submitting ? (
@@ -644,7 +832,7 @@ export default function AttendanceModule() {
             <div className="p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-start gap-2">
               <Info className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
               <p className="text-[10px] text-emerald-800 leading-relaxed">
-                Anti-Kecurangan: Pengunggahan foto dari galeri dinonaktifkan. Foto wajib diambil langsung lewat kamera depan dengan watermark stempel koordinat dan waktu WIB.
+                Anti-Kecurangan: Pengunggahan foto galeri dinonaktifkan. Foto wajib diambil langsung lewat kamera depan dengan watermark koordinat dan waktu WIB.
               </p>
             </div>
           </div>
