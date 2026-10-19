@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { AppUser } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
@@ -9,7 +9,7 @@ export const INITIAL_APP_USERS: AppUser[] = [
   { id: 'u1',  username: 'Angga',    role: 'Leader & Ahli Utama', email: 'angga@aksarariksapjk3.com',    full_name: 'Rama Regawa Sri Anggayana',       division: 'Ahli' },
   { id: 'u2',  username: 'Imam',     role: 'Ahli Spesialis',      email: 'imam@aksarariksapjk3.com',     full_name: 'Lalu Imam Taufik Rahman Hidayat', division: 'Ahli' },
   { id: 'u3',  username: 'Fauzan',   role: 'Ahli Spesialis',      email: 'fauzan@aksarariksapjk3.com',   full_name: 'Fauzan Akmaluddin',               division: 'Ahli' },
-  { id: 'u4',  'username': 'Fakhziar', role: 'Ahli Spesialis',    email: 'fakhziar@aksarariksapjk3.com', full_name: 'Fakhziar Wildan Hidayat',         division: 'Ahli' },
+  { id: 'u4',  username: 'Fakhziar', role: 'Ahli Spesialis',      email: 'fakhziar@aksarariksapjk3.com', full_name: 'Fakhziar Wildan Hidayat',         division: 'Ahli' },
   { id: 'u5',  username: 'Fazar',    role: 'Ahli Spesialis',      email: 'fazar@aksarariksapjk3.com',    full_name: 'Muhammad Fazar Maulana',          division: 'Ahli' },
   { id: 'u6',  username: 'Arya',     role: 'Support Staff',       email: 'arya@aksarariksapjk3.com',     full_name: 'Arya Rizki Pratama',              division: 'Admin' },
   { id: 'u7',  username: 'Rio',      role: 'Support Staff',       email: 'rio@aksarariksapjk3.com',      full_name: 'Rio Andrian',                     division: 'Admin' },
@@ -58,8 +58,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync profile details from current user list or email
-  const syncUserProfile = useCallback((authUser: User | null, usersList: AppUser[] = appUsers) => {
+  const appUsersRef = useRef<AppUser[]>(INITIAL_APP_USERS);
+
+  // Sync ref when appUsers state changes
+  useEffect(() => {
+    appUsersRef.current = appUsers;
+  }, [appUsers]);
+
+  // Apply user profile from session user
+  const applyUserProfile = (authUser: User | null, list?: AppUser[]) => {
     if (!authUser) {
       setActiveUserState(null);
       setActiveUserRole(null);
@@ -71,8 +78,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const email = authUser.email?.toLowerCase() || '';
     setActiveUserEmail(email);
 
-    // 1. Try to find user in app_users by auth_id or email
-    const found = usersList.find(
+    const users = list || appUsersRef.current || INITIAL_APP_USERS;
+    const found = users.find(
       (u) =>
         (u.auth_id && u.auth_id === authUser.id) ||
         (u.email && u.email.toLowerCase() === email) ||
@@ -87,7 +94,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('active_user', found.username);
       }
     } else {
-      // Fallback: extract username from email (e.g. zulfan@aksarariksapjk3.com -> Zulfan)
       const namePart = email.split('@')[0] || 'User';
       const capitalized = namePart.charAt(0).toUpperCase() + namePart.slice(1);
       const fallbackUser: AppUser = {
@@ -105,25 +111,25 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('active_user', capitalized);
       }
     }
-  }, [appUsers]);
+  };
 
   // Fetch all app_users from Supabase
   const fetchUsers = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) {
-      setAppUsers(INITIAL_APP_USERS);
-      return;
+      return INITIAL_APP_USERS;
     }
 
     try {
       const { data, error: sbError } = await supabase.from('app_users').select('*');
       if (sbError) {
         console.warn('[UserContext] Could not fetch app_users from Supabase:', sbError.message);
-        return;
+        return INITIAL_APP_USERS;
       }
 
       if (data && Array.isArray(data) && data.length > 0) {
         const mappedUsers = data as AppUser[];
         setAppUsers(mappedUsers);
+        appUsersRef.current = mappedUsers;
         return mappedUsers;
       }
     } catch (err: any) {
@@ -132,60 +138,51 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return INITIAL_APP_USERS;
   }, []);
 
-  // Initialize session and listeners on mount
+  // Initialize session and listeners on mount - ONCE ONLY
   useEffect(() => {
     setMounted(true);
-
     let isMounted = true;
 
     async function initAuth() {
-      setLoading(true);
-      setError(null);
+      try {
+        setLoading(true);
+        setError(null);
 
-      // Load user list
-      const loadedUsers = await fetchUsers();
-      const usersToUse = loadedUsers && loadedUsers.length > 0 ? loadedUsers : INITIAL_APP_USERS;
-
-      if (!isSupabaseConfigured || !supabase) {
-        // Fallback for demo without Supabase configured
-        if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('active_user');
-          if (saved) {
-            const found = usersToUse.find((u) => u.username.toLowerCase() === saved.toLowerCase());
-            if (found) {
-              setActiveUserState(found.username);
-              setActiveUserRole(found.role);
-              setActiveUserEmail(found.email || `${found.username.toLowerCase()}${DOMAIN_SUFFIX}`);
-              setCurrentUser(found);
+        // 1. Fetch user list from DB
+        let currentUsers = INITIAL_APP_USERS;
+        if (isSupabaseConfigured && supabase) {
+          try {
+            const { data } = await supabase.from('app_users').select('*');
+            if (data && Array.isArray(data) && data.length > 0) {
+              currentUsers = data as AppUser[];
+              if (isMounted) {
+                setAppUsers(currentUsers);
+                appUsersRef.current = currentUsers;
+              }
             }
+          } catch (e) {
+            console.warn('[Auth] Error fetching initial app_users:', e);
           }
         }
-        setLoading(false);
-        return;
-      }
 
-      try {
-        // Get existing persistent session from Supabase Auth
-        const { data: { session: existingSession }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.warn('[Auth Warning] Error getting session:', sessionError.message);
-        }
-
-        if (isMounted) {
-          if (existingSession?.user) {
-            setSession(existingSession);
-            syncUserProfile(existingSession.user, usersToUse);
-          } else {
-            // Check legacy localStorage if user hasn't migrated to auth yet
-            const savedUser = localStorage.getItem('active_user');
-            if (savedUser) {
-              const matched = usersToUse.find((u) => u.username.toLowerCase() === savedUser.toLowerCase());
-              if (matched) {
-                setActiveUserState(matched.username);
-                setActiveUserRole(matched.role);
-                setActiveUserEmail(matched.email || `${matched.username.toLowerCase()}${DOMAIN_SUFFIX}`);
-                setCurrentUser(matched);
+        // 2. Check existing persistent Supabase Auth session
+        if (isSupabaseConfigured && supabase) {
+          const { data: { session: existingSession } } = await supabase.auth.getSession();
+          if (isMounted) {
+            if (existingSession?.user) {
+              setSession(existingSession);
+              applyUserProfile(existingSession.user, currentUsers);
+            } else {
+              // Legacy localStorage check
+              const savedUser = localStorage.getItem('active_user');
+              if (savedUser) {
+                const matched = currentUsers.find((u) => u.username.toLowerCase() === savedUser.toLowerCase());
+                if (matched) {
+                  setActiveUserState(matched.username);
+                  setActiveUserRole(matched.role);
+                  setActiveUserEmail(matched.email || `${matched.username.toLowerCase()}${DOMAIN_SUFFIX}`);
+                  setCurrentUser(matched);
+                }
               }
             }
           }
@@ -193,22 +190,22 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err: any) {
         console.error('[Auth Error] Session initialization failed:', err);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     initAuth();
 
-    // Listen to Supabase Auth State changes (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED)
+    // 3. Listen to Auth state changes
     let authListener: { subscription: { unsubscribe: () => void } } | null = null;
     if (isSupabaseConfigured && supabase) {
-      const { data } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-        console.log(`[Supabase Auth Event] ${event}`);
+      const { data } = supabase.auth.onAuthStateChange((event, newSession) => {
         if (!isMounted) return;
-
         setSession(newSession);
         if (newSession?.user) {
-          syncUserProfile(newSession.user);
+          applyUserProfile(newSession.user);
         } else if (event === 'SIGNED_OUT') {
           setActiveUserState(null);
           setActiveUserRole(null);
@@ -226,7 +223,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authListener.subscription.unsubscribe();
       }
     };
-  }, [fetchUsers, syncUserProfile]);
+  }, []); // Run strictly once on mount to prevent infinite fetch loop
 
   // Sign in with email or username + password
   const login = async (identifier: string, password: string) => {
@@ -243,7 +240,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!isSupabaseConfigured || !supabase) {
       // Offline fallback: match user from static list
       const usernamePart = identifier.split('@')[0].toLowerCase();
-      const matched = appUsers.find(
+      const matched = appUsersRef.current.find(
         (u) => u.username.toLowerCase() === usernamePart || (u.email && u.email.toLowerCase() === cleanEmail)
       );
       if (matched) {
@@ -276,7 +273,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (data.session) {
       setSession(data.session);
-      syncUserProfile(data.session.user);
+      applyUserProfile(data.session.user);
     }
   };
 
@@ -303,7 +300,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Backwards-compatible setActiveUser (for legacy callers)
   const setActiveUser = (username: string | null) => {
     if (username) {
-      const found = appUsers.find((u) => u.username.toLowerCase() === username.toLowerCase());
+      const found = appUsersRef.current.find((u) => u.username.toLowerCase() === username.toLowerCase());
       setActiveUserState(username);
       setActiveUserRole(found?.role || 'Staff');
       setActiveUserEmail(found?.email || `${username.toLowerCase()}${DOMAIN_SUFFIX}`);
