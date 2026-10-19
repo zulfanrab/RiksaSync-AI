@@ -1372,7 +1372,11 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
           </div>
         ) : (
           <div className="h-full flex-1">
-            <AttendanceModule />
+            <AttendanceModule
+              absences={absences}
+              manpowerList={manpowerList}
+              onOpenManpowerMgmt={() => setIsManpowerMgmtOpen(true)}
+            />
           </div>
         )}
       </main>

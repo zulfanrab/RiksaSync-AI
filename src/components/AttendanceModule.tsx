@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
-import { AttendanceType, AttendanceRecord } from '../types';
+import { AttendanceType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   Camera,
@@ -18,7 +18,9 @@ import {
   Navigation,
   Sparkles,
   Info,
-  Check
+  Check,
+  ArrowRight,
+  ClipboardList
 } from 'lucide-react';
 
 interface Coords {
@@ -27,11 +29,21 @@ interface Coords {
   accuracy: number;
 }
 
-export default function AttendanceModule() {
+interface AttendanceModuleProps {
+  absences?: ManpowerAbsence[];
+  manpowerList?: Manpower[];
+  onOpenManpowerMgmt?: () => void;
+}
+
+export default function AttendanceModule({
+  absences = [],
+  manpowerList = [],
+  onOpenManpowerMgmt
+}: AttendanceModuleProps) {
   const { activeUser, activeUserEmail, currentUser } = useUser();
 
-  // Absensi selection
-  const [attendanceType, setAttendanceType] = useState<AttendanceType>('Masuk');
+  // Absensi selection: Strictly 'Masuk' or 'Pulang' (Sakit & Cuti are managed in Kelola Manpower)
+  const [attendanceType, setAttendanceType] = useState<'Masuk' | 'Pulang'>('Masuk');
   
   // Camera & Image state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -64,6 +76,13 @@ export default function AttendanceModule() {
     return () => clearInterval(timer);
   }, []);
 
+  // Office schedule rules:
+  // Senin - Jumat: 09:00 - 17:00 WIB
+  // Sabtu: 09:00 - 14:00 WIB
+  const isSaturday = now.getDay() === 6;
+  const targetMasukLabel = '09:00 WIB';
+  const targetPulangLabel = isSaturday ? '14:00 WIB' : '17:00 WIB';
+
   // Helper to format local YYYY-MM-DD
   const getLocalDateString = (d: Date) => {
     const year = d.getFullYear();
@@ -73,6 +92,15 @@ export default function AttendanceModule() {
   };
 
   const todayStr = getLocalDateString(now);
+
+  // Cross-check with Kelola Manpower absences (Sakit, Cuti, Izin)
+  const currentManpower = manpowerList.find(
+    (m) => m.name.toLowerCase() === (activeUser || '').toLowerCase()
+  );
+
+  const todayOfficialLeave = absences.find(
+    (a) => a.manpower_id === currentManpower?.id && a.date === todayStr
+  );
 
   // Check attendance records done today by active user
   const userTodayRecords = history.filter((r) => {
@@ -88,8 +116,6 @@ export default function AttendanceModule() {
 
   const todayMasuk = userTodayRecords.find((r) => r.type === 'Masuk');
   const todayPulang = userTodayRecords.find((r) => r.type === 'Pulang');
-  const todaySakit = userTodayRecords.find((r) => r.type === 'Sakit');
-  const todayCuti = userTodayRecords.find((r) => r.type === 'Cuti');
 
   const formatTimeOnly = (isoStr: string) => {
     try {
@@ -98,6 +124,59 @@ export default function AttendanceModule() {
       return '';
     }
   };
+
+  // Helper to check punctuality border color (subtle visual indicator, polite tone)
+  const getPunctualityStyle = (type: AttendanceType, timestampStr?: string) => {
+    if (!timestampStr) return null;
+    try {
+      const d = new Date(timestampStr);
+      const isSat = d.getDay() === 6;
+      const hours = d.getHours();
+      const minutes = d.getMinutes();
+      const totalMinutes = hours * 60 + minutes;
+
+      if (type === 'Masuk') {
+        // Target: <= 09:00 WIB (540 minutes)
+        const isGood = totalMinutes <= 9 * 60;
+        return {
+          isGood,
+          border: isGood ? 'border-emerald-500' : 'border-rose-400',
+          bg: isGood ? 'bg-emerald-50/50' : 'bg-rose-50/40',
+          dot: isGood ? 'bg-emerald-500' : 'bg-rose-500',
+          badge: isGood ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-rose-100 text-rose-800 border-rose-200',
+          cardBorder: isGood ? 'border-emerald-500/80 shadow-emerald-500/10' : 'border-rose-400/90 shadow-rose-500/10'
+        };
+      }
+
+      if (type === 'Pulang') {
+        // Target: >= 14:00 on Saturday (840 min), >= 17:00 on Mon-Fri (1020 min)
+        const targetMin = isSat ? 14 * 60 : 17 * 60;
+        const isGood = totalMinutes >= targetMin;
+        return {
+          isGood,
+          border: isGood ? 'border-emerald-500' : 'border-rose-400',
+          bg: isGood ? 'bg-emerald-50/50' : 'bg-rose-50/40',
+          dot: isGood ? 'bg-emerald-500' : 'bg-rose-500',
+          badge: isGood ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-rose-100 text-rose-800 border-rose-200',
+          cardBorder: isGood ? 'border-emerald-500/80 shadow-emerald-500/10' : 'border-rose-400/90 shadow-rose-500/10'
+        };
+      }
+
+      return {
+        isGood: true,
+        border: 'border-amber-400',
+        bg: 'bg-amber-50/50',
+        dot: 'bg-amber-500',
+        badge: 'bg-amber-100 text-amber-800 border-amber-200',
+        cardBorder: 'border-amber-400'
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const masukStyle = getPunctualityStyle('Masuk', todayMasuk?.timestamp);
+  const pulangStyle = getPunctualityStyle('Pulang', todayPulang?.timestamp);
 
   // Auto-switch default attendanceType to 'Pulang' if 'Masuk' is already done today
   useEffect(() => {
@@ -109,9 +188,7 @@ export default function AttendanceModule() {
   // Check if selected type is already done today
   const isSelectedTypeAlreadyDone = Boolean(
     (attendanceType === 'Masuk' && todayMasuk) ||
-    (attendanceType === 'Pulang' && todayPulang) ||
-    (attendanceType === 'Sakit' && todaySakit) ||
-    (attendanceType === 'Cuti' && todayCuti)
+    (attendanceType === 'Pulang' && todayPulang)
   );
 
   const getAlreadyDoneMessage = () => {
@@ -120,12 +197,6 @@ export default function AttendanceModule() {
     }
     if (attendanceType === 'Pulang' && todayPulang) {
       return `Anda sudah melakukan Absen Pulang hari ini pada pukul ${formatTimeOnly(todayPulang.timestamp)}. Absen Pulang hanya bisa dilakukan 1 kali per hari.`;
-    }
-    if (attendanceType === 'Sakit' && todaySakit) {
-      return `Anda sudah mencatat izin Sakit hari ini pada pukul ${formatTimeOnly(todaySakit.timestamp)}.`;
-    }
-    if (attendanceType === 'Cuti' && todayCuti) {
-      return `Anda sudah mencatat Cuti/Izin hari ini pada pukul ${formatTimeOnly(todayCuti.timestamp)}.`;
     }
     return null;
   };
@@ -437,7 +508,7 @@ export default function AttendanceModule() {
     } catch (e) {}
 
     setSubmitting(false);
-    setSubmitSuccess(`Absen ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB!`);
+    setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB!`);
 
     // Reset captured photo and reload history
     setCapturedImage(null);
@@ -445,22 +516,14 @@ export default function AttendanceModule() {
     startCamera();
   };
 
-  // Color mappings for attendance types
-  const typeConfig: Record<AttendanceType, { label: string; icon: string; border: string; bg: string; text: string; badge: string }> = {
-    Masuk:  { label: 'Absen Masuk',  icon: '🟢', border: 'border-emerald-500', bg: 'bg-emerald-50',  text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-800' },
-    Pulang: { label: 'Absen Pulang', icon: '🔵', border: 'border-sky-500',     bg: 'bg-sky-50',      text: 'text-sky-700',     badge: 'bg-sky-100 text-sky-800' },
-    Sakit:  { label: 'Sakit',        icon: '🟡', border: 'border-amber-500',   bg: 'bg-amber-50',    text: 'text-amber-700',   badge: 'bg-amber-100 text-amber-800' },
-    Cuti:   { label: 'Cuti / Izin',  icon: '🟠', border: 'border-rose-500',    bg: 'bg-rose-50',     text: 'text-rose-700',    badge: 'bg-rose-100 text-rose-800' }
-  };
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="space-y-5 animate-in fade-in duration-300 pb-16 md:pb-6">
       {/* Top Header Card */}
-      <div className="bg-white border border-slate-200 p-5 sm:p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white border border-slate-200 p-4 sm:p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Presensi & Geolokasi Lapangan</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Presensi & Kehadiran Lapangan</span>
           </div>
           <h2 className="text-xl font-black text-slate-800 tracking-tight mt-1 flex items-center gap-2">
             <span>Absensi Mandiri</span>
@@ -474,8 +537,8 @@ export default function AttendanceModule() {
         </div>
 
         {/* Realtime clock display */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl">
-          <Clock className="h-5 w-5 text-emerald-600 animate-spin-slow" />
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl self-start md:self-auto">
+          <Clock className="h-5 w-5 text-emerald-600 animate-spin-slow shrink-0" />
           <div>
             <div className="text-xs font-mono font-black text-slate-800 leading-none">
               {now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
@@ -487,6 +550,53 @@ export default function AttendanceModule() {
         </div>
       </div>
 
+      {/* Official Leave Notice (Connected with Kelola Manpower) */}
+      {todayOfficialLeave && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-sm animate-in slide-in-from-top-2">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-base shrink-0">
+              🏖️
+            </div>
+            <div>
+              <p className="text-xs font-black">
+                Status Resmi Hari Ini: {todayOfficialLeave.absence_type} ({todayOfficialLeave.date})
+              </p>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                Keterangan: {todayOfficialLeave.reason || 'Tercatat di modul Kelola Manpower'}. Anda tidak diwajibkan melakukan absensi selfie.
+              </p>
+            </div>
+          </div>
+          {onOpenManpowerMgmt && (
+            <button
+              onClick={onOpenManpowerMgmt}
+              className="text-xs font-bold text-amber-900 bg-white hover:bg-amber-100/70 px-3.5 py-1.5 rounded-xl border border-amber-300 transition-all shadow-2xs cursor-pointer self-start sm:self-auto shrink-0"
+            >
+              Lihat di Kelola Manpower
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Office Hours Info Bar (Polite, Professional Tone) */}
+      <div className="bg-white border border-slate-200/90 px-4 py-2.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs text-xs text-slate-700">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-emerald-600 shrink-0" />
+          <span className="text-slate-600">
+            Jam Kantor: <strong className="text-slate-800 font-bold">Senin–Jumat (09:00 – 17:00 WIB)</strong> • <strong className="text-slate-800 font-bold">Sabtu (09:00 – 14:00 WIB)</strong>
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block shadow-xs" />
+            <span>Sesuai Jam Operasional</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-400 inline-block shadow-xs" />
+            <span>Di Luar Jam Operasional</span>
+          </span>
+        </div>
+      </div>
+
       {/* Success Notification */}
       {submitSuccess && (
         <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl flex items-center justify-between text-emerald-800 animate-in slide-in-from-top-2">
@@ -494,12 +604,12 @@ export default function AttendanceModule() {
             <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
             <div>
               <p className="text-xs font-bold">{submitSuccess}</p>
-              <p className="text-[10px] text-emerald-600">Data absensi telah tersimpan di server.</p>
+              <p className="text-[10px] text-emerald-600">Data presensi telah tersimpan di server.</p>
             </div>
           </div>
           <button
             onClick={() => setSubmitSuccess(null)}
-            className="text-xs text-emerald-700 hover:text-emerald-900 font-bold px-2 py-1 rounded-lg hover:bg-emerald-100/60"
+            className="text-xs text-emerald-700 hover:text-emerald-900 font-bold px-2 py-1 rounded-lg hover:bg-emerald-100/60 cursor-pointer"
           >
             Tutup
           </button>
@@ -518,7 +628,7 @@ export default function AttendanceModule() {
           </div>
           <button
             onClick={() => setValidationError(null)}
-            className="text-xs text-amber-700 hover:text-amber-900 font-bold px-2 py-1 rounded-lg hover:bg-amber-100/60"
+            className="text-xs text-amber-700 hover:text-amber-900 font-bold px-2 py-1 rounded-lg hover:bg-amber-100/60 cursor-pointer"
           >
             Tutup
           </button>
@@ -528,120 +638,162 @@ export default function AttendanceModule() {
       {/* Main Grid: Left = Camera & Submit, Right = Status & Riwayat */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (7 cols): Camera & Form */}
-        <div className="lg:col-span-7 space-y-5">
+        <div className="lg:col-span-7 space-y-4">
           
-          {/* Status Presensi Hari Ini (Daily Status Card) */}
+          {/* Status Presensi Hari Ini (Daily Status Card with Smart Border Indicators) */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 p-4 rounded-2xl text-white shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400 flex items-center gap-1.5">
                 <Sparkles className="h-3 w-3" />
-                Status Presensi Hari Ini ({todayStr})
+                Status Kehadiran Hari Ini ({todayStr})
               </span>
               <span className="text-[10px] text-slate-300 font-semibold">{currentUser?.full_name || activeUser}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-1">
-              {/* Masuk Status */}
-              <div className={`p-3 rounded-xl border flex items-center justify-between ${
-                todayMasuk ? 'bg-emerald-900/40 border-emerald-500/50' : 'bg-slate-800/60 border-slate-700/60'
+              {/* Masuk Status Card with Dynamic Punctuality Border */}
+              <div className={`p-3 rounded-xl border transition-all ${
+                todayMasuk
+                  ? `${masukStyle?.cardBorder || 'border-emerald-500'} bg-slate-800/80`
+                  : 'bg-slate-800/40 border-slate-700/60'
               }`}>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 block uppercase">Absen Masuk</span>
-                  <span className={`text-xs font-bold ${todayMasuk ? 'text-emerald-300' : 'text-slate-400'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Absen Masuk (09:00)</span>
+                  {todayMasuk ? (
+                    <span className={`h-2.5 w-2.5 rounded-full ${masukStyle?.dot || 'bg-emerald-400'}`} />
+                  ) : (
+                    <span className="text-[10px] text-slate-400">⏳</span>
+                  )}
+                </div>
+                <div className="mt-1.5 flex items-baseline justify-between">
+                  <span className={`text-sm font-bold font-mono ${
+                    todayMasuk ? (masukStyle?.isGood ? 'text-emerald-300' : 'text-rose-300') : 'text-slate-400 text-xs font-normal'
+                  }`}>
                     {todayMasuk ? formatTimeOnly(todayMasuk.timestamp) : 'Belum Absen'}
                   </span>
+                  {todayMasuk && (
+                    <span className="text-[9px] text-slate-400">Tercatat</span>
+                  )}
                 </div>
-                {todayMasuk ? (
-                  <div className="h-6 w-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                    <Check className="h-3.5 w-3.5" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-slate-700 text-slate-400 flex items-center justify-center text-[10px]">
-                    ⏳
-                  </div>
-                )}
               </div>
 
-              {/* Pulang Status */}
-              <div className={`p-3 rounded-xl border flex items-center justify-between ${
-                todayPulang ? 'bg-sky-900/40 border-sky-500/50' : 'bg-slate-800/60 border-slate-700/60'
+              {/* Pulang Status Card with Dynamic Punctuality Border */}
+              <div className={`p-3 rounded-xl border transition-all ${
+                todayPulang
+                  ? `${pulangStyle?.cardBorder || 'border-emerald-500'} bg-slate-800/80`
+                  : 'bg-slate-800/40 border-slate-700/60'
               }`}>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 block uppercase">Absen Pulang</span>
-                  <span className={`text-xs font-bold ${todayPulang ? 'text-sky-300' : 'text-slate-400'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Absen Pulang ({targetPulangLabel.split(' ')[0]})</span>
+                  {todayPulang ? (
+                    <span className={`h-2.5 w-2.5 rounded-full ${pulangStyle?.dot || 'bg-emerald-400'}`} />
+                  ) : (
+                    <span className="text-[10px] text-slate-400">⏳</span>
+                  )}
+                </div>
+                <div className="mt-1.5 flex items-baseline justify-between">
+                  <span className={`text-sm font-bold font-mono ${
+                    todayPulang ? (pulangStyle?.isGood ? 'text-emerald-300' : 'text-rose-300') : 'text-slate-400 text-xs font-normal'
+                  }`}>
                     {todayPulang ? formatTimeOnly(todayPulang.timestamp) : 'Belum Absen'}
                   </span>
+                  {todayPulang && (
+                    <span className="text-[9px] text-slate-400">Tercatat</span>
+                  )}
                 </div>
-                {todayPulang ? (
-                  <div className="h-6 w-6 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center">
-                    <Check className="h-3.5 w-3.5" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-slate-700 text-slate-400 flex items-center justify-center text-[10px]">
-                    ⏳
-                  </div>
-                )}
               </div>
             </div>
           </div>
 
-          {/* 1. Selection Button: 4 Types */}
+          {/* 1. Selection Buttons: Strictly 2 Buttons (Masuk & Pulang) */}
           <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm space-y-3">
-            <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-              <span>Pilih Status Kehadiran</span>
-              <span className="text-[10px] text-slate-400 font-normal">Maksimal 1x absen Masuk & 1x absen Pulang per hari</span>
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(['Masuk', 'Pulang', 'Sakit', 'Cuti'] as AttendanceType[]).map((type) => {
-                const isSelected = attendanceType === type;
-                const cfg = typeConfig[type];
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-bold text-slate-800 block">Presensi Harian</label>
+                <span className="text-[10px] text-slate-400">Pilih jenis presensi yang akan Anda lakukan</span>
+              </div>
 
-                const isAlreadyDone = (
-                  (type === 'Masuk' && !!todayMasuk) ||
-                  (type === 'Pulang' && !!todayPulang) ||
-                  (type === 'Sakit' && !!todaySakit) ||
-                  (type === 'Cuti' && !!todayCuti)
-                );
+              {/* Link to Kelola Manpower for Leaves / Sick */}
+              {onOpenManpowerMgmt && (
+                <button
+                  type="button"
+                  onClick={onOpenManpowerMgmt}
+                  className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition-all cursor-pointer active:scale-95 shadow-2xs"
+                  title="Ajukan atau cek data Sakit, Cuti, dan Izin di Kelola Manpower"
+                >
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  <span>Kelola Izin & Cuti</span>
+                </button>
+              )}
+            </div>
 
-                const doneTimestamp = (
-                  type === 'Masuk' ? todayMasuk?.timestamp :
-                  type === 'Pulang' ? todayPulang?.timestamp :
-                  type === 'Sakit' ? todaySakit?.timestamp :
-                  todayCuti?.timestamp
-                );
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Button Absen Masuk */}
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceType('Masuk');
+                  setSubmitSuccess(null);
+                  setValidationError(null);
+                }}
+                className={`py-3.5 px-4 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 cursor-pointer relative ${
+                  attendanceType === 'Masuk'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm ring-2 ring-emerald-200'
+                    : todayMasuk
+                    ? `bg-slate-50 text-slate-500 ${masukStyle ? masukStyle.border : 'border-slate-200'}`
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🟢</span>
+                  <span className="text-sm font-bold">Absen Masuk</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-normal">Target: 09:00 WIB</span>
+                {todayMasuk && (
+                  <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border mt-0.5 flex items-center gap-1 ${
+                    masukStyle ? masukStyle.badge : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${masukStyle ? masukStyle.dot : 'bg-slate-400'}`} />
+                    <span>✓ Selesai ({formatTimeOnly(todayMasuk.timestamp)})</span>
+                  </span>
+                )}
+              </button>
 
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => {
-                      setAttendanceType(type);
-                      setSubmitSuccess(null);
-                      setValidationError(null);
-                    }}
-                    className={`py-3 px-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 cursor-pointer relative ${
-                      isSelected
-                        ? `${cfg.border} ${cfg.bg} ${cfg.text} shadow-sm ring-2 ring-emerald-200`
-                        : isAlreadyDone
-                        ? 'border-slate-200 bg-slate-50 text-slate-400'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="text-base">{cfg.icon}</span>
-                    <span className="leading-tight">{cfg.label}</span>
-                    {isAlreadyDone && (
-                      <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
-                        ✓ {doneTimestamp ? formatTimeOnly(doneTimestamp) : 'Sudah'}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              {/* Button Absen Pulang */}
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceType('Pulang');
+                  setSubmitSuccess(null);
+                  setValidationError(null);
+                }}
+                className={`py-3.5 px-4 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 cursor-pointer relative ${
+                  attendanceType === 'Pulang'
+                    ? 'border-sky-500 bg-sky-50 text-sky-800 shadow-sm ring-2 ring-sky-200'
+                    : todayPulang
+                    ? `bg-slate-50 text-slate-500 ${pulangStyle ? pulangStyle.border : 'border-slate-200'}`
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🔵</span>
+                  <span className="text-sm font-bold">Absen Pulang</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-normal">Target: {targetPulangLabel}</span>
+                {todayPulang && (
+                  <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border mt-0.5 flex items-center gap-1 ${
+                    pulangStyle ? pulangStyle.badge : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${pulangStyle ? pulangStyle.dot : 'bg-slate-400'}`} />
+                    <span>✓ Selesai ({formatTimeOnly(todayPulang.timestamp)})</span>
+                  </span>
+                )}
+              </button>
             </div>
           </div>
 
           {/* 2. Live Camera / Preview Card */}
-          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-4">
+          <div className="bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Camera className="h-4 w-4 text-emerald-600" />
@@ -674,7 +826,7 @@ export default function AttendanceModule() {
                   <p className="text-[11px] leading-relaxed">{cameraError}</p>
                   <button
                     onClick={startCamera}
-                    className="mt-2 text-xs font-bold text-rose-800 underline hover:no-underline"
+                    className="mt-2 text-xs font-bold text-rose-800 underline hover:no-underline cursor-pointer"
                   >
                     Coba Akses Ulang Kamera
                   </button>
@@ -728,16 +880,16 @@ export default function AttendanceModule() {
               )}
             </div>
 
-            {/* Action Buttons: Capture or Retake + Submit */}
+            {/* Action Buttons: Capture or Retake + Submit (Thumb-friendly on mobile) */}
             <div className="pt-2">
               {!capturedImage ? (
                 <button
                   type="button"
                   onClick={capturePhoto}
                   disabled={!isCameraActive || gpsLoading || isSelectedTypeAlreadyDone}
-                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
+                  className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
                 >
-                  <Camera className="h-4 w-4" />
+                  <Camera className="h-5 w-5" />
                   <span>
                     {isSelectedTypeAlreadyDone ? `Sudah Absen ${attendanceType} Hari Ini` : `Ambil Foto Selfie [Absen ${attendanceType}]`}
                   </span>
@@ -748,25 +900,25 @@ export default function AttendanceModule() {
                     type="button"
                     onClick={retakePhoto}
                     disabled={submitting}
-                    className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />
+                    <RotateCcw className="h-4 w-4" />
                     <span>Foto Ulang</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleSubmit}
                     disabled={submitting || !coords || isSelectedTypeAlreadyDone}
-                    className="py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
+                    className="py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
                   >
                     {submitting ? (
                       <>
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <RefreshCw className="h-4 w-4 animate-spin" />
                         <span>Menyimpan Presensi...</span>
                       </>
                     ) : (
                       <>
-                        <Send className="h-3.5 w-3.5" />
+                        <Send className="h-4 w-4" />
                         <span>Kirim Absen {attendanceType}</span>
                       </>
                     )}
@@ -778,7 +930,7 @@ export default function AttendanceModule() {
         </div>
 
         {/* Right Column (5 cols): GPS Status & Riwayat Terkini */}
-        <div className="lg:col-span-5 space-y-5">
+        <div className="lg:col-span-5 space-y-4">
           {/* GPS Info Card */}
           <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm space-y-3">
             <div className="flex items-center justify-between">
@@ -790,7 +942,7 @@ export default function AttendanceModule() {
                 type="button"
                 onClick={requestLocation}
                 disabled={gpsLoading}
-                className="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 transition-colors"
+                className="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <RefreshCw className={`h-3 w-3 ${gpsLoading ? 'animate-spin' : ''}`} />
                 <span>Refresh GPS</span>
@@ -832,12 +984,12 @@ export default function AttendanceModule() {
             <div className="p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-start gap-2">
               <Info className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
               <p className="text-[10px] text-emerald-800 leading-relaxed">
-                Anti-Kecurangan: Pengunggahan foto galeri dinonaktifkan. Foto wajib diambil langsung lewat kamera depan dengan watermark koordinat dan waktu WIB.
+                Anti-Kecurangan: Foto wajib live selfie kamera depan dengan stempel koordinat dan waktu WIB.
               </p>
             </div>
           </div>
 
-          {/* Riwayat Absensi Terkini */}
+          {/* Riwayat Absensi Terkini with Polite Border Indicators */}
           <div className="bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl shadow-sm space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
@@ -848,7 +1000,7 @@ export default function AttendanceModule() {
                 type="button"
                 onClick={loadHistory}
                 disabled={historyLoading}
-                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
                 title="Refresh Riwayat"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
@@ -869,20 +1021,29 @@ export default function AttendanceModule() {
               <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
                 {history.map((rec, idx) => {
                   const dateObj = new Date(rec.timestamp);
-                  const cfg = typeConfig[rec.type] || typeConfig['Masuk'];
+                  const isMasuk = rec.type === 'Masuk';
+                  const punctuality = getPunctualityStyle(rec.type, rec.timestamp);
+
                   return (
                     <div
                       key={rec.id || idx}
-                      className="p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-xl flex items-center justify-between gap-2 transition-colors text-xs"
+                      className={`p-3 border-l-4 rounded-xl flex items-center justify-between gap-2 transition-colors text-xs ${
+                        punctuality ? `${punctuality.border} ${punctuality.bg}` : 'border-slate-300 bg-slate-50'
+                      }`}
                     >
                       <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${cfg.badge}`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            isMasuk ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
+                          }`}>
                             {rec.type}
                           </span>
                           <span className="font-bold text-slate-800">{rec.employee_name}</span>
+                          {punctuality && (
+                            <span className={`h-2 w-2 rounded-full ${punctuality.dot}`} title="Indikator Ketepatan Waktu" />
+                          )}
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono">
+                        <div className="text-[10px] text-slate-500 font-mono">
                           {dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })} • {dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
                         </div>
                       </div>
@@ -892,7 +1053,7 @@ export default function AttendanceModule() {
                           href={rec.photo_drive_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2 py-1 rounded-lg hover:bg-emerald-50 transition-colors"
+                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2 py-1 rounded-lg hover:bg-emerald-100/60 transition-colors"
                           title="Lihat foto bukti di Google Drive"
                         >
                           <span>Foto</span>
