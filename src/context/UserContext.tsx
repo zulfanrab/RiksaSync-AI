@@ -1,164 +1,319 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { AppUser } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { Session, User } from '@supabase/supabase-js';
 
-const INITIAL_APP_USERS: AppUser[] = [
-  { id: 'u1', username: 'Zulfan', role: 'IT Staff' },
-  { id: 'u2', username: 'Angga', role: 'Leader & Ahli Utama' },
-  { id: 'u3', username: 'Imam', role: 'Ahli Spesialis' },
-  { id: 'u4', username: 'Fakhziar', role: 'Ahli Spesialis' },
-  { id: 'u5', username: 'Fauzan', role: 'Ahli Spesialis' },
-  { id: 'u6', username: 'Ajay', role: 'Support Staff' },
-  { id: 'u7', username: 'Arya', role: 'Support Staff' }
+export const DOMAIN_SUFFIX = '@aksarariksapjk3.com';
+
+export const INITIAL_APP_USERS: AppUser[] = [
+  { id: 'u1',  username: 'Angga',    role: 'Leader & Ahli Utama', email: 'angga@aksarariksapjk3.com',    full_name: 'Rama Regawa Sri Anggayana',       division: 'Ahli' },
+  { id: 'u2',  username: 'Imam',     role: 'Ahli Spesialis',      email: 'imam@aksarariksapjk3.com',     full_name: 'Lalu Imam Taufik Rahman Hidayat', division: 'Ahli' },
+  { id: 'u3',  username: 'Fauzan',   role: 'Ahli Spesialis',      email: 'fauzan@aksarariksapjk3.com',   full_name: 'Fauzan Akmaluddin',               division: 'Ahli' },
+  { id: 'u4',  'username': 'Fakhziar', role: 'Ahli Spesialis',    email: 'fakhziar@aksarariksapjk3.com', full_name: 'Fakhziar Wildan Hidayat',         division: 'Ahli' },
+  { id: 'u5',  username: 'Fazar',    role: 'Ahli Spesialis',      email: 'fazar@aksarariksapjk3.com',    full_name: 'Muhammad Fazar Maulana',          division: 'Ahli' },
+  { id: 'u6',  username: 'Arya',     role: 'Support Staff',       email: 'arya@aksarariksapjk3.com',     full_name: 'Arya Rizki Pratama',              division: 'Admin' },
+  { id: 'u7',  username: 'Rio',      role: 'Support Staff',       email: 'rio@aksarariksapjk3.com',      full_name: 'Rio Andrian',                     division: 'Admin' },
+  { id: 'u8',  username: 'Aulia',    role: 'Support Staff',       email: 'aulia@aksarariksapjk3.com',    full_name: 'Aulia Zahra Dikrika',             division: 'Admin' },
+  { id: 'u9',  username: 'Disa',     role: 'Support Staff',       email: 'disa@aksarariksapjk3.com',     full_name: 'Disa Liestianie Putri',           division: 'Admin' },
+  { id: 'u10', username: 'Marsya',   role: 'Support Staff',       email: 'marsya@aksarariksapjk3.com',   full_name: 'Marsya Aulia Rohman',             division: 'Admin' },
+  { id: 'u11', username: 'Zulfan',   role: 'IT Staff',            email: 'zulfan@aksarariksapjk3.com',   full_name: 'Zulfan Rafly Baihaqi',            division: 'IT' }
 ];
 
 interface UserContextType {
   activeUser: string | null;
   activeUserRole: string | null;
-  setActiveUser: (username: string | null) => void;
+  activeUserEmail: string | null;
+  currentUser: AppUser | null;
+  session: Session | null;
   appUsers: AppUser[];
   loading: boolean;
   mounted: boolean;
   error: string | null;
+  login: (identifier: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  setActiveUser: (username: string | null) => void;
   refreshUsers: () => Promise<void>;
-  logout: () => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
+// Helper to format email identifier
+export function formatEmailIdentifier(identifier: string): string {
+  const trimmed = identifier.trim().toLowerCase();
+  if (!trimmed) return '';
+  if (trimmed.includes('@')) {
+    return trimmed;
+  }
+  return `${trimmed}${DOMAIN_SUFFIX}`;
+}
+
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [session, setSession] = useState<Session | null>(null);
   const [activeUser, setActiveUserState] = useState<string | null>(null);
   const [activeUserRole, setActiveUserRole] = useState<string | null>(null);
-  const [appUsers, setAppUsers] = useState<AppUser[]>([]);
+  const [activeUserEmail, setActiveUserEmail] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [appUsers, setAppUsers] = useState<AppUser[]>(INITIAL_APP_USERS);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all app_users
-  const fetchUsers = async () => {
-    setLoading(true);
-    setError(null);
-    console.log('[Auth Debug] Fetching app_users directly from Supabase...');
+  // Sync profile details from current user list or email
+  const syncUserProfile = useCallback((authUser: User | null, usersList: AppUser[] = appUsers) => {
+    if (!authUser) {
+      setActiveUserState(null);
+      setActiveUserRole(null);
+      setActiveUserEmail(null);
+      setCurrentUser(null);
+      return;
+    }
 
+    const email = authUser.email?.toLowerCase() || '';
+    setActiveUserEmail(email);
+
+    // 1. Try to find user in app_users by auth_id or email
+    const found = usersList.find(
+      (u) =>
+        (u.auth_id && u.auth_id === authUser.id) ||
+        (u.email && u.email.toLowerCase() === email) ||
+        (u.username && email.startsWith(u.username.toLowerCase() + '@'))
+    );
+
+    if (found) {
+      setActiveUserState(found.username);
+      setActiveUserRole(found.role);
+      setCurrentUser(found);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('active_user', found.username);
+      }
+    } else {
+      // Fallback: extract username from email (e.g. zulfan@aksarariksapjk3.com -> Zulfan)
+      const namePart = email.split('@')[0] || 'User';
+      const capitalized = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      const fallbackUser: AppUser = {
+        id: authUser.id,
+        auth_id: authUser.id,
+        username: capitalized,
+        email: email,
+        role: 'Staff',
+        division: 'Umum'
+      };
+      setActiveUserState(capitalized);
+      setActiveUserRole('Staff');
+      setCurrentUser(fallbackUser);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('active_user', capitalized);
+      }
+    }
+  }, [appUsers]);
+
+  // Fetch all app_users from Supabase
+  const fetchUsers = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) {
-      const msg = 'Supabase is not configured. Please supply valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.';
-      console.error('[Auth Error]', msg);
-      setError(msg);
-      setAppUsers([]);
-      setLoading(false);
+      setAppUsers(INITIAL_APP_USERS);
       return;
     }
 
     try {
       const { data, error: sbError } = await supabase.from('app_users').select('*');
-      
       if (sbError) {
-        throw new Error(sbError.message);
+        console.warn('[UserContext] Could not fetch app_users from Supabase:', sbError.message);
+        return;
       }
 
-      if (!data || !Array.isArray(data)) {
-        throw new Error('Empty or invalid user data returned from database');
-      }
-
-      let users = data as AppUser[];
-      if (users.length === 0) {
-        console.log('[Auth] app_users table is empty. Auto-seeding initial user profiles...');
-        const initialUsers = [
-          { id: 'u1', username: 'Zulfan', role: 'IT Staff' },
-          { id: 'u2', username: 'Angga', role: 'Leader & Ahli Utama' },
-          { id: 'u3', username: 'Imam', role: 'Ahli Spesialis' },
-          { id: 'u4', username: 'Fakhziar', role: 'Ahli Spesialis' },
-          { id: 'u5', username: 'Fauzan', role: 'Ahli Spesialis' },
-          { id: 'u6', username: 'Ajay', role: 'Support Staff' },
-          { id: 'u7', username: 'Arya', role: 'Support Staff' }
-        ];
-        const { data: seedData, error: seedError } = await supabase.from('app_users').insert(initialUsers).select();
-        if (seedError) {
-          throw new Error(`The app_users table is empty and auto-seeding failed: ${seedError.message}`);
-        }
-        users = (seedData as AppUser[]) || initialUsers;
-      }
-
-      console.log(`[Auth Success] Loaded ${users.length} users successfully from Supabase.`, users);
-      setAppUsers(users);
-      
-      // If activeUser is already set, update/find their role
-      if (typeof window !== 'undefined') {
-        const savedUser = localStorage.getItem('active_user');
-        if (savedUser) {
-          const userObj = users.find((u: any) => u.username.toLowerCase() === savedUser.toLowerCase());
-          if (userObj) {
-            setActiveUserRole(userObj.role);
-          } else {
-            // User in localStorage not found in real db, clear active user to prevent stale auth
-            localStorage.removeItem('active_user');
-            setActiveUserState(null);
-            setActiveUserRole(null);
-          }
-        }
+      if (data && Array.isArray(data) && data.length > 0) {
+        const mappedUsers = data as AppUser[];
+        setAppUsers(mappedUsers);
+        return mappedUsers;
       }
     } catch (err: any) {
-      const exceptionMsg = err?.message || String(err);
-      console.warn('[Auth Warning] Direct Supabase app_users query failed/empty:', exceptionMsg);
-      setError(`Database Error: ${exceptionMsg}`);
-      setAppUsers([]);
-    } finally {
-      setLoading(false);
+      console.warn('[UserContext] Fetch users exception:', err?.message || err);
     }
-  };
-
-  useEffect(() => {
-    setMounted(true);
-    // 1. Initial check of localStorage for active user (Safely inside useEffect)
-    if (typeof window !== 'undefined') {
-      try {
-        const savedUser = localStorage.getItem('active_user');
-        if (savedUser) {
-          console.log('[Auth Debug] Found active user session in localStorage:', savedUser);
-          setActiveUserState(savedUser);
-        }
-      } catch (err) {
-        console.warn('[Auth Warning] Unable to access localStorage:', err);
-      }
-    }
-    
-    // 2. Fetch the actual user list from Supabase/API
-    fetchUsers();
+    return INITIAL_APP_USERS;
   }, []);
 
-  const setActiveUser = (username: string | null) => {
-    if (username) {
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('active_user', username);
-        } catch (err) {
-          console.warn('[Auth Warning] Unable to write to localStorage:', err);
+  // Initialize session and listeners on mount
+  useEffect(() => {
+    setMounted(true);
+
+    let isMounted = true;
+
+    async function initAuth() {
+      setLoading(true);
+      setError(null);
+
+      // Load user list
+      const loadedUsers = await fetchUsers();
+      const usersToUse = loadedUsers && loadedUsers.length > 0 ? loadedUsers : INITIAL_APP_USERS;
+
+      if (!isSupabaseConfigured || !supabase) {
+        // Fallback for demo without Supabase configured
+        if (typeof window !== 'undefined') {
+          const saved = localStorage.getItem('active_user');
+          if (saved) {
+            const found = usersToUse.find((u) => u.username.toLowerCase() === saved.toLowerCase());
+            if (found) {
+              setActiveUserState(found.username);
+              setActiveUserRole(found.role);
+              setActiveUserEmail(found.email || `${found.username.toLowerCase()}${DOMAIN_SUFFIX}`);
+              setCurrentUser(found);
+            }
+          }
         }
+        setLoading(false);
+        return;
       }
-      setActiveUserState(username);
-      
-      // Update role based on username
-      const userObj = appUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
-      if (userObj) {
-        setActiveUserRole(userObj.role);
-      } else {
-        setActiveUserRole('User');
+
+      try {
+        // Get existing persistent session from Supabase Auth
+        const { data: { session: existingSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.warn('[Auth Warning] Error getting session:', sessionError.message);
+        }
+
+        if (isMounted) {
+          if (existingSession?.user) {
+            setSession(existingSession);
+            syncUserProfile(existingSession.user, usersToUse);
+          } else {
+            // Check legacy localStorage if user hasn't migrated to auth yet
+            const savedUser = localStorage.getItem('active_user');
+            if (savedUser) {
+              const matched = usersToUse.find((u) => u.username.toLowerCase() === savedUser.toLowerCase());
+              if (matched) {
+                setActiveUserState(matched.username);
+                setActiveUserRole(matched.role);
+                setActiveUserEmail(matched.email || `${matched.username.toLowerCase()}${DOMAIN_SUFFIX}`);
+                setCurrentUser(matched);
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('[Auth Error] Session initialization failed:', err);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-    } else {
-      if (typeof window !== 'undefined') {
-        try {
+    }
+
+    initAuth();
+
+    // Listen to Supabase Auth State changes (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED)
+    let authListener: { subscription: { unsubscribe: () => void } } | null = null;
+    if (isSupabaseConfigured && supabase) {
+      const { data } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+        console.log(`[Supabase Auth Event] ${event}`);
+        if (!isMounted) return;
+
+        setSession(newSession);
+        if (newSession?.user) {
+          syncUserProfile(newSession.user);
+        } else if (event === 'SIGNED_OUT') {
+          setActiveUserState(null);
+          setActiveUserRole(null);
+          setActiveUserEmail(null);
+          setCurrentUser(null);
           localStorage.removeItem('active_user');
-        } catch (err) {
-          console.warn('[Auth Warning] Unable to remove from localStorage:', err);
         }
+      });
+      authListener = data;
+    }
+
+    return () => {
+      isMounted = false;
+      if (authListener) {
+        authListener.subscription.unsubscribe();
       }
-      setActiveUserState(null);
-      setActiveUserRole(null);
+    };
+  }, [fetchUsers, syncUserProfile]);
+
+  // Sign in with email or username + password
+  const login = async (identifier: string, password: string) => {
+    setError(null);
+    const cleanEmail = formatEmailIdentifier(identifier);
+
+    if (!cleanEmail) {
+      throw new Error('Username atau email tidak boleh kosong.');
+    }
+    if (!password) {
+      throw new Error('Password tidak boleh kosong.');
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      // Offline fallback: match user from static list
+      const usernamePart = identifier.split('@')[0].toLowerCase();
+      const matched = appUsers.find(
+        (u) => u.username.toLowerCase() === usernamePart || (u.email && u.email.toLowerCase() === cleanEmail)
+      );
+      if (matched) {
+        setActiveUserState(matched.username);
+        setActiveUserRole(matched.role);
+        setActiveUserEmail(matched.email || cleanEmail);
+        setCurrentUser(matched);
+        localStorage.setItem('active_user', matched.username);
+        return;
+      }
+      throw new Error('Supabase belum terkonfigurasi dan user tidak ditemukan di daftar.');
+    }
+
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: password
+    });
+
+    if (authError) {
+      console.error('[Auth Login Error]', authError);
+      let friendlyMessage = authError.message;
+      if (authError.message.includes('Invalid login credentials')) {
+        friendlyMessage = 'Username/email atau password salah. Pastikan password sudah diatur di akun Anda.';
+      } else if (authError.message.includes('Email not confirmed')) {
+        friendlyMessage = 'Konfirmasi email belum dimatikan di Supabase Auth Settings. Harap matikan "Confirm email" di dashboard.';
+      }
+      setError(friendlyMessage);
+      throw new Error(friendlyMessage);
+    }
+
+    if (data.session) {
+      setSession(data.session);
+      syncUserProfile(data.session.user);
     }
   };
 
-  const logout = () => {
-    setActiveUser(null);
+  // Sign out
+  const logout = async () => {
+    try {
+      if (isSupabaseConfigured && supabase) {
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.warn('[Auth Logout Warning]', err);
+    } finally {
+      setSession(null);
+      setActiveUserState(null);
+      setActiveUserRole(null);
+      setActiveUserEmail(null);
+      setCurrentUser(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('active_user');
+      }
+    }
+  };
+
+  // Backwards-compatible setActiveUser (for legacy callers)
+  const setActiveUser = (username: string | null) => {
+    if (username) {
+      const found = appUsers.find((u) => u.username.toLowerCase() === username.toLowerCase());
+      setActiveUserState(username);
+      setActiveUserRole(found?.role || 'Staff');
+      setActiveUserEmail(found?.email || `${username.toLowerCase()}${DOMAIN_SUFFIX}`);
+      setCurrentUser(found || null);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('active_user', username);
+      }
+    } else {
+      logout();
+    }
   };
 
   return (
@@ -166,13 +321,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         activeUser,
         activeUserRole,
-        setActiveUser,
+        activeUserEmail,
+        currentUser,
+        session,
         appUsers,
         loading,
         mounted,
         error,
-        refreshUsers: fetchUsers,
-        logout
+        login,
+        logout,
+        setActiveUser,
+        refreshUsers: fetchUsers
       }}
     >
       {children}

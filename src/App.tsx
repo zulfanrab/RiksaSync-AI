@@ -22,17 +22,22 @@ import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import GuideModal from './components/GuideModal';
 import NotificationCenter from './components/NotificationCenter';
+import AttendanceModule from './components/AttendanceModule';
 
 const INITIAL_MANPOWER: Manpower[] = [
-  { id: 'm1', name: 'Angga', role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
-  { id: 'm2', name: 'Imam', role: 'Ahli Spesialis', status: 'internal', skp: ['PUBT', 'Instalasi Listrik'] },
-  { id: 'm3', name: 'Fakhziar', role: 'Ahli Spesialis', status: 'internal', skp: ['PUBT'] },
-  { id: 'm4', name: 'Fauzan', role: 'Ahli Spesialis', status: 'internal', skp: ['Instalasi Listrik', 'PAA'] },
-  { id: 'm5', name: 'Katez', role: 'Ahli Eksternal', status: 'external', skp: ['Angkur TKPK'] },
-  { id: 'm6', name: 'Riyan', role: 'Helper & Teknisi', status: 'external', skp: [] },
-  { id: 'm7', name: 'Ajay', status: 'internal', role: 'Support Staff', skp: [] },
-  { id: 'm8', name: 'Arya', status: 'internal', role: 'Support Staff', skp: [] },
-  { id: 'm9', name: 'Zulfan', status: 'internal', role: 'Support Staff', skp: [] }
+  { id: 'm1',  name: 'Angga',    role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
+  { id: 'm2',  name: 'Imam',     role: 'Ahli Spesialis',      status: 'internal', skp: ['PUBT', 'Instalasi Listrik'] },
+  { id: 'm3',  name: 'Fauzan',   role: 'Ahli Spesialis',      status: 'internal', skp: ['Instalasi Listrik', 'PAA'] },
+  { id: 'm4',  name: 'Fakhziar', role: 'Ahli Spesialis',      status: 'internal', skp: ['PUBT'] },
+  { id: 'm5',  name: 'Fazar',    role: 'Ahli Spesialis',      status: 'internal', skp: ['PTP', 'Instalasi Listrik'] },
+  { id: 'm6',  name: 'Arya',     role: 'Support Staff',       status: 'internal', skp: [] },
+  { id: 'm7',  name: 'Rio',      role: 'Support Staff',       status: 'internal', skp: [] },
+  { id: 'm8',  name: 'Aulia',    role: 'Support Staff',       status: 'internal', skp: [] },
+  { id: 'm9',  name: 'Disa',     role: 'Support Staff',       status: 'internal', skp: [] },
+  { id: 'm10', name: 'Marsya',   role: 'Support Staff',       status: 'internal', skp: [] },
+  { id: 'm11', name: 'Zulfan',   role: 'IT Staff',            status: 'internal', skp: [] },
+  { id: 'm12', name: 'Katez',    role: 'Ahli Eksternal',      status: 'external', skp: ['Angkur TKPK'] },
+  { id: 'm13', name: 'Riyan',    role: 'Helper & Teknisi',    status: 'external', skp: [] }
 ];
 
 const INITIAL_UNITS: Unit[] = [
@@ -120,7 +125,7 @@ export default function App() {
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'retention' | 'inspection'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'retention' | 'inspection' | 'attendance'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -1152,6 +1157,16 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
           >
             ⚙️ Progress Pemeriksaan
           </button>
+          <button
+            onClick={() => setActiveTab('attendance')}
+            className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
+              activeTab === 'attendance'
+                ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            📍 Absensi
+          </button>
         </div>
 
                 {activeTab === 'calendar' ? (
@@ -1306,7 +1321,7 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
               onSwitchToInspection={() => setActiveTab('inspection')}
             />
           </div>
-        ) : (
+        ) : activeTab === 'inspection' ? (
           <div className="h-full flex-1">
             <div className="mb-4 bg-violet-50 border border-violet-200 px-5 py-3.5 rounded-2xl flex items-center gap-3">
               <TrendingUp className="h-5 w-5 text-violet-500 shrink-0" />
@@ -1321,6 +1336,10 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
               activeUser={activeUser || ''}
               onRefresh={loadAllData}
             />
+          </div>
+        ) : (
+          <div className="h-full flex-1">
+            <AttendanceModule />
           </div>
         )}
       </main>

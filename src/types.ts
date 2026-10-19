@@ -49,7 +49,11 @@ export interface Client {
 
 export interface AppUser {
   id: string;
+  auth_id?: string;
   username: string;
+  email?: string;
+  full_name?: string;
+  division?: string;
   role: string;
 }
 
@@ -210,4 +214,22 @@ export interface InspectionJob {
   updated_at?: string;
   created_by?: string;
   updated_by?: string;
+}
+
+// ============================================================
+// MODULE: Absensi (Attendance)
+// ============================================================
+
+export type AttendanceType = 'Masuk' | 'Pulang' | 'Sakit' | 'Cuti';
+
+export interface AttendanceRecord {
+  id?: string;
+  employee_name: string;
+  employee_email: string;
+  type: AttendanceType;
+  timestamp: string;        // ISO string
+  latitude: number;
+  longitude: number;
+  photo_drive_url?: string; // Google Drive link
+  created_at?: string;
 }
