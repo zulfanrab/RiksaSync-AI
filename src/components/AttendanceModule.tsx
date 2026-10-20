@@ -746,13 +746,9 @@ export default function AttendanceModule({
 
     setSubmitting(false);
     if (driveLink) {
-      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat & foto tersimpan aman di Google Drive! 📸`);
-    } else if (gasUrl && gasErrorOccurred) {
-      setSubmitSuccess(`Presensi ${attendanceType} tersimpan di database, tetapi gagal upload ke Google Drive/Sheets (URL Google Script tidak merespons atau 404). Silakan periksa tombol "Google Drive" di atas.`);
-    } else if (!gasUrl) {
-      setSubmitSuccess(`Presensi ${attendanceType} tersimpan di database. (Catatan: Sambungkan Google Drive untuk menyimpan foto selfie ke Drive & Sheets).`);
+      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat! Foto selfie tersimpan otomatis. ✅`);
     } else {
-      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB!`);
+      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB! ✅`);
     }
 
     // Reset captured photo and reload history
@@ -781,26 +777,25 @@ export default function AttendanceModule({
           </p>
         </div>
 
-        {/* Realtime clock display & Google Drive settings button */}
-        <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              setInputGasUrl(gasUrl);
-              setGasTestResult(null);
-              setShowGasModal(true);
-            }}
-            className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
-              gasUrl
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-            }`}
-            title="Pengaturan Google Drive & Sheets Absensi"
-          >
-            <Cloud className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-            <span>{gasUrl ? 'Google Drive Aktif' : 'Sambungkan Google Drive'}</span>
-            <Settings className="h-3 w-3 opacity-60 ml-0.5" />
-          </button>
+        {/* Realtime clock display + Admin-only sync dot */}
+        <div className="flex items-center gap-2.5 self-start md:self-auto">
+          {/* Titik sinkronisasi — hanya terlihat oleh IT/Manager, tanpa label */}
+          {isPrivilegedManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setInputGasUrl(gasUrl);
+                setGasTestResult(null);
+                setShowGasModal(true);
+              }}
+              title={gasUrl ? 'Sinkronisasi aktif' : 'Konfigurasi sinkronisasi'}
+              className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <span className={`block h-2 w-2 rounded-full ${
+                gasUrl ? 'bg-emerald-500' : 'bg-amber-400'
+              }`} />
+            </button>
+          )}
 
           <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl">
             <Clock className="h-5 w-5 text-emerald-600 animate-spin-slow shrink-0" />
