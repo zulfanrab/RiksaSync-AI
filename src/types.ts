@@ -221,16 +221,20 @@ export interface InspectionJob {
 // ============================================================
 
 export type AttendanceType = 'Masuk' | 'Pulang' | 'Sakit' | 'Cuti';
+export type WorkLocationType = 'Kantor' | 'On Site' | 'WFH';
 
 export interface AttendanceRecord {
   id?: string;
   employee_name: string;
   employee_email: string;
   type: AttendanceType;
-  timestamp: string;        // ISO string
+  work_location_type?: WorkLocationType; // 'Kantor' | 'On Site' | 'WFH'
+  building_name?: string;               // Nama Gedung / Fasilitas
+  location_name?: string;               // Nama ringkas lokasi / gedung
+  address?: string;                     // Alamat lengkap
+  timestamp: string;                    // ISO string
   latitude: number;
   longitude: number;
-  location_name?: string;   // Nama gedung / alamat lokasi terverifikasi
-  photo_drive_url?: string; // Google Drive link
+  photo_drive_url?: string;             // Google Drive link
   created_at?: string;
 }

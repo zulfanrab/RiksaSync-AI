@@ -64,16 +64,22 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   employee_name TEXT NOT NULL,
   employee_email TEXT NOT NULL,
   type TEXT NOT NULL CHECK (type IN ('Masuk', 'Pulang', 'Sakit', 'Cuti')),
+  work_location_type TEXT DEFAULT 'Kantor' CHECK (work_location_type IN ('Kantor', 'On Site', 'WFH')),
+  building_name TEXT,
+  location_name TEXT,
+  address TEXT,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
-  location_name TEXT,
   photo_drive_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Migration fallback jika tabel attendance_logs sudah dibuat sebelumnya
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS work_location_type TEXT DEFAULT 'Kantor';
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS building_name TEXT;
 ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS location_name TEXT;
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- Indeks untuk query riwayat absensi cepat per tanggal dan karyawan
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_created_at ON attendance_logs(created_at DESC);

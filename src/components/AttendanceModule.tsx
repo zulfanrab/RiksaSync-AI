@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
-import { AttendanceType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
+import { AttendanceType, WorkLocationType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   Camera,
@@ -57,6 +57,9 @@ export default function AttendanceModule({
 
   // Absensi selection: Strictly 'Masuk' or 'Pulang' (Sakit & Cuti are managed in Kelola Manpower)
   const [attendanceType, setAttendanceType] = useState<'Masuk' | 'Pulang'>('Masuk');
+
+  // Mode Lokasi Penugasan: 'Kantor' | 'On Site' | 'WFH'
+  const [workLocationType, setWorkLocationType] = useState<WorkLocationType>('Kantor');
   
   // Camera & Image state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -71,7 +74,7 @@ export default function AttendanceModule({
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [locationInfo, setLocationInfo] = useState<GeoLocationInfo | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [customLocationName, setCustomLocationName] = useState<string>('');
+  const [customLocationName, setCustomLocationName] = useState<string>('Kantor Pusat PT Aksara Riksa Perdana');
 
   // Live time ticker
   const [now, setNow] = useState(new Date());
@@ -485,10 +488,10 @@ export default function AttendanceModule({
     ctx.font = '10px monospace';
     ctx.fillText(`📅 ${currentDate} • ${currentTime}`, 28, height - barHeight + 39);
 
-    // Line 3: Building / Location name (Prominent yellow)
+    // Line 3: Building / Location name with workLocationType tag (Prominent yellow)
     ctx.fillStyle = '#FDE047';
     ctx.font = 'bold 10px sans-serif';
-    ctx.fillText(`🏢 ${truncatedLocation}`, 28, height - barHeight + 56);
+    ctx.fillText(`🏢 [${workLocationType}] ${truncatedLocation}`, 28, height - barHeight + 56);
 
     // Line 4: GPS Coordinates & Accuracy
     ctx.fillStyle = '#94A3B8';
@@ -609,10 +612,13 @@ export default function AttendanceModule({
       employee_name: empName,
       employee_email: empEmail,
       type: attendanceType,
+      work_location_type: workLocationType,
+      building_name: locationToSend || undefined,
+      location_name: locationToSend || undefined,
+      address: locationInfo?.fullAddress || undefined,
       timestamp: recordTimestamp,
       latitude: coords.latitude,
       longitude: coords.longitude,
-      location_name: locationToSend || undefined,
       photo_drive_url: ''
     };
 
@@ -629,10 +635,13 @@ export default function AttendanceModule({
             employee_name: empName,
             employee_email: empEmail,
             type: attendanceType,
+            work_location_type: workLocationType,
+            building_name: locationToSend || '-',
+            location_name: locationToSend || '-',
+            address: locationInfo?.fullAddress || '-',
             timestamp: recordTimestamp,
             latitude: coords.latitude,
             longitude: coords.longitude,
-            location_name: locationToSend,
             photo_base64: capturedImage
           })
         });
@@ -657,10 +666,13 @@ export default function AttendanceModule({
             employee_name: empName,
             employee_email: empEmail,
             type: attendanceType,
+            work_location_type: workLocationType,
+            building_name: locationToSend || null,
+            location_name: locationToSend || null,
+            address: locationInfo?.fullAddress || null,
             timestamp: recordTimestamp,
             latitude: coords.latitude,
             longitude: coords.longitude,
-            location_name: locationToSend || null,
             photo_drive_url: driveLink || null
           }
         ]);
@@ -960,6 +972,71 @@ export default function AttendanceModule({
                 )}
               </button>
             </div>
+
+            {/* 3-Way Mode Penugasan: Kantor | On Site | WFH */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Lokasi Penugasan Hari Ini:</span>
+                </label>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {workLocationType === 'Kantor' && 'Kantor Pusat ARM'}
+                  {workLocationType === 'On Site' && 'Site Klien / Lapangan'}
+                  {workLocationType === 'WFH' && 'Remote / WFH'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkLocationType('Kantor');
+                    setCustomLocationName('Kantor Pusat PT Aksara Riksa Perdana');
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    workLocationType === 'Kantor'
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-xs ring-2 ring-emerald-200'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Building2 className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Kantor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkLocationType('On Site');
+                    setCustomLocationName(locationInfo?.buildingName || locationInfo?.road || 'Site Proyek Klien');
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    workLocationType === 'On Site'
+                      ? 'border-amber-500 bg-amber-50 text-amber-800 shadow-xs ring-2 ring-amber-200'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Navigation className="h-3.5 w-3.5 text-amber-600" />
+                  <span>On Site</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkLocationType('WFH');
+                    setCustomLocationName('Kediaman Pribadi (WFH)');
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    workLocationType === 'WFH'
+                      ? 'border-sky-500 bg-sky-50 text-sky-800 shadow-xs ring-2 ring-sky-200'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xs">🏠</span>
+                  <span>WFH</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* 2. Live Camera / Preview Card */}
@@ -1178,22 +1255,37 @@ export default function AttendanceModule({
                   <div className="flex flex-wrap gap-1.5 pt-0.5">
                     <button
                       type="button"
-                      onClick={() => setCustomLocationName('Kantor Pusat PT Aksara Riksa Perdana')}
-                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-medium cursor-pointer"
+                      onClick={() => {
+                        setWorkLocationType('Kantor');
+                        setCustomLocationName('Kantor Pusat PT Aksara Riksa Perdana');
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-medium cursor-pointer transition-colors ${
+                        workLocationType === 'Kantor' ? 'bg-emerald-100 text-emerald-800 font-bold border border-emerald-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
                     >
                       🏢 Kantor Pusat
                     </button>
                     <button
                       type="button"
-                      onClick={() => setCustomLocationName('Site / Proyek Klien')}
-                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-medium cursor-pointer"
+                      onClick={() => {
+                        setWorkLocationType('On Site');
+                        setCustomLocationName(locationInfo?.buildingName || locationInfo?.road || 'Site Proyek Klien');
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-medium cursor-pointer transition-colors ${
+                        workLocationType === 'On Site' ? 'bg-amber-100 text-amber-800 font-bold border border-amber-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
                     >
                       🏭 Site Klien
                     </button>
                     <button
                       type="button"
-                      onClick={() => setCustomLocationName('Work From Home (WFH)')}
-                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-medium cursor-pointer"
+                      onClick={() => {
+                        setWorkLocationType('WFH');
+                        setCustomLocationName('Kediaman Pribadi (WFH)');
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-medium cursor-pointer transition-colors ${
+                        workLocationType === 'WFH' ? 'bg-sky-100 text-sky-800 font-bold border border-sky-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
                     >
                       🏠 WFH
                     </button>
@@ -1317,11 +1409,20 @@ export default function AttendanceModule({
                       }`}
                     >
                       <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                             isMasuk ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
                           }`}>
                             {rec.type}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                            rec.work_location_type === 'On Site'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : rec.work_location_type === 'WFH'
+                              ? 'bg-sky-50 text-sky-800 border-sky-200'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}>
+                            {rec.work_location_type === 'On Site' ? '🏭 On Site' : rec.work_location_type === 'WFH' ? '🏠 WFH' : '🏢 Kantor'}
                           </span>
                           <span className="font-bold text-slate-800 truncate">
                             {historyFilter === 'team' ? rec.employee_name : 'Presensi Saya'}
@@ -1332,10 +1433,13 @@ export default function AttendanceModule({
                         </div>
 
                         {/* Location / Building name */}
-                        {rec.location_name && (
-                          <div className="text-[10px] text-slate-600 font-medium flex items-center gap-1 truncate max-w-[220px]">
+                        {(rec.building_name || rec.location_name) && (
+                          <div
+                            className="text-[10px] text-slate-600 font-medium flex items-center gap-1 truncate max-w-[240px]"
+                            title={rec.address || rec.building_name || rec.location_name}
+                          >
                             <Building2 className="h-3 w-3 text-emerald-600 shrink-0" />
-                            <span className="truncate">{rec.location_name}</span>
+                            <span className="truncate">{rec.building_name || rec.location_name}</span>
                           </div>
                         )}
 

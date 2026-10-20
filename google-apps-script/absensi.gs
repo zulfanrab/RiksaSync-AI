@@ -38,12 +38,14 @@ function setupSheetAndFolder() {
       "Nama Karyawan",
       "Email/Username",
       "Tipe Absen",
+      "Mode Kerja (Kantor/Site/WFH)",
+      "Nama Gedung / Lokasi",
       "Latitude",
       "Longitude",
-      "Link Foto Google Drive",
-      "Lokasi / Nama Gedung"
+      "Alamat Lengkap (GPS)",
+      "Link Foto Google Drive"
     ]);
-    sheet.getRange(1, 1, 1, 10).setFontWeight("bold").setBackground("#D1FAE5");
+    sheet.getRange(1, 1, 1, 12).setFontWeight("bold").setBackground("#D1FAE5");
     sheet.setFrozenRows(1);
   }
 
@@ -70,9 +72,11 @@ function doPost(e) {
     var empName = data.employee_name || "Tanpa Nama";
     var empEmail = data.employee_email || "-";
     var type = data.type || "Masuk";
+    var workLocationType = data.work_location_type || "Kantor";
+    var buildingName = data.building_name || data.location_name || "-";
+    var address = data.address || "-";
     var lat = data.latitude || 0;
     var lng = data.longitude || 0;
-    var locationName = data.location_name || "-";
     var clientTime = data.timestamp ? new Date(data.timestamp) : new Date();
 
     // Format tanggal & waktu WIB
@@ -89,7 +93,7 @@ function doPost(e) {
       }
       var decodedBytes = Utilities.base64Decode(base64Data);
       var safeName = empName.replace(/[^a-zA-Z0-9]/g, "_");
-      var fileName = "Absen_" + type + "_" + safeName + "_" + dateWIB + "_" + timeWIB.replace(/:/g, "-") + ".jpg";
+      var fileName = "Absen_" + type + "_" + workLocationType.replace(/\s+/g, "") + "_" + safeName + "_" + dateWIB + "_" + timeWIB.replace(/:/g, "-") + ".jpg";
 
       var blob = Utilities.newBlob(decodedBytes, "image/jpeg", fileName);
       var file = folder.createFile(blob);
@@ -97,7 +101,7 @@ function doPost(e) {
       photoDriveUrl = file.getUrl();
     }
 
-    // Catat baris di Google Sheets (termasuk Lokasi / Nama Gedung)
+    // Catat baris di Google Sheets lengkap dengan Mode Kerja & Gedung
     sheet.appendRow([
       clientTime.toISOString(),
       dateWIB,
@@ -105,18 +109,21 @@ function doPost(e) {
       empName,
       empEmail,
       type,
+      workLocationType,
+      buildingName,
       lat,
       lng,
-      photoDriveUrl,
-      locationName
+      address,
+      photoDriveUrl
     ]);
 
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
-      message: "Absensi " + type + " berhasil dicatat!",
+      message: "Absensi " + type + " (" + workLocationType + ") berhasil dicatat!",
       drive_url: photoDriveUrl,
       timestamp: clientTime.toISOString(),
-      location_name: locationName
+      work_location_type: workLocationType,
+      building_name: buildingName
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
@@ -156,10 +163,13 @@ function doGet(e) {
           employee_name: row[3],
           employee_email: row[4],
           type: row[5],
-          latitude: row[6],
-          longitude: row[7],
-          photo_drive_url: row[8],
-          location_name: row[9] || ""
+          work_location_type: row[6] || "Kantor",
+          building_name: row[7] || "",
+          location_name: row[7] || "",
+          latitude: row[8],
+          longitude: row[9],
+          address: row[10] || "",
+          photo_drive_url: row[11] || row[8] || ""
         });
       }
       if (records.length >= 50) break; // limit 50 data terbaru
