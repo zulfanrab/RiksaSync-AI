@@ -20,13 +20,26 @@ import {
   Info,
   Check,
   ArrowRight,
-  ClipboardList
+  ClipboardList,
+  Building2,
+  Lock,
+  Users,
+  User,
+  Edit3
 } from 'lucide-react';
 
 interface Coords {
   latitude: number;
   longitude: number;
   accuracy: number;
+}
+
+interface GeoLocationInfo {
+  buildingName: string;
+  road: string;
+  area: string;
+  city: string;
+  fullAddress: string;
 }
 
 interface AttendanceModuleProps {
@@ -52,13 +65,29 @@ export default function AttendanceModule({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // GPS state
+  // GPS & Location state
   const [coords, setCoords] = useState<Coords | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const [locationInfo, setLocationInfo] = useState<GeoLocationInfo | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [customLocationName, setCustomLocationName] = useState<string>('');
 
   // Live time ticker
   const [now, setNow] = useState(new Date());
+
+  // Privacy & Manager permission check:
+  // Karyawan biasa HANYA bisa melihat absensi miliknya sendiri (Strict Privacy).
+  // Leader / IT / Admin dapat memantau tim jika diperlukan.
+  const isPrivilegedManager = Boolean(
+    currentUser?.role?.toLowerCase().includes('leader') ||
+    currentUser?.role?.toLowerCase().includes('it') ||
+    currentUser?.division?.toLowerCase() === 'it' ||
+    currentUser?.role?.toLowerCase().includes('superadmin') ||
+    activeUser?.toLowerCase() === 'zulfan' ||
+    activeUser?.toLowerCase() === 'angga'
+  );
+  const [historyFilter, setHistoryFilter] = useState<'mine' | 'team'>('mine');
 
   // Submit & History state
   const [submitting, setSubmitting] = useState(false);
@@ -201,7 +230,97 @@ export default function AttendanceModule({
     return null;
   };
 
-  // Request GPS Location
+  // Reverse Geocode: Deteksi nama gedung, jalan, dan wilayah administratif secara akurat
+  const fetchReverseGeocode = useCallback(async (lat: number, lng: number) => {
+    setLocationLoading(true);
+    try {
+      // 1. Nominatim OpenStreetMap (zoom 18) untuk deteksi nama gedung / POI / nomor jalan
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        { headers: { Accept: 'application/json' } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data.address || {};
+
+        const bldg =
+          addr.building ||
+          addr.office ||
+          addr.amenity ||
+          addr.commercial ||
+          addr.industrial ||
+          addr.shop ||
+          addr.leisure ||
+          addr.tourism ||
+          (data.name && data.name !== addr.road ? data.name : '');
+
+        const road = addr.road || addr.pedestrian || addr.street || '';
+        const area = addr.suburb || addr.village || addr.neighbourhood || '';
+        const district = addr.city_district || addr.subdistrict || '';
+        const city = addr.city || addr.town || addr.municipality || addr.county || '';
+
+        const cleanRoad = road ? (road.toLowerCase().startsWith('jl') ? road : `Jl. ${road}`) : '';
+        const areaSummary = [area, district, city].filter(Boolean).join(', ');
+
+        let fullReadable = '';
+        if (bldg && cleanRoad) {
+          fullReadable = `${bldg}, ${cleanRoad}, ${city || area}`;
+        } else if (cleanRoad) {
+          fullReadable = `${cleanRoad}, ${areaSummary}`;
+        } else {
+          fullReadable = areaSummary || data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        }
+
+        const info: GeoLocationInfo = {
+          buildingName: bldg || '',
+          road: cleanRoad,
+          area: [area, district].filter(Boolean).join(', '),
+          city: city || 'Indonesia',
+          fullAddress: fullReadable
+        };
+
+        setLocationInfo(info);
+        setCustomLocationName(bldg ? `${bldg} (${cleanRoad || city})` : fullReadable);
+        setLocationLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('[Nominatim Reverse Geocode Warning]', err);
+    }
+
+    // 2. Fallback ke BigDataCloud Reverse Geocode Client API
+    try {
+      const res = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=id`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const locality = data.locality || '';
+        const city = data.city || '';
+        const sub = data.principalSubdivision || '';
+        const full = [locality, city, sub].filter(Boolean).join(', ');
+
+        const info: GeoLocationInfo = {
+          buildingName: '',
+          road: '',
+          area: locality,
+          city: city || sub,
+          fullAddress: full || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+        };
+
+        setLocationInfo(info);
+        setCustomLocationName(full || 'Lokasi Terverifikasi');
+        setLocationLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('[BigDataCloud Fallback Warning]', err);
+    }
+
+    setLocationLoading(false);
+  }, []);
+
+  // Request GPS Location dengan Presisi Tinggi
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setGpsError('Geolocation tidak didukung oleh browser Anda.');
@@ -213,12 +332,15 @@ export default function AttendanceModule({
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setCoords({
+        const newCoords = {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           accuracy: Math.round(pos.coords.accuracy)
-        });
+        };
+        setCoords(newCoords);
         setGpsLoading(false);
+        // Langsung cari nama gedung & alamat
+        fetchReverseGeocode(pos.coords.latitude, pos.coords.longitude);
       },
       (err) => {
         let msg = 'Gagal mendeteksi lokasi GPS.';
@@ -231,10 +353,10 @@ export default function AttendanceModule({
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 10000
+        maximumAge: 0 // Pastikan GPS realtime terkini, bukan cache
       }
     );
-  }, []);
+  }, [fetchReverseGeocode]);
 
   // Start front camera stream
   const startCamera = async () => {
@@ -293,7 +415,7 @@ export default function AttendanceModule({
     };
   }, [requestLocation]);
 
-  // Capture photo from video and apply anti-cheat watermark
+  // Capture photo from video and apply anti-cheat watermark with Building Name
   const capturePhoto = () => {
     if (isSelectedTypeAlreadyDone) {
       setValidationError(getAlreadyDoneMessage());
@@ -315,14 +437,18 @@ export default function AttendanceModule({
     // Draw the camera frame
     ctx.drawImage(video, 0, 0, width, height);
 
-    // Apply anti-cheat watermark bar at the bottom
-    const barHeight = Math.max(75, Math.round(height * 0.16));
+    // Apply anti-cheat watermark bar at the bottom with sufficient height for Building Name
+    const barHeight = Math.max(92, Math.round(height * 0.19));
     const gradient = ctx.createLinearGradient(0, height - barHeight, 0, height);
-    gradient.addColorStop(0, 'rgba(15, 23, 42, 0.85)');
-    gradient.addColorStop(1, 'rgba(2, 6, 23, 0.95)');
+    gradient.addColorStop(0, 'rgba(15, 23, 42, 0.90)');
+    gradient.addColorStop(1, 'rgba(2, 6, 23, 0.98)');
 
     ctx.fillStyle = gradient;
     ctx.fillRect(0, height - barHeight, width, barHeight);
+
+    // Accent line on top of banner
+    ctx.fillStyle = attendanceType === 'Masuk' ? '#10B981' : '#0EA5E9';
+    ctx.fillRect(0, height - barHeight, width, 3);
 
     // Green indicator pill
     ctx.fillStyle = '#10B981';
@@ -346,25 +472,37 @@ export default function AttendanceModule({
     const lngStr = coords ? coords.longitude.toFixed(6) : '-';
     const accStr = coords ? `±${coords.accuracy}m` : '';
 
+    const displayLocation = (customLocationName || locationInfo?.buildingName || locationInfo?.fullAddress || 'Lokasi Terverifikasi').trim();
+    const truncatedLocation = displayLocation.length > 42 ? displayLocation.substring(0, 39) + '...' : displayLocation;
+
     // Line 1: User & Type
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillText(`${empName} [Absen ${attendanceType}]`, 28, height - barHeight + 24);
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(`${empName} [Absen ${attendanceType}]`, 28, height - barHeight + 22);
 
-    // Line 2: Timestamp & GPS
+    // Line 2: Timestamp WIB
     ctx.fillStyle = '#CBD5E1';
-    ctx.font = '11px monospace';
-    ctx.fillText(`📅 ${currentDate} ${currentTime}`, 28, height - barHeight + 42);
-    ctx.fillText(`📍 Lat: ${latStr}, Lng: ${lngStr} (${accStr})`, 28, height - barHeight + 58);
+    ctx.font = '10px monospace';
+    ctx.fillText(`📅 ${currentDate} • ${currentTime}`, 28, height - barHeight + 39);
+
+    // Line 3: Building / Location name (Prominent yellow)
+    ctx.fillStyle = '#FDE047';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText(`🏢 ${truncatedLocation}`, 28, height - barHeight + 56);
+
+    // Line 4: GPS Coordinates & Accuracy
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '9px monospace';
+    ctx.fillText(`📍 Lat: ${latStr}, Lng: ${lngStr} (${accStr})`, 28, height - barHeight + 73);
 
     // Branding stamp on right
     ctx.fillStyle = '#10B981';
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText('PT AKSARA RIKSA MANDIRI', width - 20, height - barHeight + 26);
+    ctx.fillText('PT AKSARA RIKSA PERDANA', width - 20, height - barHeight + 24);
     ctx.fillStyle = '#94A3B8';
-    ctx.font = '9px monospace';
-    ctx.fillText('RiksaSync AI • Verified GPS', width - 20, height - barHeight + 42);
+    ctx.font = '8px monospace';
+    ctx.fillText('RiksaSync AI • Verified GPS', width - 20, height - barHeight + 40);
     ctx.textAlign = 'left'; // reset
 
     // Convert to compressed JPEG data URL (~60-80KB)
@@ -381,16 +519,34 @@ export default function AttendanceModule({
     startCamera();
   };
 
-  // Fetch recent attendance history
-  const loadHistory = useCallback(async () => {
+  // Fetch attendance history with Strict Privacy
+  // Karyawan biasa HANYA bisa melihat riwayat presensi miliknya sendiri.
+  // Privileged Manager dapat melihat milik sendiri atau seluruh tim.
+  const loadHistory = useCallback(async (forcedFilter?: 'mine' | 'team') => {
     setHistoryLoading(true);
+    const activeFilter = forcedFilter || historyFilter;
+    const activeEmail = activeUserEmail || `${(activeUser || '').toLowerCase()}@aksarariksapjk3.com`;
+    const activeName = activeUser || '';
+
     try {
       if (isSupabaseConfigured && supabase) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('attendance_logs')
           .select('*')
-          .order('timestamp', { ascending: false })
-          .limit(30);
+          .order('timestamp', { ascending: false });
+
+        // Privacy filter: Jika staf biasa ATAU mode 'mine', batasi query ke email/nama aktif saja
+        if (!isPrivilegedManager || activeFilter === 'mine') {
+          if (activeEmail && activeName) {
+            query = query.or(`employee_email.ilike.${activeEmail},employee_name.ilike.${activeName}`);
+          } else if (activeEmail) {
+            query = query.ilike('employee_email', activeEmail);
+          } else if (activeName) {
+            query = query.ilike('employee_name', activeName);
+          }
+        }
+
+        const { data, error } = await query.limit(50);
 
         if (!error && data) {
           setHistory(data as AttendanceRecord[]);
@@ -402,14 +558,24 @@ export default function AttendanceModule({
       // Fallback to local storage if supabase not available
       const local = localStorage.getItem('local_attendance_logs');
       if (local) {
-        setHistory(JSON.parse(local));
+        const parsed: AttendanceRecord[] = JSON.parse(local);
+        if (!isPrivilegedManager || activeFilter === 'mine') {
+          const filtered = parsed.filter((r) => {
+            const matchEmail = Boolean(r.employee_email && activeEmail && r.employee_email.toLowerCase() === activeEmail.toLowerCase());
+            const matchName = Boolean(r.employee_name && activeName && r.employee_name.toLowerCase() === activeName.toLowerCase());
+            return matchEmail || matchName;
+          });
+          setHistory(filtered);
+        } else {
+          setHistory(parsed);
+        }
       }
     } catch (e) {
       console.warn('[History Error]', e);
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [activeUser, activeUserEmail, isPrivilegedManager, historyFilter]);
 
   useEffect(() => {
     loadHistory();
@@ -437,6 +603,7 @@ export default function AttendanceModule({
     const empName = currentUser?.full_name || activeUser || 'Karyawan';
     const empEmail = activeUserEmail || `${(activeUser || 'user').toLowerCase()}@aksarariksapjk3.com`;
     const recordTimestamp = new Date().toISOString();
+    const locationToSend = (customLocationName || locationInfo?.fullAddress || '').trim();
 
     const newRecord: AttendanceRecord = {
       employee_name: empName,
@@ -445,6 +612,7 @@ export default function AttendanceModule({
       timestamp: recordTimestamp,
       latitude: coords.latitude,
       longitude: coords.longitude,
+      location_name: locationToSend || undefined,
       photo_drive_url: ''
     };
 
@@ -464,6 +632,7 @@ export default function AttendanceModule({
             timestamp: recordTimestamp,
             latitude: coords.latitude,
             longitude: coords.longitude,
+            location_name: locationToSend,
             photo_base64: capturedImage
           })
         });
@@ -491,6 +660,7 @@ export default function AttendanceModule({
             timestamp: recordTimestamp,
             latitude: coords.latitude,
             longitude: coords.longitude,
+            location_name: locationToSend || null,
             photo_drive_url: driveLink || null
           }
         ]);
@@ -929,23 +1099,23 @@ export default function AttendanceModule({
           </div>
         </div>
 
-        {/* Right Column (5 cols): GPS Status & Riwayat Terkini */}
+        {/* Right Column (5 cols): GPS Status & Riwayat Presensi dengan Privasi */}
         <div className="lg:col-span-5 space-y-4">
-          {/* GPS Info Card */}
-          <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm space-y-3">
+          {/* GPS & Building Info Card */}
+          <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-emerald-600" />
-                <span className="text-xs font-bold text-slate-700">Validasi Lokasi (GPS)</span>
+                <span className="text-xs font-bold text-slate-700">Validasi Lokasi (GPS Presisi)</span>
               </div>
               <button
                 type="button"
                 onClick={requestLocation}
-                disabled={gpsLoading}
+                disabled={gpsLoading || locationLoading}
                 className="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 transition-colors cursor-pointer"
               >
-                <RefreshCw className={`h-3 w-3 ${gpsLoading ? 'animate-spin' : ''}`} />
-                <span>Refresh GPS</span>
+                <RefreshCw className={`h-3 w-3 ${gpsLoading || locationLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh Lokasi</span>
               </button>
             </div>
 
@@ -958,53 +1128,168 @@ export default function AttendanceModule({
                 </div>
               </div>
             ) : coords ? (
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Latitude</span>
-                    <span className="font-mono font-semibold text-slate-800">{coords.latitude.toFixed(6)}</span>
+              <div className="space-y-2.5">
+                {/* Detected Building / Address Box */}
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1">
+                      <Building2 className="h-3 w-3 text-emerald-600" />
+                      <span>Gedung / Tempat Terverifikasi</span>
+                    </span>
+                    {locationLoading && (
+                      <span className="text-[10px] text-emerald-600 font-medium animate-pulse flex items-center gap-1">
+                        <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                        <span>Mendeteksi...</span>
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Longitude</span>
-                    <span className="font-mono font-semibold text-slate-800">{coords.longitude.toFixed(6)}</span>
+                  <p className="text-xs font-bold text-slate-800 leading-snug">
+                    {locationInfo?.buildingName ? (
+                      <span className="text-emerald-900 font-black">{locationInfo.buildingName}</span>
+                    ) : locationInfo?.road ? (
+                      <span>{locationInfo.road}</span>
+                    ) : (
+                      <span className="text-slate-600">Mendeteksi titik gedung...</span>
+                    )}
+                  </p>
+                  {locationInfo?.fullAddress && (
+                    <p className="text-[11px] text-slate-600 leading-relaxed font-mono">
+                      📍 {locationInfo.fullAddress}
+                    </p>
+                  )}
+                </div>
+
+                {/* Editable / Confirmable Location Name */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 flex items-center justify-between">
+                    <span>Nama Gedung / Lokasi Absensi:</span>
+                    <span className="text-[9px] text-slate-400 font-normal">Dicetak pada watermark foto</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={customLocationName}
+                      onChange={(e) => setCustomLocationName(e.target.value)}
+                      placeholder="cth: Kantor Pusat / Pabrik PT ABC / Site Proyek"
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium"
+                    />
+                  </div>
+                  {/* Quick Preset Chips */}
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setCustomLocationName('Kantor Pusat PT Aksara Riksa Perdana')}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-medium cursor-pointer"
+                    >
+                      🏢 Kantor Pusat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomLocationName('Site / Proyek Klien')}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-medium cursor-pointer"
+                    >
+                      🏭 Site Klien
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomLocationName('Work From Home (WFH)')}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors font-medium cursor-pointer"
+                    >
+                      🏠 WFH
+                    </button>
                   </div>
                 </div>
-                <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[11px]">
-                  <span className="text-slate-500 font-medium">Akurasi Perangkat:</span>
-                  <span className="font-mono font-bold text-emerald-600">±{coords.accuracy} meter</span>
+
+                {/* Lat Lng & Accuracy */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Latitude</span>
+                    <span className="font-mono font-semibold text-slate-800 text-[11px]">{coords.latitude.toFixed(6)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] text-slate-400 font-bold block uppercase">Longitude</span>
+                    <span className="font-mono font-semibold text-slate-800 text-[11px]">{coords.longitude.toFixed(6)}</span>
+                  </div>
+                  <div className="col-span-2 pt-1 border-t border-slate-200 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-500 font-medium">Akurasi Satelit GPS:</span>
+                    <span className="font-mono font-bold text-emerald-600">±{coords.accuracy} meter</span>
+                  </div>
                 </div>
               </div>
             ) : (
               <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
                 <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                <span>Mendeteksi koordinat satelit GPS...</span>
+                <span>Mendeteksi koordinat satelit GPS & nama gedung...</span>
               </div>
             )}
 
-            <div className="p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-start gap-2">
-              <Info className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
-              <p className="text-[10px] text-emerald-800 leading-relaxed">
-                Anti-Kecurangan: Foto wajib live selfie kamera depan dengan stempel koordinat dan waktu WIB.
+            <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-start gap-2">
+              <Info className="h-3.5 w-3.5 text-slate-500 shrink-0 mt-0.5" />
+              <p className="text-[10px] text-slate-600 leading-relaxed">
+                Anti-Kecurangan: Foto live selfie otomatis menyematkan nama gedung, koordinat GPS, dan jam WIB ke Google Drive.
               </p>
             </div>
           </div>
 
-          {/* Riwayat Absensi Terkini with Polite Border Indicators */}
+          {/* Riwayat Absensi Terkini - PRIVASI KETAT */}
           <div className="bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl shadow-sm space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-slate-600" />
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Riwayat Presensi Terbaru</h3>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  {historyFilter === 'mine' ? 'Riwayat Presensi Saya' : 'Pantauan Seluruh Tim'}
+                </h3>
               </div>
-              <button
-                type="button"
-                onClick={loadHistory}
-                disabled={historyLoading}
-                className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
-                title="Refresh Riwayat"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
-              </button>
+
+              <div className="flex items-center gap-2">
+                {/* Switcher Tab HANYA jika Admin / Leader / IT */}
+                {isPrivilegedManager && (
+                  <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryFilter('mine');
+                        loadHistory('mine');
+                      }}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                        historyFilter === 'mine' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <User className="h-3 w-3" />
+                      <span>Saya</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryFilter('team');
+                        loadHistory('team');
+                      }}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                        historyFilter === 'team' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <Users className="h-3 w-3" />
+                      <span>Tim (Leader)</span>
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => loadHistory()}
+                  disabled={historyLoading}
+                  className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+                  title="Refresh Riwayat"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Privacy notice badge */}
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200/80">
+              <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
+              <span>Privasi Terjaga: Karyawan hanya dapat melihat data & foto presensi miliknya sendiri.</span>
             </div>
 
             {historyLoading && history.length === 0 ? (
@@ -1015,10 +1300,10 @@ export default function AttendanceModule({
             ) : history.length === 0 ? (
               <div className="py-8 text-center text-slate-400 space-y-1">
                 <p className="text-xs font-semibold">Belum ada riwayat presensi</p>
-                <p className="text-[10px]">Absensi Anda hari ini akan tercatat otomatis di sini.</p>
+                <p className="text-[10px]">Presensi Anda hari ini akan tercatat otomatis di sini.</p>
               </div>
             ) : (
-              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                 {history.map((rec, idx) => {
                   const dateObj = new Date(rec.timestamp);
                   const isMasuk = rec.type === 'Masuk';
@@ -1031,19 +1316,30 @@ export default function AttendanceModule({
                         punctuality ? `${punctuality.border} ${punctuality.bg}` : 'border-slate-300 bg-slate-50'
                       }`}
                     >
-                      <div className="space-y-0.5">
+                      <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                             isMasuk ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
                           }`}>
                             {rec.type}
                           </span>
-                          <span className="font-bold text-slate-800">{rec.employee_name}</span>
+                          <span className="font-bold text-slate-800 truncate">
+                            {historyFilter === 'team' ? rec.employee_name : 'Presensi Saya'}
+                          </span>
                           {punctuality && (
-                            <span className={`h-2 w-2 rounded-full ${punctuality.dot}`} title="Indikator Ketepatan Waktu" />
+                            <span className={`h-2 w-2 rounded-full shrink-0 ${punctuality.dot}`} title="Indikator Ketepatan Waktu" />
                           )}
                         </div>
-                        <div className="text-[10px] text-slate-500 font-mono">
+
+                        {/* Location / Building name */}
+                        {rec.location_name && (
+                          <div className="text-[10px] text-slate-600 font-medium flex items-center gap-1 truncate max-w-[220px]">
+                            <Building2 className="h-3 w-3 text-emerald-600 shrink-0" />
+                            <span className="truncate">{rec.location_name}</span>
+                          </div>
+                        )}
+
+                        <div className="text-[10px] text-slate-400 font-mono">
                           {dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })} • {dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
                         </div>
                       </div>
@@ -1053,14 +1349,14 @@ export default function AttendanceModule({
                           href={rec.photo_drive_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2 py-1 rounded-lg hover:bg-emerald-100/60 transition-colors"
+                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shrink-0"
                           title="Lihat foto bukti di Google Drive"
                         >
                           <span>Foto</span>
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : (
-                        <span className="text-[10px] text-slate-400 font-mono">
+                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
                           {rec.latitude ? `📍 ${rec.latitude.toFixed(2)}` : '✅ Tercatat'}
                         </span>
                       )}

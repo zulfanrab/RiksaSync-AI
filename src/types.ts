@@ -230,6 +230,7 @@ export interface AttendanceRecord {
   timestamp: string;        // ISO string
   latitude: number;
   longitude: number;
+  location_name?: string;   // Nama gedung / alamat lokasi terverifikasi
   photo_drive_url?: string; // Google Drive link
   created_at?: string;
 }

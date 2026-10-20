@@ -40,9 +40,10 @@ function setupSheetAndFolder() {
       "Tipe Absen",
       "Latitude",
       "Longitude",
-      "Link Foto Google Drive"
+      "Link Foto Google Drive",
+      "Lokasi / Nama Gedung"
     ]);
-    sheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#D1FAE5");
+    sheet.getRange(1, 1, 1, 10).setFontWeight("bold").setBackground("#D1FAE5");
     sheet.setFrozenRows(1);
   }
 
@@ -71,6 +72,7 @@ function doPost(e) {
     var type = data.type || "Masuk";
     var lat = data.latitude || 0;
     var lng = data.longitude || 0;
+    var locationName = data.location_name || "-";
     var clientTime = data.timestamp ? new Date(data.timestamp) : new Date();
 
     // Format tanggal & waktu WIB
@@ -95,7 +97,7 @@ function doPost(e) {
       photoDriveUrl = file.getUrl();
     }
 
-    // Catat baris di Google Sheets
+    // Catat baris di Google Sheets (termasuk Lokasi / Nama Gedung)
     sheet.appendRow([
       clientTime.toISOString(),
       dateWIB,
@@ -105,14 +107,16 @@ function doPost(e) {
       type,
       lat,
       lng,
-      photoDriveUrl
+      photoDriveUrl,
+      locationName
     ]);
 
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
       message: "Absensi " + type + " berhasil dicatat!",
       drive_url: photoDriveUrl,
-      timestamp: clientTime.toISOString()
+      timestamp: clientTime.toISOString(),
+      location_name: locationName
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
@@ -154,7 +158,8 @@ function doGet(e) {
           type: row[5],
           latitude: row[6],
           longitude: row[7],
-          photo_drive_url: row[8]
+          photo_drive_url: row[8],
+          location_name: row[9] || ""
         });
       }
       if (records.length >= 50) break; // limit 50 data terbaru

@@ -67,9 +67,13 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
+  location_name TEXT,
   photo_drive_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Migration fallback jika tabel attendance_logs sudah dibuat sebelumnya
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS location_name TEXT;
 
 -- Indeks untuk query riwayat absensi cepat per tanggal dan karyawan
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_created_at ON attendance_logs(created_at DESC);
