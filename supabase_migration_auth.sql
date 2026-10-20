@@ -18,11 +18,7 @@ ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS division TEXT DEFAULT 'Umum';
 
--- 2. Bersihkan profil lama di app_users agar ID baru tidak bentrok dengan ID lama
--- (Aman: Tidak ada foreign key dari tabel lain yang mengunci id app_users)
-DELETE FROM app_users;
-
--- 3. Masukkan 11 Karyawan Resmi Terbaru
+-- 2. Daftarkan / Perbarui 11 Karyawan Resmi (Aman: Menggunakan UPSERT tanpa hapus data lama)
 INSERT INTO app_users (id, username, role, email, full_name, division) VALUES
   ('u1',  'Angga',    'Leader & Ahli Utama', 'angga@aksarariksapjk3.com',    'Rama Regawa Sri Anggayana',       'Ahli'),
   ('u2',  'Imam',     'Ahli Spesialis',      'imam@aksarariksapjk3.com',     'Lalu Imam Taufik Rahman Hidayat', 'Ahli'),
@@ -34,7 +30,13 @@ INSERT INTO app_users (id, username, role, email, full_name, division) VALUES
   ('u8',  'Aulia',    'Support Staff',       'aulia@aksarariksapjk3.com',    'Aulia Zahra Dikrika',             'Admin'),
   ('u9',  'Disa',     'Support Staff',       'disa@aksarariksapjk3.com',     'Disa Liestianie Putri',           'Admin'),
   ('u10', 'Marsya',   'Support Staff',       'marsya@aksarariksapjk3.com',   'Marsya Aulia Rohman',             'Admin'),
-  ('u11', 'Zulfan',   'IT Staff',            'zulfan@aksarariksapjk3.com',   'Zulfan Rafly Baihaqi',            'IT');
+  ('u11', 'Zulfan',   'IT Staff',            'zulfan@aksarariksapjk3.com',   'Zulfan Rafly Baihaqi',            'IT')
+ON CONFLICT (id) DO UPDATE SET
+  username = EXCLUDED.username,
+  role = EXCLUDED.role,
+  email = EXCLUDED.email,
+  full_name = EXCLUDED.full_name,
+  division = EXCLUDED.division;
 
 -- 4. Trigger otomatis untuk menghubungkan auth_id saat user dibuat di Supabase Auth
 CREATE OR REPLACE FUNCTION public.handle_auth_user_link()

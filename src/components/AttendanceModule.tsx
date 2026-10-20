@@ -25,7 +25,10 @@ import {
   Lock,
   Users,
   User,
-  Edit3
+  Edit3,
+  Cloud,
+  Settings,
+  X
 } from 'lucide-react';
 
 interface Coords {
@@ -99,8 +102,54 @@ export default function AttendanceModule({
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // GAS Web App URL from environment or default deployment
-  const gasUrl = import.meta.env.VITE_GAS_ATTENDANCE_URL || 'https://script.google.com/macros/s/AKfycbyiadDMZ26IN47tohPSUNnv_Bsj4mzuTJOf9Z8fhWgm8C4EmyLISB1XwHbbW_EqMPwr/exec';
+  // Google Apps Script Web App URL (bisa dibaca dari localStorage atau .env)
+  const [gasUrl, setGasUrl] = useState<string>(() => {
+    return localStorage.getItem('gas_attendance_url') || import.meta.env.VITE_GAS_ATTENDANCE_URL || '';
+  });
+  const [showGasModal, setShowGasModal] = useState<boolean>(false);
+  const [inputGasUrl, setInputGasUrl] = useState<string>(() => {
+    return localStorage.getItem('gas_attendance_url') || import.meta.env.VITE_GAS_ATTENDANCE_URL || '';
+  });
+  const [testingGas, setTestingGas] = useState<boolean>(false);
+  const [gasTestResult, setGasTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleTestGas = async () => {
+    if (!inputGasUrl.trim()) {
+      setGasTestResult({ success: false, message: 'Harap masukkan URL Web App Google Apps Script terlebih dahulu.' });
+      return;
+    }
+    setTestingGas(true);
+    setGasTestResult(null);
+    try {
+      const res = await fetch(inputGasUrl.trim(), { method: 'GET' });
+      const text = await res.text();
+      if (text.includes('Halaman Tidak Ditemukan') || text.includes('not found') || !res.ok) {
+        setGasTestResult({
+          success: false,
+          message: 'Google merespons 404 (Halaman Tidak Ditemukan). Pastikan Web App sudah di-Deploy dengan benar (New Deployment) dan opsi akses diatur ke "Anyone".'
+        });
+      } else {
+        setGasTestResult({
+          success: true,
+          message: 'Koneksi berhasil! Google Apps Script merespons dengan baik dan siap menerima foto presensi.'
+        });
+      }
+    } catch (err: any) {
+      setGasTestResult({
+        success: false,
+        message: `Koneksi gagal: ${err?.message || err}. Pastikan Anda memilih "Who has access: Anyone" saat Deploy di Google Apps Script.`
+      });
+    } finally {
+      setTestingGas(false);
+    }
+  };
+
+  const handleSaveGasUrl = () => {
+    const trimmed = inputGasUrl.trim();
+    localStorage.setItem('gas_attendance_url', trimmed);
+    setGasUrl(trimmed);
+    setShowGasModal(false);
+  };
 
   // Update live clock every second
   useEffect(() => {
@@ -623,6 +672,7 @@ export default function AttendanceModule({
     };
 
     let driveLink = '';
+    let gasErrorOccurred = false;
 
     // 1. Send to Google Apps Script (Drive + Sheets) if configured
     if (gasUrl) {
@@ -648,13 +698,18 @@ export default function AttendanceModule({
 
         if (response.ok) {
           const resJson = await response.json();
-          if (resJson && resJson.drive_url) {
+          if (resJson && resJson.drive_url && resJson.drive_url !== '-') {
             driveLink = resJson.drive_url;
             newRecord.photo_drive_url = driveLink;
+          } else {
+            gasErrorOccurred = true;
           }
+        } else {
+          gasErrorOccurred = true;
         }
       } catch (gasErr) {
         console.warn('[GAS Attendance Submission Warning]', gasErr);
+        gasErrorOccurred = true;
       }
     }
 
@@ -690,7 +745,15 @@ export default function AttendanceModule({
     } catch (e) {}
 
     setSubmitting(false);
-    setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB!`);
+    if (driveLink) {
+      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat & foto tersimpan aman di Google Drive! 📸`);
+    } else if (gasUrl && gasErrorOccurred) {
+      setSubmitSuccess(`Presensi ${attendanceType} tersimpan di database, tetapi gagal upload ke Google Drive/Sheets (URL Google Script tidak merespons atau 404). Silakan periksa tombol "Google Drive" di atas.`);
+    } else if (!gasUrl) {
+      setSubmitSuccess(`Presensi ${attendanceType} tersimpan di database. (Catatan: Sambungkan Google Drive untuk menyimpan foto selfie ke Drive & Sheets).`);
+    } else {
+      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB!`);
+    }
 
     // Reset captured photo and reload history
     setCapturedImage(null);
@@ -718,15 +781,36 @@ export default function AttendanceModule({
           </p>
         </div>
 
-        {/* Realtime clock display */}
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl self-start md:self-auto">
-          <Clock className="h-5 w-5 text-emerald-600 animate-spin-slow shrink-0" />
-          <div>
-            <div className="text-xs font-mono font-black text-slate-800 leading-none">
-              {now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
-            </div>
-            <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-              {now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
+        {/* Realtime clock display & Google Drive settings button */}
+        <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setInputGasUrl(gasUrl);
+              setGasTestResult(null);
+              setShowGasModal(true);
+            }}
+            className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+              gasUrl
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+            }`}
+            title="Pengaturan Google Drive & Sheets Absensi"
+          >
+            <Cloud className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+            <span>{gasUrl ? 'Google Drive Aktif' : 'Sambungkan Google Drive'}</span>
+            <Settings className="h-3 w-3 opacity-60 ml-0.5" />
+          </button>
+
+          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl">
+            <Clock className="h-5 w-5 text-emerald-600 animate-spin-slow shrink-0" />
+            <div>
+              <div className="text-xs font-mono font-black text-slate-800 leading-none">
+                {now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                {now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
+              </div>
             </div>
           </div>
         </div>
@@ -1472,6 +1556,112 @@ export default function AttendanceModule({
           </div>
         </div>
       </div>
+      {/* Modal Pengaturan Google Apps Script & Drive */}
+      {showGasModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Cloud className="h-5 w-5 text-emerald-600" />
+                <h3 className="text-base font-black text-slate-800">Integrasi Google Drive & Sheets</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGasModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-2 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                <span>📋 Panduan Setup (Hanya Sekali):</span>
+              </p>
+              <ol className="list-decimal list-inside space-y-1.5 text-slate-600 pl-1">
+                <li>Buka Google Sheets di Google Drive Anda (misal: "Data Absensi Aksara Riksa").</li>
+                <li>Klik menu <strong>Extensions (Ekstensi) &gt; Apps Script</strong>.</li>
+                <li>Hapus seluruh isi Code.gs, lalu paste seluruh isi file <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-emerald-700 font-mono">google-apps-script/absensi.gs</code>.</li>
+                <li>Klik tombol biru <strong>Deploy &gt; New deployment</strong>:
+                  <ul className="list-disc list-inside pl-4 mt-1 space-y-0.5 text-[11px] text-slate-500">
+                    <li>Select type: <strong>Web app</strong></li>
+                    <li>Execute as: <strong>Me (Akun Google Anda)</strong></li>
+                    <li>Who has access: <strong>Anyone (Siapa saja)</strong></li>
+                  </ul>
+                </li>
+                <li>Klik <strong>Deploy</strong>, izinkan akses Google jika diminta.</li>
+                <li>Salin <strong>Web app URL</strong> (format: <code className="font-mono text-[10px] text-slate-700">.../macros/s/.../exec</code>) dan tempelkan di bawah ini.</li>
+              </ol>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                <span>Web App URL Google Apps Script:</span>
+                {gasUrl && (
+                  <span className="text-[10px] text-emerald-600 font-semibold">Tersimpan di browser</span>
+                )}
+              </label>
+              <input
+                type="url"
+                value={inputGasUrl}
+                onChange={(e) => setInputGasUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="w-full text-xs font-mono p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              />
+              <p className="text-[10px] text-slate-400">
+                URL ini akan langsung dipakai untuk menyimpan foto selfie ke folder Google Drive dan mencatat baris absensi ke Google Sheets.
+              </p>
+            </div>
+
+            {/* Test result message */}
+            {gasTestResult && (
+              <div
+                className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                  gasTestResult.success
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
+              >
+                {gasTestResult.success ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                )}
+                <span className="leading-relaxed">{gasTestResult.message}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 gap-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleTestGas}
+                disabled={testingGas || !inputGasUrl.trim()}
+                className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              >
+                {testingGas && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                <span>{testingGas ? 'Mengetes...' : 'Test Koneksi URL'}</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowGasModal(false)}
+                  className="text-xs font-semibold px-3.5 py-2 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveGasUrl}
+                  className="text-xs font-bold px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer shadow-xs"
+                >
+                  Simpan URL
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
