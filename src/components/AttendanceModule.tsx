@@ -702,7 +702,7 @@ export default function AttendanceModule({
             </span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Kamera depan live selfie + koordinat GPS terverifikasi watermark anti-manipulasi.
+            Kamera depan live selfie + stempel resmi koordinat GPS & waktu terverifikasi.
           </p>
         </div>
 
@@ -973,7 +973,7 @@ export default function AttendanceModule({
               </div>
               <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Anti-Kecurangan Aktif</span>
+                <span>Verifikasi Presensi Sah</span>
               </div>
             </div>
 
@@ -1226,7 +1226,7 @@ export default function AttendanceModule({
             <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-start gap-2">
               <Info className="h-3.5 w-3.5 text-slate-500 shrink-0 mt-0.5" />
               <p className="text-[10px] text-slate-600 leading-relaxed">
-                Anti-Kecurangan: Foto live selfie otomatis menyematkan nama gedung, koordinat GPS, dan jam WIB ke Google Drive.
+                Standar Presensi: Foto live selfie otomatis menyematkan nama gedung, koordinat GPS, dan jam WIB resmi ke Google Drive.
               </p>
             </div>
           </div>
