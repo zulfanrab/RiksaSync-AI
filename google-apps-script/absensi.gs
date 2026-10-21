@@ -1,102 +1,645 @@
 /**
  * ==============================================================================
- * GOOGLE APPS SCRIPT: INTEGRASI ABSENSI RIKSA SYNCS (GOOGLE DRIVE + SHEETS)
- * Versi 2.0 — dengan Mode Kerja, Nama Gedung, Alamat, dan Laporan Bulanan Otomatis
+ * GOOGLE APPS SCRIPT: INTEGRASI ABSENSI & MANPOWER RIKSA SYNC (VERSI 3.0)
  * ==============================================================================
- *
- * PANDUAN DEPLOYMENT (HANYA SEKALI):
- * 1. Buka Google Sheets baru di Google Drive (cth: "Data Absensi Aksara Riksa")
- * 2. Klik menu "Extensions" (Ekstensi) -> "Apps Script"
- * 3. Hapus seluruh isi default Code.gs, lalu copy-paste seluruh kode ini.
- * 4. Sesuaikan konstanta FOLDER_NAME, SHEET_TAB_NAME, EMAIL_LAPORAN di bawah.
- * 5. Klik menu "Deploy" -> "New deployment"
- *    - Type: Web app
- *    - Execute as: Me (Akun Google Anda)
- *    - Who has access: Anyone (wajib agar app bisa kirim POST)
- * 6. Klik "Deploy", beri izin akses Google jika diminta.
- * 7. Salin Web app URL lalu tempelkan di modal "Google Drive" di aplikasi.
- *
- * LAPORAN BULANAN OTOMATIS:
- * - Atur Trigger: Klik ikon jam (Triggers) di Apps Script -> Add Trigger
- *   Function: generateMonthlyReport | Time-based | Month timer | Hari ke-1 setiap bulan
+ * Sistem Rekapitulasi Presensi Selfie, Cuti, Sakit, & Dashboard Bulanan Siap Print
+ * PT AKSARA RIKSA PERDANA (PJK3)
+ * 
+ * FITUR UTAMA:
+ * 1. TAB "Log Absensi"          : Menampung foto selfie & lokasi GPS Masuk / Pulang
+ * 2. TAB "Data Cuti & Sakit"     : Menampung Sakit, Cuti, Izin (baik dari Web App
+ *                                  maupun diisi LANGSUNG/MANUAL di Google Sheet)
+ * 3. TAB "Dashboard Rekapan"     : Desain resmi eksekutif SIAP CETAK (A4 Landscape),
+ *                                  lengkap dengan KPI, tabel 11 karyawan, & tanda tangan.
+ * 4. MENU KHUSUS "📋 RiksaSync" : Muncul otomatis di toolbar atas Google Sheets untuk
+ *                                  Refresh Rekap, Pilih Bulan (cth: Jan 2026 s/d Des 2026),
+ *                                  dan Download PDF Siap Print.
+ * 5. OTOMATIS BULANAN            : Kirim PDF ke email setiap tanggal 1.
  * ==============================================================================
  */
 
-// ── KONFIGURASI ──────────────────────────────────────────────────────────────
-var FOLDER_NAME   = "Foto_Absensi_RiksaSyncs";
-var SHEET_TAB_NAME = "Log Absensi";
-var SHEET_REPORT_NAME = "Laporan Bulanan";
-// Email yang akan menerima PDF Laporan Bulanan (bisa diisi lebih dari 1, pisahkan koma)
-var EMAIL_LAPORAN = "zulfan@aksarariksapjk3.com";
-// Nama perusahaan untuk header laporan
-var NAMA_PERUSAHAAN = "PT Aksara Riksa Perdana";
+// ── 1. KONFIGURASI UMUM ────────────────────────────────────────────────────────
+var NAMA_PERUSAHAAN   = "PT AKSARA RIKSA PERDANA";
+var SUB_JUDUL         = "JASA PEMERIKSAAN & PENGUJIAN K3 (PJK3)";
+var FOLDER_NAME       = "Foto_Absensi_RiksaSyncs";
+var SHEET_LOG_ABSEN   = "Log Absensi";
+var SHEET_LOG_CUTI    = "Data Cuti & Sakit";
+var SHEET_DASHBOARD   = "Dashboard Rekapan";
+var EMAIL_LAPORAN     = "zulfan@aksarariksapjk3.com";
 
-// ── HEADER KOLOM (12 kolom, sesuai skema database terbaru) ───────────────────
-var HEADER_ROW = [
-  "Timestamp ISO",          // col 0
-  "Tanggal (WIB)",          // col 1
-  "Waktu (WIB)",            // col 2
-  "Nama Karyawan",          // col 3
-  "Email / Username",       // col 4
-  "Tipe Absen",             // col 5  — Masuk | Pulang | Sakit | Cuti
-  "Mode Kerja",             // col 6  — Kantor | On Site | WFH
-  "Nama Gedung / Lokasi",   // col 7
-  "Latitude",               // col 8
-  "Longitude",              // col 9
-  "Alamat Lengkap (GPS)",   // col 10
-  "Link Foto Google Drive"  // col 11
+// ── 2. MASTER 11 KARYAWAN RESMI ───────────────────────────────────────────────
+var MASTER_KARYAWAN = [
+  { id: 'u1',  name: 'Rama Regawa Sri Anggayana',       username: 'Angga',    role: 'Leader & Ahli Utama', division: 'Ahli',  email: 'angga@aksarariksapjk3.com' },
+  { id: 'u2',  name: 'Lalu Imam Taufik Rahman Hidayat', username: 'Imam',     role: 'Ahli Spesialis',      division: 'Ahli',  email: 'imam@aksarariksapjk3.com' },
+  { id: 'u3',  name: 'Fauzan Akmaluddin',               username: 'Fauzan',   role: 'Ahli Spesialis',      division: 'Ahli',  email: 'fauzan@aksarariksapjk3.com' },
+  { id: 'u4',  name: 'Fakhziar Wildan Hidayat',         username: 'Fakhziar', role: 'Ahli Spesialis',      division: 'Ahli',  email: 'fakhziar@aksarariksapjk3.com' },
+  { id: 'u5',  name: 'Muhammad Fazar Maulana',          username: 'Fazar',    role: 'Ahli Spesialis',      division: 'Ahli',  email: 'fazar@aksarariksapjk3.com' },
+  { id: 'u6',  name: 'Arya Rizki Pratama',              username: 'Arya',     role: 'Support Staff',       division: 'Admin', email: 'arya@aksarariksapjk3.com' },
+  { id: 'u7',  name: 'Rio Andrian',                     username: 'Rio',      role: 'Support Staff',       division: 'Admin', email: 'rio@aksarariksapjk3.com' },
+  { id: 'u8',  name: 'Aulia Zahra Dikrika',             username: 'Aulia',    role: 'Support Staff',       division: 'Admin', email: 'aulia@aksarariksapjk3.com' },
+  { id: 'u9',  name: 'Disa Liestianie Putri',           username: 'Disa',     role: 'Support Staff',       division: 'Admin', email: 'disa@aksarariksapjk3.com' },
+  { id: 'u10', name: 'Marsya Aulia Rohman',             username: 'Marsya',   role: 'Support Staff',       division: 'Admin', email: 'marsya@aksarariksapjk3.com' },
+  { id: 'u11', name: 'Zulfan Rafly Baihaqi',            username: 'Zulfan',   role: 'IT Staff',            division: 'IT',    email: 'zulfan@aksarariksapjk3.com' }
 ];
 
-// ── SETUP: Sheet & Folder ─────────────────────────────────────────────────────
-function setupSheetAndFolder() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_TAB_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_TAB_NAME);
-    sheet.appendRow(HEADER_ROW);
-    var headerRange = sheet.getRange(1, 1, 1, HEADER_ROW.length);
-    headerRange.setFontWeight("bold")
-               .setBackground("#D1FAE5")
-               .setFontColor("#065F46")
-               .setBorder(true, true, true, true, true, true);
-    sheet.setFrozenRows(1);
-    // Set kolom lebar agar mudah dibaca
-    sheet.setColumnWidth(1, 180);  // Timestamp ISO
-    sheet.setColumnWidth(2, 110);  // Tanggal
-    sheet.setColumnWidth(3, 90);   // Waktu
-    sheet.setColumnWidth(4, 150);  // Nama
-    sheet.setColumnWidth(5, 190);  // Email
-    sheet.setColumnWidth(6, 90);   // Tipe
-    sheet.setColumnWidth(7, 90);   // Mode Kerja
-    sheet.setColumnWidth(8, 160);  // Nama Gedung
-    sheet.setColumnWidth(9, 80);   // Lat
-    sheet.setColumnWidth(10, 80);  // Lng
-    sheet.setColumnWidth(11, 240); // Alamat
-    sheet.setColumnWidth(12, 300); // Link Foto
-  }
+// Daftar nama resmi untuk dropdown validasi
+var LIST_NAMA_KARYAWAN = MASTER_KARYAWAN.map(function(k) { return k.name; });
 
-  var folders = DriveApp.getFoldersByName(FOLDER_NAME);
-  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
-  return { sheet: sheet, folder: folder };
+// ── 3. MENU TOOLBAR GOOGLE SHEETS ─────────────────────────────────────────────
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu("📋 RiksaSync")
+    .addItem("🔄 Update Rekapan Bulan Berjalan", "menuRefreshCurrentMonth")
+    .addItem("📅 Pilih Bulan Rekapan (2026-XX)...", "menuChooseMonth")
+    .addSeparator()
+    .addItem("🖨️ Ekspor PDF Siap Cetak (A4 Landscape)", "menuExportPdf")
+    .addSeparator()
+    .addItem("⚙️ Inisialisasi / Reset Format 3 Sheet", "setupAllSheets")
+    .addToUi();
 }
 
-// ── POST: Terima Data Absensi dari Frontend ───────────────────────────────────
+// ── 4. SETUP MASTER & FORMAT TAMPILAN 3 SHEET ────────────────────────────────
+/**
+ * Jalankan fungsi ini pertama kali pada Google Spreadsheet baru.
+ * Fungsi ini otomatis membuat & memformat 3 sheet:
+ * 1. Log Absensi
+ * 2. Data Cuti & Sakit
+ * 3. Dashboard Rekapan
+ */
+function setupAllSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Setup Tab "Log Absensi"
+  var sheetLog = ss.getSheetByName(SHEET_LOG_ABSEN);
+  if (!sheetLog) sheetLog = ss.insertSheet(SHEET_LOG_ABSEN);
+  sheetLog.clear();
+
+  var headerLog = [
+    "Timestamp ISO", "Tanggal (WIB)", "Waktu (WIB)", "Nama Karyawan",
+    "Email / Username", "Tipe Absen", "Mode Kerja", "Nama Gedung / Lokasi",
+    "Latitude", "Longitude", "Alamat Lengkap (GPS)", "Link Foto Google Drive"
+  ];
+  sheetLog.getRange(1, 1, 1, headerLog.length).setValues([headerLog])
+    .setFontWeight("bold")
+    .setBackground("#065F46")
+    .setFontColor("#FFFFFF")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+  sheetLog.setRowHeight(1, 32);
+  sheetLog.setFrozenRows(1);
+
+  sheetLog.setColumnWidth(1, 170); // ISO
+  sheetLog.setColumnWidth(2, 105); // Tgl
+  sheetLog.setColumnWidth(3, 90);  // Wkt
+  sheetLog.setColumnWidth(4, 180); // Nama
+  sheetLog.setColumnWidth(5, 180); // Email
+  sheetLog.setColumnWidth(6, 95);  // Tipe
+  sheetLog.setColumnWidth(7, 95);  // Mode
+  sheetLog.setColumnWidth(8, 160); // Gedung
+  sheetLog.setColumnWidth(9, 85);  // Lat
+  sheetLog.setColumnWidth(10, 85); // Lng
+  sheetLog.setColumnWidth(11, 240);// Alamat
+  sheetLog.setColumnWidth(12, 280);// Foto Drive
+
+  // 2. Setup Tab "Data Cuti & Sakit"
+  var sheetCuti = ss.getSheetByName(SHEET_LOG_CUTI);
+  if (!sheetCuti) sheetCuti = ss.insertSheet(SHEET_LOG_CUTI);
+  sheetCuti.clear();
+
+  var headerCuti = [
+    "Tanggal (YYYY-MM-DD)", "Nama Karyawan", "Jenis Ketidakhadiran",
+    "Alasan / Keterangan", "Sumber Pencatatan", "Timestamp Sistem"
+  ];
+  sheetCuti.getRange(1, 1, 1, headerCuti.length).setValues([headerCuti])
+    .setFontWeight("bold")
+    .setBackground("#0D9488")
+    .setFontColor("#FFFFFF")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+  sheetCuti.setRowHeight(1, 32);
+  sheetCuti.setFrozenRows(1);
+
+  sheetCuti.setColumnWidth(1, 140); // Tanggal
+  sheetCuti.setColumnWidth(2, 240); // Nama
+  sheetCuti.setColumnWidth(3, 160); // Jenis
+  sheetCuti.setColumnWidth(4, 300); // Keterangan
+  sheetCuti.setColumnWidth(5, 140); // Sumber
+  sheetCuti.setColumnWidth(6, 170); // Timestamp
+
+  // Pasang Dropdown Validasi Nama Karyawan (Kolom B, baris 2-500)
+  var ruleNama = SpreadsheetApp.newDataValidation()
+    .requireValueInList(LIST_NAMA_KARYAWAN, true)
+    .setAllowInvalid(false)
+    .setHelpText("Pilih salah satu nama karyawan resmi")
+    .build();
+  sheetCuti.getRange("B2:B500").setDataValidation(ruleNama);
+
+  // Pasang Dropdown Validasi Jenis (Kolom C, baris 2-500)
+  var ruleJenis = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Sakit", "Cuti", "Izin"], true)
+    .setAllowInvalid(false)
+    .setHelpText("Pilih: Sakit, Cuti, atau Izin")
+    .build();
+  sheetCuti.getRange("C2:C500").setDataValidation(ruleJenis);
+
+  // Pasang Dropdown Validasi Sumber (Kolom E, baris 2-500)
+  var ruleSumber = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Input Manual Sheet", "Aplikasi Web (Manpower)"], true)
+    .setAllowInvalid(true)
+    .build();
+  sheetCuti.getRange("E2:E500").setDataValidation(ruleSumber);
+
+  // 3. Setup Tab "Dashboard Rekapan" (Print-Ready A4 Landscape)
+  var sheetDash = ss.getSheetByName(SHEET_DASHBOARD);
+  if (!sheetDash) sheetDash = ss.insertSheet(SHEET_DASHBOARD);
+  sheetDash.clear();
+  sheetDash.setGridlines(true);
+
+  // Hapus sheet default "Sheet1" jika ada & kosong
+  var defSheet = ss.getSheetByName("Sheet1");
+  if (defSheet && ss.getSheets().length > 1) {
+    try { ss.deleteSheet(defSheet); } catch (e) {}
+  }
+
+  // Buat folder Drive untuk foto jika belum ada
+  getOrCreateDriveFolder();
+
+  // Bangun tampilan template dashboard
+  buildDashboardLayout(sheetDash);
+
+  // Hitung data bulan berjalan
+  var now = new Date();
+  refreshDashboardData(now.getFullYear(), now.getMonth());
+
+  Logger.log("Setup 3 sheet berhasil diselesaikan!");
+}
+
+// ── 5. DESAIN LAYOUT DASHBOARD REKAPAN BULANAN (SIAP PRINT A4) ────────────────
+function buildDashboardLayout(sheet) {
+  sheet.clear();
+
+  // Lebar kolom diatur presisi untuk kertas A4 Landscape
+  sheet.setColumnWidth(1, 35);   // A: No
+  sheet.setColumnWidth(2, 220);  // B: Nama Karyawan
+  sheet.setColumnWidth(3, 140);  // C: Divisi / Role
+  sheet.setColumnWidth(4, 65);   // D: Masuk
+  sheet.setColumnWidth(5, 65);   // E: Pulang
+  sheet.setColumnWidth(6, 60);   // F: Sakit
+  sheet.setColumnWidth(7, 60);   // G: Cuti
+  sheet.setColumnWidth(8, 60);   // H: Izin
+  sheet.setColumnWidth(9, 65);   // I: Kantor
+  sheet.setColumnWidth(10, 65);  // J: On Site
+  sheet.setColumnWidth(11, 60);  // K: WFH
+  sheet.setColumnWidth(12, 75);  // L: % Hadir
+  sheet.setColumnWidth(13, 130); // M: Keterangan
+
+  // Header Perusahaan
+  sheet.getRange("A1:M1").merge()
+    .setValue(NAMA_PERUSAHAAN)
+    .setFontSize(15)
+    .setFontWeight("bold")
+    .setFontColor("#064E3B")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+
+  sheet.getRange("A2:M2").merge()
+    .setValue(SUB_JUDUL + " — REKAPITULASI KEHADIRAN & KETIDAKHADIRAN KARYAWAN")
+    .setFontSize(10)
+    .setFontWeight("bold")
+    .setFontColor("#334155")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+
+  sheet.getRange("A3:M3").merge()
+    .setValue("Periode Laporan: Memuat...")
+    .setFontSize(9)
+    .setFontColor("#64748B")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+
+  sheet.setRowHeight(1, 24);
+  sheet.setRowHeight(2, 18);
+  sheet.setRowHeight(3, 18);
+  sheet.setRowHeight(4, 10); // spacing
+
+  // KPI Summary Bar (Baris 5)
+  sheet.getRange("B5:C5").merge().setValue("👥 Total Karyawan: " + MASTER_KARYAWAN.length + " Orang")
+    .setFontWeight("bold").setBackground("#F0FDF4").setFontColor("#065F46").setHorizontalAlignment("center");
+  sheet.getRange("D5:E5").merge().setValue("🟢 Total Masuk: 0")
+    .setFontWeight("bold").setBackground("#ECFDF5").setFontColor("#047857").setHorizontalAlignment("center");
+  sheet.getRange("F5:H5").merge().setValue("🔴 Total Izin/Sakit/Cuti: 0")
+    .setFontWeight("bold").setBackground("#FFF7ED").setFontColor("#C2410C").setHorizontalAlignment("center");
+  sheet.getRange("I5:K5").merge().setValue("🏢 Kantor / Site / WFH")
+    .setFontWeight("bold").setBackground("#EFF6FF").setFontColor("#1D4ED8").setHorizontalAlignment("center");
+  sheet.getRange("L5:M5").merge().setValue("📊 Rata-rata: 0%")
+    .setFontWeight("bold").setBackground("#F1F5F9").setFontColor("#334155").setHorizontalAlignment("center");
+  sheet.getRange("B5:M5").setBorder(true, true, true, true, true, true, "#CBD5E1", SpreadsheetApp.BorderStyle.SOLID);
+  sheet.setRowHeight(5, 24);
+  sheet.setRowHeight(6, 10); // spacing
+
+  // Header Tabel Utama (Baris 7 & 8)
+  var tblHeader = [
+    "NO", "NAMA LENGKAP KARYAWAN", "DIVISI / JABATAN",
+    "MASUK", "PULANG", "SAKIT", "CUTI", "IZIN",
+    "KANTOR", "ON SITE", "WFH", "% HADIR", "STATUS / EVALUASI"
+  ];
+
+  var hRange = sheet.getRange(7, 1, 1, tblHeader.length);
+  hRange.setValues([tblHeader])
+    .setFontWeight("bold")
+    .setFontSize(9)
+    .setBackground("#064E3B")
+    .setFontColor("#FFFFFF")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+  sheet.setRowHeight(7, 26);
+
+  // Tulis 11 Baris Karyawan (Baris 8 - 18)
+  for (var i = 0; i < MASTER_KARYAWAN.length; i++) {
+    var k = MASTER_KARYAWAN[i];
+    var rNum = 8 + i;
+    sheet.getRange(rNum, 1).setValue(i + 1).setHorizontalAlignment("center");
+    sheet.getRange(rNum, 2).setValue(k.name).setFontWeight("bold").setHorizontalAlignment("left");
+    sheet.getRange(rNum, 3).setValue(k.role + " (" + k.division + ")").setHorizontalAlignment("left");
+    // Kolom D - K default 0
+    sheet.getRange(rNum, 4, 1, 8).setValues([[0, 0, 0, 0, 0, 0, 0, 0]]).setHorizontalAlignment("center");
+    // % Hadir
+    sheet.getRange(rNum, 12).setValue("0%").setHorizontalAlignment("center").setFontWeight("bold");
+    // Status
+    sheet.getRange(rNum, 13).setValue("Aktif").setHorizontalAlignment("center");
+
+    sheet.setRowHeight(rNum, 20);
+
+    // Zebra striping
+    if (i % 2 === 1) {
+      sheet.getRange(rNum, 1, 1, tblHeader.length).setBackground("#F8FAFC");
+    }
+  }
+
+  // Baris TOTAL (Baris 19)
+  var totalRow = 8 + MASTER_KARYAWAN.length;
+  sheet.getRange(totalRow, 1, 1, 3).merge().setValue("TOTAL KESELURUHAN")
+    .setFontWeight("bold").setHorizontalAlignment("center").setBackground("#E2E8F0");
+  for (var c = 4; c <= 11; c++) {
+    var colLetter = String.fromCharCode(64 + c);
+    sheet.getRange(totalRow, c).setFormula("=SUM(" + colLetter + "8:" + colLetter + (totalRow - 1) + ")")
+      .setFontWeight("bold").setHorizontalAlignment("center").setBackground("#E2E8F0");
+  }
+  sheet.getRange(totalRow, 12).setFormula("=AVERAGE(L8:L" + (totalRow - 1) + ")")
+    .setFontWeight("bold").setHorizontalAlignment("center").setBackground("#E2E8F0").setNumberFormat("0.0%");
+  sheet.getRange(totalRow, 13).setValue("-").setHorizontalAlignment("center").setBackground("#E2E8F0");
+  sheet.setRowHeight(totalRow, 22);
+
+  // Border seluruh tabel utama (Baris 7 s/d totalRow)
+  sheet.getRange(7, 1, (totalRow - 7 + 1), tblHeader.length)
+    .setBorder(true, true, true, true, true, true, "#94A3B8", SpreadsheetApp.BorderStyle.SOLID);
+
+  // Area Tanda Tangan Siap Print (Baris 22 s/d 26)
+  var signStartRow = totalRow + 2;
+  var todayStr = Utilities.formatDate(new Date(), "Asia/Jakarta", "d MMMM yyyy");
+
+  sheet.getRange(signStartRow, 2, 1, 2).merge().setValue("Dibuat Oleh,")
+    .setHorizontalAlignment("center").setFontSize(9);
+  sheet.getRange(signStartRow, 10, 1, 3).merge().setValue("Mengetahui & Menyetujui,")
+    .setHorizontalAlignment("center").setFontSize(9);
+
+  sheet.getRange(signStartRow + 1, 2, 1, 2).merge().setValue("IT & HR Operations")
+    .setHorizontalAlignment("center").setFontSize(8).setFontColor("#64748B");
+  sheet.getRange(signStartRow + 1, 10, 1, 3).merge().setValue("Leader & Ahli Utama")
+    .setHorizontalAlignment("center").setFontSize(8).setFontColor("#64748B");
+
+  sheet.setRowHeight(signStartRow + 2, 35); // ruang ttd fisik
+
+  sheet.getRange(signStartRow + 3, 2, 1, 2).merge().setValue("Zulfan Rafly Baihaqi")
+    .setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center").setUnderline(true);
+  sheet.getRange(signStartRow + 3, 10, 1, 3).merge().setValue("Rama Regawa Sri Anggayana")
+    .setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center").setUnderline(true);
+}
+
+// ── 6. KALKULASI & REFRESH DATA DASHBOARD ──────────────────────────────────────
+/**
+ * Menghitung data rekapitulasi untuk bulan & tahun yang dipilih,
+ * menggabungkan data Hadir dari "Log Absensi" + data Sakit/Cuti/Izin dari "Data Cuti & Sakit".
+ */
+function refreshDashboardData(year, month) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetDash = ss.getSheetByName(SHEET_DASHBOARD);
+  var sheetLog  = ss.getSheetByName(SHEET_LOG_ABSEN);
+  var sheetCuti = ss.getSheetByName(SHEET_LOG_CUTI);
+
+  if (!sheetDash) return;
+
+  var targetDate = new Date(year, month, 1);
+  var monthLabel = Utilities.formatDate(targetDate, "Asia/Jakarta", "MMMM yyyy");
+
+  // Update Judul Periode di A3
+  var now = new Date();
+  sheetDash.getRange("A3:M3").setValue(
+    "Periode Laporan: " + monthLabel.toUpperCase() + " | Diperbarui: " +
+    Utilities.formatDate(now, "Asia/Jakarta", "dd-MM-yyyy HH:mm") + " WIB | Siap Cetak (A4 Landscape)"
+  );
+
+  // Inisialisasi peta rekapitulasi untuk 11 karyawan
+  var stats = {};
+  MASTER_KARYAWAN.forEach(function(k) {
+    stats[k.name.toLowerCase()] = {
+      masuk: 0, pulang: 0, sakit: 0, cuti: 0, izin: 0,
+      kantor: 0, onSite: 0, wfh: 0, uniqueDaysHadir: {}
+    };
+  });
+
+  // 1. Ambil data dari "Log Absensi" (Hadir Masuk, Pulang, Lokasi)
+  if (sheetLog && sheetLog.getLastRow() > 1) {
+    var logValues = sheetLog.getDataRange().getValues();
+    for (var r = 1; r < logValues.length; r++) {
+      var row = logValues[r];
+      var rawDate = row[1]; // Tanggal YYYY-MM-DD
+      if (!rawDate) continue;
+
+      var rowDate = new Date(rawDate);
+      if (isNaN(rowDate.getTime())) continue;
+
+      // Filter periode bulan & tahun target
+      if (rowDate.getFullYear() === year && rowDate.getMonth() === month) {
+        var empName = String(row[3] || "").trim().toLowerCase();
+        var type    = String(row[5] || "").trim();
+        var mode    = String(row[6] || "Kantor").trim();
+        var dStr    = String(row[1]);
+
+        // Cari karyawan yang cocok (berdasarkan nama lengkap atau panggilan)
+        var matchedKey = findEmployeeKey(empName, stats);
+        if (matchedKey) {
+          var s = stats[matchedKey];
+          if (type === "Masuk") {
+            s.masuk++;
+            s.uniqueDaysHadir[dStr] = true;
+            if (mode === "On Site") s.onSite++;
+            else if (mode === "WFH") s.wfh++;
+            else s.kantor++;
+          } else if (type === "Pulang") {
+            s.pulang++;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Ambil data dari "Data Cuti & Sakit" (Sakit, Cuti, Izin)
+  if (sheetCuti && sheetCuti.getLastRow() > 1) {
+    var cutiValues = sheetCuti.getDataRange().getValues();
+    for (var c = 1; c < cutiValues.length; c++) {
+      var crow = cutiValues[c];
+      var cDateRaw = crow[0];
+      if (!cDateRaw) continue;
+
+      var cDate = new Date(cDateRaw);
+      if (isNaN(cDate.getTime())) continue;
+
+      if (cDate.getFullYear() === year && cDate.getMonth() === month) {
+        var cEmpName = String(crow[1] || "").trim().toLowerCase();
+        var cJenis   = String(crow[2] || "").trim();
+
+        var cMatched = findEmployeeKey(cEmpName, stats);
+        if (cMatched) {
+          var cs = stats[cMatched];
+          if (cJenis === "Sakit") cs.sakit++;
+          else if (cJenis === "Cuti") cs.cuti++;
+          else if (cJenis === "Izin") cs.izin++;
+        }
+      }
+    }
+  }
+
+  // Hitung jumlah hari kerja perkiraan di bulan target (Senin-Jumat)
+  var workingDays = getWorkingDaysInMonth(year, month);
+
+  // 3. Tuliskan angka hasil hitung ke tabel Dashboard (Baris 8 - 18)
+  var totalMasukSemua = 0;
+  var totalKetidakhadiranSemua = 0;
+
+  for (var i = 0; i < MASTER_KARYAWAN.length; i++) {
+    var k = MASTER_KARYAWAN[i];
+    var s = stats[k.name.toLowerCase()];
+    var rNum = 8 + i;
+
+    var hariHadirUnik = Object.keys(s.uniqueDaysHadir).length;
+    var pct = workingDays > 0 ? (hariHadirUnik / workingDays) : 0;
+    if (pct > 1) pct = 1;
+
+    sheetDash.getRange(rNum, 4).setValue(s.masuk);
+    sheetDash.getRange(rNum, 5).setValue(s.pulang);
+    sheetDash.getRange(rNum, 6).setValue(s.sakit);
+    sheetDash.getRange(rNum, 7).setValue(s.cuti);
+    sheetDash.getRange(rNum, 8).setValue(s.izin);
+    sheetDash.getRange(rNum, 9).setValue(s.kantor);
+    sheetDash.getRange(rNum, 10).setValue(s.onSite);
+    sheetDash.getRange(rNum, 11).setValue(s.wfh);
+    sheetDash.getRange(rNum, 12).setValue(pct).setNumberFormat("0.0%");
+
+    // Status evaluasi
+    var statusText = "Hadir Tertib";
+    if (s.sakit > 0) statusText = "Izin Sakit (" + s.sakit + "h)";
+    else if (s.cuti > 0) statusText = "Cuti (" + s.cuti + "h)";
+    else if (s.izin > 0) statusText = "Izin (" + s.izin + "h)";
+    else if (s.masuk === 0) statusText = "Belum Ada Presensi";
+    sheetDash.getRange(rNum, 13).setValue(statusText);
+
+    totalMasukSemua += s.masuk;
+    totalKetidakhadiranSemua += (s.sakit + s.cuti + s.izin);
+  }
+
+  // 4. Update KPI Bar di baris 5
+  sheetDash.getRange("D5:E5").setValue("🟢 Total Masuk: " + totalMasukSemua);
+  sheetDash.getRange("F5:H5").setValue("🔴 Total Izin/Sakit/Cuti: " + totalKetidakhadiranSemua + " Hari");
+}
+
+// ── 7. HELPER PENCOCOKAN KARYAWAN & HARI KERJA ────────────────────────────────
+function findEmployeeKey(inputName, statsObj) {
+  if (!inputName) return null;
+  inputName = inputName.toLowerCase();
+
+  // Cocok persis
+  if (statsObj[inputName]) return inputName;
+
+  // Cek apakah input cocok dengan nama panggilan (username) atau sebagian nama
+  for (var i = 0; i < MASTER_KARYAWAN.length; i++) {
+    var k = MASTER_KARYAWAN[i];
+    var full = k.name.toLowerCase();
+    var user = k.username.toLowerCase();
+    if (full.indexOf(inputName) > -1 || inputName.indexOf(full) > -1 ||
+        inputName === user || inputName.indexOf(user) > -1) {
+      return full;
+    }
+  }
+  return null;
+}
+
+function getWorkingDaysInMonth(year, month) {
+  var days = 0;
+  var date = new Date(year, month, 1);
+  while (date.getMonth() === month) {
+    var dayOfWeek = date.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Bukan Sabtu & Minggu
+      days++;
+    }
+    date.setDate(date.getDate() + 1);
+  }
+  return days || 22;
+}
+
+function getOrCreateDriveFolder() {
+  var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+  return folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME);
+}
+
+// ── 8. MENU ACTION HANDLERS ───────────────────────────────────────────────────
+function menuRefreshCurrentMonth() {
+  var now = new Date();
+  refreshDashboardData(now.getFullYear(), now.getMonth());
+  SpreadsheetApp.getUi().alert("✅ Berhasil!", "Rekapan bulan berjalan berhasil diperbarui.", SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function menuChooseMonth() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt(
+    "Pilih Periode Bulan Rekapan",
+    "Masukkan format YYYY-MM yang ingin direkap (Contoh: 2026-01 untuk Januari 2026, 2026-02, dst):",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() === ui.Button.OK) {
+    var input = response.getResponseText().trim();
+    var parts = input.split("-");
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      var y = parseInt(parts[0], 10);
+      var m = parseInt(parts[1], 10) - 1; // 0-indexed
+      refreshDashboardData(y, m);
+      ui.alert("✅ Sukses!", "Dashboard telah diupdate untuk periode " + input + " dan siap di-print!", ui.ButtonSet.OK);
+    } else {
+      ui.alert("❌ Format Salah", "Gunakan format YYYY-MM, contoh: 2026-01", ui.ButtonSet.OK);
+    }
+  }
+}
+
+function menuExportPdf() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetDash = ss.getSheetByName(SHEET_DASHBOARD);
+  if (!sheetDash) {
+    SpreadsheetApp.getUi().alert("Sheet '" + SHEET_DASHBOARD + "' belum ada. Jalankan Inisialisasi Sheet terlebih dahulu.");
+    return;
+  }
+
+  var now = new Date();
+  var dateStr = Utilities.formatDate(now, "Asia/Jakarta", "yyyyMMdd_HHmm");
+  var pdfBlob = exportSheetAsPdf(ss, sheetDash, "Rekap_Bulanan_" + dateStr);
+
+  var folder = getOrCreateDriveFolder();
+  var pdfFile = folder.createFile(pdfBlob);
+  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  var pdfUrl = pdfFile.getUrl();
+
+  var html = HtmlService.createHtmlOutput(
+    '<div style="font-family:sans-serif; padding:15px; text-align:center;">' +
+    '<h3 style="color:#065F46; margin-top:0;">PDF Rekapan Berhasil Dibuat! 📄</h3>' +
+    '<p style="font-size:12px; color:#475569;">PDF format A4 Landscape siap dicetak atau disimpan:</p>' +
+    '<a href="' + pdfUrl + '" target="_blank" style="display:inline-block; margin-top:10px; padding:10px 20px; background:#059669; color:#fff; text-decoration:none; font-weight:bold; border-radius:8px;">Buka & Cetak PDF</a>' +
+    '</div>'
+  ).setWidth(360).setHeight(180);
+
+  SpreadsheetApp.getUi().showModalDialog(html, "Cetak PDF Rekapan");
+}
+
+// ── 9. POST: TERIMA DARI FRONTEND (PRESENSI & CUTI/SAKIT) ──────────────────────
 function doPost(e) {
   try {
-    var data = JSON.parse(e.postData.contents);
-    var setup = setupSheetAndFolder();
-    var sheet  = setup.sheet;
-    var folder = setup.folder;
+    var contents = e.postData.contents;
+    var data = JSON.parse(contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    var empName         = data.employee_name       || "Tanpa Nama";
-    var empEmail        = data.employee_email      || "-";
-    var type            = data.type                || "Masuk";
-    var workLocationType = data.work_location_type || "Kantor";
-    var buildingName    = data.building_name       || data.location_name || "-";
-    var address         = data.address             || "-";
-    var lat             = data.latitude            || 0;
-    var lng             = data.longitude           || 0;
-    var clientTime      = data.timestamp ? new Date(data.timestamp) : new Date();
+    // ─────────────────────────────────────────────────────────────────────────
+    // KASUS A: Catat Ketidakhadiran (Sakit / Cuti / Izin) dari Kelola Manpower
+    // ─────────────────────────────────────────────────────────────────────────
+    if (data.action === "record_absence" || data.action === "save_absence" ||
+        data.type === "Sakit" || data.type === "Cuti" || data.type === "Izin") {
+      
+      var sheetCuti = ss.getSheetByName(SHEET_LOG_CUTI);
+      if (!sheetCuti) {
+        setupAllSheets();
+        sheetCuti = ss.getSheetByName(SHEET_LOG_CUTI);
+      }
+
+      var cDate    = data.date || Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd");
+      var cName    = data.employee_name || "Karyawan";
+      var cType    = data.absence_type  || data.type || "Sakit";
+      var cReason  = data.reason || "-";
+      var cSource  = data.source || "Aplikasi Web (Manpower)";
+      var cTimeISO = new Date().toISOString();
+
+      sheetCuti.appendRow([
+        cDate,
+        cName,
+        cType,
+        cReason,
+        cSource,
+        cTimeISO
+      ]);
+
+      // Refresh Dashboard untuk bulan terkait
+      var dObj = new Date(cDate);
+      if (!isNaN(dObj.getTime())) {
+        refreshDashboardData(dObj.getFullYear(), dObj.getMonth());
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Data " + cType + " untuk " + cName + " tanggal " + cDate + " berhasil dicatat ke Google Sheets!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // KASUS B: Hapus Ketidakhadiran dari Kelola Manpower
+    // ─────────────────────────────────────────────────────────────────────────
+    if (data.action === "delete_absence") {
+      var sheetCutiDel = ss.getSheetByName(SHEET_LOG_CUTI);
+      if (sheetCutiDel && sheetCutiDel.getLastRow() > 1) {
+        var rows = sheetCutiDel.getDataRange().getValues();
+        var targetDate = data.date;
+        var targetName = (data.employee_name || "").toLowerCase();
+
+        for (var i = rows.length - 1; i >= 1; i--) {
+          var rDate = rows[i][0];
+          var rName = String(rows[i][1] || "").toLowerCase();
+          if (rDate === targetDate && (rName.indexOf(targetName) > -1 || targetName.indexOf(rName) > -1)) {
+            sheetCutiDel.deleteRow(i + 1);
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success", message: "Ketidakhadiran berhasil dihapus dari Google Sheets."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // KASUS C: Presensi Selfie Masuk / Pulang dari Modul Absensi
+    // ─────────────────────────────────────────────────────────────────────────
+    var sheetLog = ss.getSheetByName(SHEET_LOG_ABSEN);
+    if (!sheetLog) {
+      setupAllSheets();
+      sheetLog = ss.getSheetByName(SHEET_LOG_ABSEN);
+    }
+
+    var folder = getOrCreateDriveFolder();
+
+    var empName          = data.employee_name       || "Tanpa Nama";
+    var empEmail         = data.employee_email      || "-";
+    var type             = data.type                || "Masuk";
+    var workLocationType = data.work_location_type  || "Kantor";
+    var buildingName     = data.building_name       || data.location_name || "-";
+    var address          = data.address             || "-";
+    var lat              = data.latitude            || 0;
+    var lng              = data.longitude           || 0;
+    var clientTime       = data.timestamp ? new Date(data.timestamp) : new Date();
 
     var dateWIB = Utilities.formatDate(clientTime, "Asia/Jakarta", "yyyy-MM-dd");
     var timeWIB = Utilities.formatDate(clientTime, "Asia/Jakarta", "HH:mm:ss");
@@ -115,37 +658,38 @@ function doPost(e) {
       photoDriveUrl = file.getUrl();
     }
 
-    // Tulis baris ke Sheet sesuai 12 kolom terbaru
-    sheet.appendRow([
-      clientTime.toISOString(), // 0 - Timestamp ISO
-      dateWIB,                  // 1 - Tanggal
-      timeWIB,                  // 2 - Waktu
-      empName,                  // 3 - Nama Karyawan
-      empEmail,                 // 4 - Email
-      type,                     // 5 - Tipe Absen
-      workLocationType,         // 6 - Mode Kerja (Kantor | On Site | WFH)
-      buildingName,             // 7 - Nama Gedung / Lokasi
-      lat,                      // 8 - Latitude
-      lng,                      // 9 - Longitude
-      address,                  // 10 - Alamat Lengkap
-      photoDriveUrl             // 11 - Link Foto Drive
+    // Tulis baris ke Log Absensi
+    sheetLog.appendRow([
+      clientTime.toISOString(),
+      dateWIB,
+      timeWIB,
+      empName,
+      empEmail,
+      type,
+      workLocationType,
+      buildingName,
+      lat,
+      lng,
+      address,
+      photoDriveUrl
     ]);
 
-    // Warnai baris sesuai tipe absen untuk kemudahan visual
-    var lastRow = sheet.getLastRow();
-    var rowRange = sheet.getRange(lastRow, 1, 1, HEADER_ROW.length);
-    if (type === "Masuk")   rowRange.setBackground("#F0FFF4"); // hijau muda
-    else if (type === "Pulang") rowRange.setBackground("#EFF6FF"); // biru muda
-    else if (type === "Sakit")  rowRange.setBackground("#FFF7ED"); // oranye muda
-    else if (type === "Cuti")   rowRange.setBackground("#F5F3FF"); // ungu muda
+    // Warnai baris sesuai tipe absen
+    var lastRow = sheetLog.getLastRow();
+    var rowRange = sheetLog.getRange(lastRow, 1, 1, 12);
+    if (type === "Masuk")   rowRange.setBackground("#F0FDF4");
+    else if (type === "Pulang") rowRange.setBackground("#EFF6FF");
+
+    // Otomatis update angka di Dashboard Rekapan
+    refreshDashboardData(clientTime.getFullYear(), clientTime.getMonth());
 
     return ContentService.createTextOutput(JSON.stringify({
-      status:            "success",
-      message:           "Absensi " + type + " (" + workLocationType + ") berhasil dicatat!",
-      drive_url:         photoDriveUrl,
-      timestamp:         clientTime.toISOString(),
+      status:             "success",
+      message:            "Presensi " + type + " (" + workLocationType + ") berhasil dicatat!",
+      drive_url:          photoDriveUrl,
+      timestamp:          clientTime.toISOString(),
       work_location_type: workLocationType,
-      building_name:     buildingName
+      building_name:      buildingName
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -156,47 +700,52 @@ function doPost(e) {
   }
 }
 
-// ── GET: Ambil Riwayat Absensi ────────────────────────────────────────────────
+// ── 10. GET: KONEKSI & AMBIL RIWAYAT ──────────────────────────────────────────
 function doGet(e) {
   try {
-    var setup = setupSheetAndFolder();
-    var sheet = setup.sheet;
-    var data  = sheet.getDataRange().getValues();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetLog = ss.getSheetByName(SHEET_LOG_ABSEN);
+    if (!sheetLog) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success", message: "Google Apps Script RiksaSync Aktif & Siap", records: []
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
+    var data = sheetLog.getDataRange().getValues();
     if (data.length <= 1) {
       return ContentService.createTextOutput(JSON.stringify({
         status: "success", records: []
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    var filterEmail = e.parameter.email ? e.parameter.email.toLowerCase() : "";
+    var filterEmail = (e && e.parameter && e.parameter.email) ? e.parameter.email.toLowerCase() : "";
     var records = [];
 
     for (var i = data.length - 1; i >= 1; i--) {
       var row      = data[i];
-      var rowEmail = String(row[4]).toLowerCase();
+      var rowEmail = String(row[4] || "").toLowerCase();
       if (!filterEmail || rowEmail === filterEmail) {
         records.push({
-          timestamp:         row[0],
-          date:              row[1],
-          time:              row[2],
-          employee_name:     row[3],
-          employee_email:    row[4],
-          type:              row[5],
+          timestamp:          row[0],
+          date:               row[1],
+          time:               row[2],
+          employee_name:      row[3],
+          employee_email:     row[4],
+          type:               row[5],
           work_location_type: row[6] || "Kantor",
-          building_name:     row[7] || "",
-          location_name:     row[7] || "",
-          latitude:          row[8],
-          longitude:         row[9],
-          address:           row[10] || "",
-          photo_drive_url:   row[11] || ""
+          building_name:      row[7] || "",
+          latitude:           row[8],
+          longitude:          row[9],
+          address:            row[10] || "",
+          photo_drive_url:    row[11] || ""
         });
       }
       if (records.length >= 50) break;
     }
 
     return ContentService.createTextOutput(JSON.stringify({
-      status: "success", records: records
+      status: "success",
+      records: records
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -206,191 +755,58 @@ function doGet(e) {
   }
 }
 
-// ── LAPORAN BULANAN: Generator Sheet & PDF ────────────────────────────────────
-/**
- * Fungsi ini bisa dipanggil:
- * - Manual: di Apps Script Editor klik Run -> generateMonthlyReport
- * - Otomatis: via Trigger (bulan lalu, tanggal 1 setiap bulan)
- *   Trigger > Add Trigger > generateMonthlyReport > Time-driven > Month timer
- *
- * Fungsi ini:
- * 1. Membaca Log Absensi bulan lalu dari sheet "Log Absensi".
- * 2. Membuat sheet baru "Laporan – YYYY-MM" berisi rekapitulasi per karyawan.
- * 3. Menyimpan sheet tersebut sebagai PDF ke Google Drive.
- * 4. Mengirimkan PDF ke EMAIL_LAPORAN via Gmail.
- */
+// ── 11. LAPORAN BULANAN OTOMATIS KE EMAIL ─────────────────────────────────────
 function generateMonthlyReport() {
-  var now       = new Date();
-  // Ambil data bulan lalu
+  var now = new Date();
   var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  var year      = lastMonth.getFullYear();
-  var month     = lastMonth.getMonth(); // 0-indexed
-  var monthStr  = Utilities.formatDate(lastMonth, "Asia/Jakarta", "yyyy-MM");
+  var y = lastMonth.getFullYear();
+  var m = lastMonth.getMonth();
   var monthLabel = Utilities.formatDate(lastMonth, "Asia/Jakarta", "MMMM yyyy");
+  var monthCode  = Utilities.formatDate(lastMonth, "Asia/Jakarta", "yyyy-MM");
 
-  var ss        = SpreadsheetApp.getActiveSpreadsheet();
-  var logSheet  = ss.getSheetByName(SHEET_TAB_NAME);
-  if (!logSheet) {
-    Logger.log("Sheet '" + SHEET_TAB_NAME + "' tidak ditemukan.");
-    return;
-  }
+  // Refresh dashboard dengan data bulan lalu
+  refreshDashboardData(y, m);
 
-  var allData = logSheet.getDataRange().getValues();
-  // Filter hanya baris bulan target (skip header row 0)
-  var filtered = allData.slice(1).filter(function(row) {
-    if (!row[1]) return false;
-    var rowDate = new Date(row[1]);
-    return rowDate.getFullYear() === year && rowDate.getMonth() === month;
-  });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetDash = ss.getSheetByName(SHEET_DASHBOARD);
+  if (!sheetDash) return;
 
-  // ── Hitung rekap per karyawan ──────────────────────────────────────────────
-  var recap = {}; // key: empName
-  filtered.forEach(function(row) {
-    var name  = row[3] || "Tanpa Nama";
-    var email = row[4] || "-";
-    var type  = String(row[5]);
-    var mode  = String(row[6] || "Kantor");
-    var date  = String(row[1]);
-
-    if (!recap[name]) {
-      recap[name] = {
-        email:   email,
-        masuk:   0,
-        pulang:  0,
-        sakit:   0,
-        cuti:    0,
-        kantor:  0,
-        onSite:  0,
-        wfh:     0,
-        hariHadir: {},  // unique dates
-      };
-    }
-
-    var r = recap[name];
-    if (type === "Masuk")  { r.masuk++;  r.hariHadir[date] = true; }
-    if (type === "Pulang") r.pulang++;
-    if (type === "Sakit")  r.sakit++;
-    if (type === "Cuti")   r.cuti++;
-    if (mode === "Kantor")  r.kantor++;
-    if (mode === "On Site") r.onSite++;
-    if (mode === "WFH")     r.wfh++;
-  });
-
-  // ── Buat / Hapus sheet laporan lama ───────────────────────────────────────
-  var reportSheetName = "Laporan – " + monthStr;
-  var existing = ss.getSheetByName(reportSheetName);
-  if (existing) ss.deleteSheet(existing);
-  var rptSheet = ss.insertSheet(reportSheetName);
-
-  // ── Header Laporan ─────────────────────────────────────────────────────────
-  rptSheet.getRange("A1").setValue(NAMA_PERUSAHAAN)
-    .setFontSize(14).setFontWeight("bold").setFontColor("#065F46");
-  rptSheet.getRange("A2").setValue("LAPORAN KEHADIRAN BULANAN – " + monthLabel.toUpperCase())
-    .setFontSize(11).setFontWeight("bold");
-  rptSheet.getRange("A3").setValue("Digenerate otomatis oleh RiksaSync AI pada " +
-    Utilities.formatDate(now, "Asia/Jakarta", "dd MMMM yyyy, HH:mm") + " WIB")
-    .setFontColor("#64748B").setFontSize(9);
-
-  // Baris kosong pemisah
-  var startRow = 5;
-
-  // Header tabel
-  var tblHeader = [
-    "No", "Nama Karyawan", "Email", "Hari Hadir",
-    "Masuk", "Pulang", "Sakit / Izin", "Cuti",
-    "Kantor", "On Site", "WFH"
-  ];
-  var headerRange = rptSheet.getRange(startRow, 1, 1, tblHeader.length);
-  headerRange.setValues([tblHeader])
-    .setFontWeight("bold")
-    .setBackground("#064E3B")
-    .setFontColor("#FFFFFF");
-
-  // ── Isi Tabel Rekap ────────────────────────────────────────────────────────
-  var names  = Object.keys(recap).sort();
-  var dataRows = names.map(function(name, idx) {
-    var r = recap[name];
-    return [
-      idx + 1,
-      name,
-      r.email,
-      Object.keys(r.hariHadir).length, // jumlah hari unik yang masuk
-      r.masuk,
-      r.pulang,
-      r.sakit,
-      r.cuti,
-      r.kantor,
-      r.onSite,
-      r.wfh
-    ];
-  });
-
-  if (dataRows.length > 0) {
-    var bodyRange = rptSheet.getRange(startRow + 1, 1, dataRows.length, tblHeader.length);
-    bodyRange.setValues(dataRows);
-    // Warnai baris genap
-    for (var r = 0; r < dataRows.length; r++) {
-      if (r % 2 === 0) {
-        rptSheet.getRange(startRow + 1 + r, 1, 1, tblHeader.length).setBackground("#F0FDF4");
-      }
-    }
-    // Border seluruh tabel
-    rptSheet.getRange(startRow, 1, dataRows.length + 1, tblHeader.length)
-      .setBorder(true, true, true, true, true, true);
-  } else {
-    rptSheet.getRange(startRow + 1, 1).setValue("(Tidak ada data absensi pada bulan ini)");
-  }
-
-  // ── Total baris bawah ─────────────────────────────────────────────────────
-  var summaryRow = startRow + dataRows.length + 2;
-  rptSheet.getRange(summaryRow, 1).setValue("Total Karyawan Aktif: " + names.length)
-    .setFontWeight("bold").setFontColor("#065F46");
-  rptSheet.getRange(summaryRow + 1, 1).setValue("Total Record Absensi Bulan Ini: " + filtered.length)
-    .setFontWeight("bold").setFontColor("#065F46");
-
-  // Auto-resize kolom
-  rptSheet.autoResizeColumns(1, tblHeader.length);
-
-  // ── Simpan sebagai PDF ke Google Drive ─────────────────────────────────────
-  var pdfBlob = exportSheetAsPdf(ss, rptSheet, monthStr);
-  var reportFolder = DriveApp.getFoldersByName(FOLDER_NAME).hasNext()
-    ? DriveApp.getFoldersByName(FOLDER_NAME).next()
-    : DriveApp.createFolder(FOLDER_NAME);
-  var pdfFile = reportFolder.createFile(pdfBlob);
+  var pdfBlob = exportSheetAsPdf(ss, sheetDash, "Laporan_Kehadiran_" + monthCode);
+  var folder = getOrCreateDriveFolder();
+  var pdfFile = folder.createFile(pdfBlob);
   pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   var pdfUrl = pdfFile.getUrl();
 
-  // ── Kirim Email ke Admin / HR ──────────────────────────────────────────────
   if (EMAIL_LAPORAN && EMAIL_LAPORAN.trim() !== "") {
-    var emails = EMAIL_LAPORAN.split(",").map(function(e) { return e.trim(); });
-    var subject = "[RiksaSync] Laporan Kehadiran " + monthLabel + " – " + NAMA_PERUSAHAAN;
+    var subject = "[RiksaSync] Rekapitulasi Kehadiran " + monthLabel + " – " + NAMA_PERUSAHAAN;
     var body = "Halo,\n\n" +
-      "Berikut adalah Laporan Kehadiran Bulanan untuk periode: " + monthLabel + ".\n\n" +
-      "Ringkasan:\n" +
-      "- Total karyawan aktif: " + names.length + " orang\n" +
-      "- Total record presensi: " + filtered.length + " entri\n\n" +
-      "PDF Laporan tersedia di: " + pdfUrl + "\n\n" +
-      "Laporan ini digenerate secara otomatis oleh sistem RiksaSync AI.\n\n" +
-      "Salam,\nRiksaSync AI\n" + NAMA_PERUSAHAAN;
+      "Terlampir adalah Laporan Rekapitulasi Presensi & Ketidakhadiran (A4 Print-Ready) untuk periode: " + monthLabel + ".\n\n" +
+      "Laporan mencakup:\n" +
+      "- Presensi Masuk & Pulang Selfie\n" +
+      "- Data Cuti, Sakit, dan Izin Karyawan\n" +
+      "- Mode Kerja (Kantor, On Site, WFH)\n" +
+      "- Format tanda tangan resmi IT Staff dan Leader Utama\n\n" +
+      "PDF Laporan dapat diunduh di: " + pdfUrl + "\n\n" +
+      "Salam,\nRiksaSync AI Operations\n" + NAMA_PERUSAHAAN;
 
-    emails.forEach(function(emailAddr) {
+    EMAIL_LAPORAN.split(",").forEach(function(emailAddr) {
       try {
-        GmailApp.sendEmail(emailAddr, subject, body, {
+        GmailApp.sendEmail(emailAddr.trim(), subject, body, {
           attachments: [pdfBlob],
           name: "RiksaSync AI – " + NAMA_PERUSAHAAN
         });
-      } catch(mailErr) {
-        Logger.log("Gagal kirim email ke " + emailAddr + ": " + mailErr.toString());
+      } catch (e) {
+        Logger.log("Gagal kirim email ke " + emailAddr + ": " + e.toString());
       }
     });
   }
 
-  Logger.log("Laporan " + monthStr + " selesai dibuat. PDF: " + pdfUrl);
-  return pdfUrl;
+  // Kembalikan view dashboard ke bulan ini
+  refreshDashboardData(now.getFullYear(), now.getMonth());
 }
 
-// ── Helper: Export sheet tertentu ke PDF blob ──────────────────────────────────
-function exportSheetAsPdf(spreadsheet, sheet, monthStr) {
+// ── 12. HELPER EXPORT PDF ─────────────────────────────────────────────────────
+function exportSheetAsPdf(spreadsheet, sheet, filename) {
   var ssId = spreadsheet.getId();
   var sheetId = sheet.getSheetId();
   var url = "https://docs.google.com/spreadsheets/d/" + ssId +
@@ -398,7 +814,8 @@ function exportSheetAsPdf(spreadsheet, sheet, monthStr) {
     "&gid=" + sheetId +
     "&size=A4&portrait=false&fitw=true" +
     "&sheetnames=false&printtitle=false" +
-    "&pagenumbers=false&gridlines=false&fzr=false";
+    "&pagenumbers=false&gridlines=false&fzr=false" +
+    "&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4";
 
   var options = {
     headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
@@ -407,21 +824,12 @@ function exportSheetAsPdf(spreadsheet, sheet, monthStr) {
 
   var response = UrlFetchApp.fetch(url, options);
   if (response.getResponseCode() !== 200) {
-    throw new Error("Gagal export PDF, response code: " + response.getResponseCode());
+    throw new Error("Gagal export PDF, HTTP: " + response.getResponseCode());
   }
-  return response.getBlob().setName("Laporan_Kehadiran_" + monthStr + ".pdf");
+  return response.getBlob().setName(filename + ".pdf");
 }
 
-// ── TRIGGER SETUP: Jalankan sekali di Apps Script Editor untuk daftarkan trigger ─
-/**
- * Jalankan fungsi ini SATU KALI di Apps Script Editor untuk mendaftarkan
- * trigger otomatis: tanggal 1 setiap bulan, generateMonthlyReport() akan
- * otomatis berjalan dan laporan akan dikirim via email.
- *
- * Cara: Di editor klik Run -> installMonthlyTrigger
- */
 function installMonthlyTrigger() {
-  // Hapus trigger lama jika ada
   var triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function(t) {
     if (t.getHandlerFunction() === "generateMonthlyReport") {
@@ -429,12 +837,11 @@ function installMonthlyTrigger() {
     }
   });
 
-  // Buat trigger baru: tanggal 1 setiap bulan
   ScriptApp.newTrigger("generateMonthlyReport")
     .timeBased()
     .onMonthDay(1)
-    .atHour(6) // Jam 06:00 WIB (UTC+7 = jam 23:00 UTC hari sebelumnya)
+    .atHour(6)
     .create();
 
-  Logger.log("Trigger bulanan berhasil didaftarkan. Laporan akan dikirim setiap tanggal 1.");
+  Logger.log("Trigger bulanan aktif (tiap tanggal 1 jam 06:00 WIB).");
 }

@@ -252,6 +252,26 @@ export default function ManpowerManagement({
       localStorage.setItem('local_manpower_absences', JSON.stringify(localList));
       setSuccessMsg('Berhasil mencatat ketidakhadiran (Disimpan di Lokal Browser)');
     } finally {
+      // 3. Mirror/Sync otomatis ke Google Apps Script & Google Sheet jika terhubung
+      try {
+        const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta as any).env?.VITE_GAS_ATTENDANCE_URL;
+        if (gasUrl) {
+          const selectedPerson = manpowerList.find(m => m.id === absenceManpowerId);
+          fetch(gasUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'record_absence',
+              employee_name: selectedPerson?.name || 'Karyawan',
+              manpower_id: absenceManpowerId,
+              date: absenceDate,
+              absence_type: absenceType,
+              reason: absenceReason.trim() || '-'
+            })
+          }).catch(err => console.warn('[GAS Absence Sync Warning]', err));
+        }
+      } catch (e) {}
+
       await onRefreshAll();
       setAbsenceReason('');
       setLoading(false);
@@ -289,6 +309,23 @@ export default function ManpowerManagement({
         localStorage.setItem('local_manpower_absences', JSON.stringify(localList));
       } catch (e) {}
     }
+
+    // Mirror delete to Google Apps Script if connected
+    try {
+      const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta as any).env?.VITE_GAS_ATTENDANCE_URL;
+      if (gasUrl) {
+        const selectedPerson = manpowerList.find(m => m.id === manpowerId);
+        fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'delete_absence',
+            employee_name: selectedPerson?.name || '',
+            date: date
+          })
+        }).catch(err => console.warn('[GAS Absence Delete Warning]', err));
+      }
+    } catch (e) {}
 
     setSuccessMsg('Berhasil menghapus pencatatan absensi.');
     await onRefreshAll();
