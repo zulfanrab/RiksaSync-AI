@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Manpower, ManpowerAbsence, AttendanceRecord, AttendanceType } from '../types';
+import { Manpower, ManpowerAbsence, AttendanceRecord, AttendanceType, AppUser } from '../types';
+import { INITIAL_APP_USERS } from '../context/UserContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   safeParseDate,
@@ -34,6 +35,7 @@ import {
 interface MonthlyAttendanceRecapProps {
   manpowerList?: Manpower[];
   absences?: ManpowerAbsence[];
+  appUsers?: AppUser[];
   onRefreshAll: () => Promise<void> | void;
   canEditTimestamp: boolean; // Khusus akun Zulfan
   currentUserLabel: string;
@@ -47,6 +49,7 @@ const MONTH_NAMES = [
 export default function MonthlyAttendanceRecap({
   manpowerList = [],
   absences = [],
+  appUsers = [],
   onRefreshAll,
   canEditTimestamp,
   currentUserLabel
@@ -82,6 +85,32 @@ export default function MonthlyAttendanceRecap({
   // Helper: Format YYYY-MM
   const monthCode = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
   const monthLabel = `${MONTH_NAMES[selectedMonth]} ${selectedYear}`;
+
+  // 11 Karyawan Resmi Terdaftar yang Memiliki Akun Login Aplikasi (app_users)
+  // Menghilangkan manpower eksternal (seperti Katez / Riyan) agar rekap presensi hanya untuk staf yang wajib absen
+  const attendanceEmployees = useMemo(() => {
+    const users = appUsers && appUsers.length > 0 ? appUsers : INITIAL_APP_USERS;
+    return users.map((u) => {
+      const matchMp = (manpowerList || []).find((m) => {
+        const mName = (m.name || '').toLowerCase();
+        const uName = (u.username || '').toLowerCase();
+        const uFullName = (u.full_name || '').toLowerCase();
+        return mName === uName || uFullName.includes(mName) || mName.includes(uName);
+      });
+
+      return {
+        id: matchMp?.id || u.id,
+        manpower_id: matchMp?.id || u.id,
+        name: u.username,
+        full_name: u.full_name || u.username,
+        role: u.role || matchMp?.role || 'Staff',
+        email: u.email || `${u.username.toLowerCase()}@aksarariksapjk3.com`,
+        division: u.division || 'Umum',
+        status: 'internal' as const,
+        skp: matchMp?.skp || []
+      };
+    });
+  }, [appUsers, manpowerList]);
 
   // Hitung jumlah hari kerja (Senin - Sabtu) pada bulan yang dipilih
   const workingDaysCount = useMemo(() => {
@@ -122,6 +151,24 @@ export default function MonthlyAttendanceRecap({
       console.warn('[Fetch Monthly Logs Error]', e);
     }
 
+    // Terapkan koreksi waktu Zulfan agar tidak tertimpa data lama Supabase
+    try {
+      const correctionsRaw = localStorage.getItem('attendance_corrections_map');
+      if (correctionsRaw) {
+        const corrections: Record<string, { timestamp: string; created_at: string }> = JSON.parse(correctionsRaw);
+        fetched = fetched.map((rec) => {
+          const key1 = rec.id || '';
+          const recDate = safeIsoDate(rec.timestamp);
+          const key2 = `${rec.employee_name}_${rec.type}_${recDate}`;
+          const match = (key1 && corrections[key1]) || corrections[key2];
+          if (match) {
+            return { ...rec, timestamp: match.timestamp, created_at: match.created_at || match.timestamp };
+          }
+          return rec;
+        });
+      }
+    } catch (e) {}
+
     // Merge with localStorage
     try {
       const local = localStorage.getItem('local_attendance_logs');
@@ -134,14 +181,18 @@ export default function MonthlyAttendanceRecap({
           return rDate.getFullYear() === selectedYear && rDate.getMonth() === selectedMonth;
         });
 
-        // Dedup by id or employee_name + timestamp + type
+        // Dedup & update with local copy if edited
         filteredLocal.forEach((loc) => {
-          const exists = fetched.some(
+          const existsIdx = fetched.findIndex(
             (f) =>
               (loc.id && f.id === loc.id) ||
               (f.employee_name === loc.employee_name && f.type === loc.type && f.timestamp === loc.timestamp)
           );
-          if (!exists) fetched.push(loc);
+          if (existsIdx === -1) {
+            fetched.push(loc);
+          } else {
+            fetched[existsIdx] = loc;
+          }
         });
       }
     } catch (e) {}
@@ -173,10 +224,12 @@ export default function MonthlyAttendanceRecap({
     }
   };
 
-  // Kalkulasi agregasi kehadiran per karyawan
+  // Kalkulasi agregasi kehadiran per 11 karyawan terdaftar (akun internal)
   const aggregatedData = useMemo(() => {
-    return (manpowerList || []).filter(Boolean).map((m, index) => {
-      const mNameLower = (m.name || '').toLowerCase();
+    return attendanceEmployees.map((emp, index) => {
+      const empNameLower = (emp.name || '').toLowerCase();
+      const empFullNameLower = (emp.full_name || '').toLowerCase();
+      const empEmailLower = (emp.email || '').toLowerCase();
 
       // Filter presensi bulan ini untuk karyawan ini
       const personLogs = (monthlyLogs || []).filter((l) => {
@@ -184,20 +237,20 @@ export default function MonthlyAttendanceRecap({
         const lName = (l.employee_name || '').toLowerCase();
         const lEmail = (l.employee_email || '').toLowerCase();
         return (
-          lName === mNameLower ||
-          (mNameLower && lName.includes(mNameLower)) ||
-          (lName && mNameLower.includes(lName)) ||
-          (mNameLower === 'angga' && lName.includes('angga')) ||
-          (mNameLower === 'zulfan' && lName.includes('zulfan')) ||
-          (lEmail && mNameLower && lEmail.includes(mNameLower))
+          (empEmailLower && lEmail && lEmail === empEmailLower) ||
+          (empNameLower && lName === empNameLower) ||
+          (empFullNameLower && lName === empFullNameLower) ||
+          (empNameLower && lName.includes(empNameLower)) ||
+          (empNameLower && lEmail.includes(empNameLower))
         );
       });
 
       // Filter absensi (Sakit, Cuti, Izin) dari tabel manpower_absences
       const personAbsences = (absences || []).filter((a) => {
         if (!a || !a.date || typeof a.date !== 'string') return false;
-        if (a.manpower_id !== m.id) return false;
-        return a.date.startsWith(monthCode);
+        const isMatchId = a.manpower_id === emp.id || a.manpower_id === emp.manpower_id;
+        const isMatchName = a.manpower_name && a.manpower_name.toLowerCase() === empNameLower;
+        return (isMatchId || isMatchName) && a.date.startsWith(monthCode);
       });
 
       // Hitung metrik
@@ -255,7 +308,7 @@ export default function MonthlyAttendanceRecap({
 
       return {
         no: index + 1,
-        manpower: m,
+        manpower: emp,
         logs: personLogs,
         absences: personAbsences,
         masukCount,
@@ -273,7 +326,7 @@ export default function MonthlyAttendanceRecap({
         evaluation
       };
     });
-  }, [manpowerList, monthlyLogs, absences, monthCode, workingDaysCount]);
+  }, [attendanceEmployees, monthlyLogs, absences, monthCode, workingDaysCount]);
 
   // Filter pencarian nama karyawan
   const filteredRows = useMemo(() => {
@@ -282,7 +335,9 @@ export default function MonthlyAttendanceRecap({
     return aggregatedData.filter(
       (r) =>
         (r?.manpower?.name || '').toLowerCase().includes(term) ||
-        (r?.manpower?.role || '').toLowerCase().includes(term)
+        (r?.manpower?.full_name || '').toLowerCase().includes(term) ||
+        (r?.manpower?.role || '').toLowerCase().includes(term) ||
+        (r?.manpower?.division || '').toLowerCase().includes(term)
     );
   }, [aggregatedData, searchTerm]);
 
@@ -386,37 +441,50 @@ export default function MonthlyAttendanceRecap({
     const newDateObj = safeParseDate(`${editDate}T${timeWithSec}+07:00`) || new Date(`${editDate}T${timeWithSec}`);
     const newIsoTimestamp = newDateObj && !isNaN(newDateObj.getTime()) ? newDateObj.toISOString() : new Date().toISOString();
 
-    try {
-      // 1. Update Supabase attendance_logs
-      if (isSupabaseConfigured && supabase) {
-        if (editingRecord.id) {
-          await supabase
-            .from('attendance_logs')
-            .update({
-              timestamp: newIsoTimestamp,
-              created_at: newIsoTimestamp
-            })
-            .eq('id', editingRecord.id);
-        } else {
-          // Fallback update by email, type, and approximate date
-          await supabase
-            .from('attendance_logs')
-            .update({
-              timestamp: newIsoTimestamp,
-              created_at: newIsoTimestamp
-            })
-            .eq('employee_name', editingRecord.employee_name)
-            .eq('type', editingRecord.type)
-            .gte('timestamp', `${editDate}T00:00:00Z`)
-            .lte('timestamp', `${editDate}T23:59:59Z`);
-        }
-      }
-    } catch (err) {
-      console.warn('[Supabase Update Timestamp Warning]', err);
+    // 1. UPDATE STATE SECARA LANGSUNG & INSTAN DI LAYAR (0ms delay)
+    setMonthlyLogs((prev) =>
+      prev.map((r) => {
+        const isMatch =
+          (editingRecord.id && r.id === editingRecord.id) ||
+          (r.employee_name === editingRecord.employee_name &&
+            r.type === editingRecord.type &&
+            r.timestamp === editingRecord.timestamp);
+        return isMatch ? { ...r, timestamp: newIsoTimestamp, created_at: newIsoTimestamp } : r;
+      })
+    );
+
+    // Update log list di modal detail jika sedang dibuka
+    if (selectedPersonLogs) {
+      setSelectedPersonLogs((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          logs: prev.logs.map((l) => {
+            const isMatch =
+              (editingRecord.id && l.id === editingRecord.id) ||
+              (l.employee_name === editingRecord.employee_name &&
+                l.type === editingRecord.type &&
+                l.timestamp === editingRecord.timestamp);
+            return isMatch ? { ...l, timestamp: newIsoTimestamp, created_at: newIsoTimestamp } : l;
+          })
+        };
+      });
     }
 
-    // 2. Update localStorage
+    // 2. SIMPAN KE LOCALSTORAGE (Map koreksi permanen)
     try {
+      const origDate = safeIsoDate(editingRecord.timestamp);
+      const correctionsRaw = localStorage.getItem('attendance_corrections_map');
+      const corrections = correctionsRaw ? JSON.parse(correctionsRaw) : {};
+      if (editingRecord.id) {
+        corrections[editingRecord.id] = { timestamp: newIsoTimestamp, created_at: newIsoTimestamp };
+      }
+      corrections[`${editingRecord.employee_name}_${editingRecord.type}_${origDate}`] = {
+        timestamp: newIsoTimestamp,
+        created_at: newIsoTimestamp
+      };
+      localStorage.setItem('attendance_corrections_map', JSON.stringify(corrections));
+
       const local = localStorage.getItem('local_attendance_logs');
       if (local) {
         const parsed: AttendanceRecord[] = JSON.parse(local);
@@ -435,27 +503,35 @@ export default function MonthlyAttendanceRecap({
       }
     } catch (e) {}
 
-    // 3. Reload
-    await fetchMonthlyLogs();
-    setSavingEdit(false);
-    setEditingRecord(null);
-
-    // Update log list di modal jika sedang dibuka
-    if (selectedPersonLogs) {
-      setSelectedPersonLogs((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          logs: prev.logs.map((l) =>
-            l.id === editingRecord.id || l.timestamp === editingRecord.timestamp
-              ? { ...l, timestamp: newIsoTimestamp }
-              : l
-          )
-        };
-      });
+    // 3. UPDATE SUPABASE DI LATAR BELAKANG
+    try {
+      if (isSupabaseConfigured && supabase) {
+        if (editingRecord.id) {
+          await supabase
+            .from('attendance_logs')
+            .update({
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp
+            })
+            .eq('id', editingRecord.id);
+        }
+        await supabase
+          .from('attendance_logs')
+          .update({
+            timestamp: newIsoTimestamp,
+            created_at: newIsoTimestamp
+          })
+          .eq('employee_name', editingRecord.employee_name)
+          .eq('type', editingRecord.type)
+          .eq('timestamp', editingRecord.timestamp);
+      }
+    } catch (err) {
+      console.warn('[Supabase Update Timestamp Warning]', err);
     }
 
-    setActionSuccess('Waktu presensi berhasil dikoreksi! Status keterlambatan langsung diperbarui. ✅');
+    setSavingEdit(false);
+    setEditingRecord(null);
+    setActionSuccess('Waktu presensi berhasil dikoreksi! Status ketepatan waktu langsung terupdate. ✅');
     setTimeout(() => setActionSuccess(null), 4000);
   };
 
@@ -542,7 +618,7 @@ export default function MonthlyAttendanceRecap({
           <button
             type="button"
             onClick={() => {
-              setTargetManpowerId((manpowerList && manpowerList[0]?.id) || '');
+              setTargetManpowerId((attendanceEmployees && attendanceEmployees[0]?.id) || '');
               setAbsenceDate(`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`);
               setShowAddAbsenceModal(true);
             }}
@@ -623,7 +699,7 @@ export default function MonthlyAttendanceRecap({
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Karyawan</span>
             <span className="text-lg font-black text-slate-800 font-mono mt-0.5 block">
-              {(manpowerList || []).length} <span className="text-xs font-normal text-slate-500">Orang</span>
+              {attendanceEmployees.length} <span className="text-xs font-normal text-slate-500">Orang</span>
             </span>
           </div>
 
@@ -735,12 +811,16 @@ export default function MonthlyAttendanceRecap({
                     {idx + 1}
                   </td>
                   <td className="py-2 px-3 font-bold text-slate-800 border-r border-slate-200 print:border-slate-400">
-                    <div className="flex items-center gap-1.5">
-                      <span>{row.manpower.name}</span>
+                    <div className="flex flex-col">
+                      <span className="font-bold text-slate-800">{row.manpower.full_name || row.manpower.name}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">@{row.manpower.name.toLowerCase()}</span>
                     </div>
                   </td>
                   <td className="py-2 px-3 text-[11px] text-slate-600 border-r border-slate-200 print:border-slate-400">
-                    {row.manpower.role}
+                    <div className="font-semibold text-slate-700">{row.manpower.role}</div>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 uppercase font-semibold">
+                      {row.manpower.division || 'Internal'}
+                    </span>
                   </td>
                   <td className="py-2 px-2 text-center font-mono font-bold text-emerald-700 border-r border-slate-200 print:border-slate-400 bg-emerald-50/30 print:bg-transparent">
                     {row.masukCount}
@@ -921,9 +1001,9 @@ export default function MonthlyAttendanceRecap({
                   onChange={(e) => setTargetManpowerId(e.target.value)}
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-semibold"
                 >
-                  {(manpowerList || []).map((m) => (
+                  {attendanceEmployees.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} ({m.role})
+                      {m.full_name || m.name} ({m.role})
                     </option>
                   ))}
                 </select>

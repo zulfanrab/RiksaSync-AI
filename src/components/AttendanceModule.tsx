@@ -60,7 +60,7 @@ export default function AttendanceModule({
   manpowerList = [],
   onOpenManpowerMgmt
 }: AttendanceModuleProps) {
-  const { activeUser, activeUserEmail, currentUser } = useUser();
+  const { activeUser, activeUserEmail, currentUser, appUsers } = useUser();
 
   // Absensi selection: Strictly 'Masuk' or 'Pulang' (Sakit & Cuti are managed in Kelola Manpower)
   const [attendanceType, setAttendanceType] = useState<'Masuk' | 'Pulang'>('Masuk');
@@ -633,7 +633,26 @@ export default function AttendanceModule({
         const { data, error } = await query.limit(50);
 
         if (!error && data) {
-          setHistory(data as AttendanceRecord[]);
+          // Terapkan koreksi waktu Zulfan agar tidak tertimpa data lama Supabase
+          let mergedData = data as AttendanceRecord[];
+          try {
+            const correctionsRaw = localStorage.getItem('attendance_corrections_map');
+            if (correctionsRaw) {
+              const corrections: Record<string, { timestamp: string; created_at: string }> = JSON.parse(correctionsRaw);
+              mergedData = mergedData.map((rec) => {
+                const key1 = rec.id || '';
+                const recDate = safeIsoDate(rec.timestamp);
+                const key2 = `${rec.employee_name}_${rec.type}_${recDate}`;
+                const match = (key1 && corrections[key1]) || corrections[key2];
+                if (match) {
+                  return { ...rec, timestamp: match.timestamp, created_at: match.created_at || match.timestamp };
+                }
+                return rec;
+              });
+            }
+          } catch (e) {}
+
+          setHistory(mergedData);
           setHistoryLoading(false);
           return;
         }
@@ -812,34 +831,33 @@ export default function AttendanceModule({
     const newDateObj = safeParseDate(`${editDate}T${timeWithSec}+07:00`) || new Date(`${editDate}T${timeWithSec}`);
     const newIsoTimestamp = newDateObj && !isNaN(newDateObj.getTime()) ? newDateObj.toISOString() : new Date().toISOString();
 
-    try {
-      if (isSupabaseConfigured && supabase) {
-        if (editingRecord.id) {
-          await supabase
-            .from('attendance_logs')
-            .update({
-              timestamp: newIsoTimestamp,
-              created_at: newIsoTimestamp
-            })
-            .eq('id', editingRecord.id);
-        } else {
-          await supabase
-            .from('attendance_logs')
-            .update({
-              timestamp: newIsoTimestamp,
-              created_at: newIsoTimestamp
-            })
-            .eq('employee_name', editingRecord.employee_name)
-            .eq('type', editingRecord.type)
-            .gte('timestamp', `${editDate}T00:00:00Z`)
-            .lte('timestamp', `${editDate}T23:59:59Z`);
-        }
-      }
-    } catch (err) {
-      console.warn('[Supabase Update Timestamp Warning]', err);
-    }
+    // 1. UPDATE REACT STATE SECARA INSTAN TANPA MENUNGGU SUPABASE
+    // Status Tepat Waktu / Telat langsung terupdate detik itu juga di layar!
+    setHistory((prev) =>
+      prev.map((r) => {
+        const isMatch =
+          (editingRecord.id && r.id === editingRecord.id) ||
+          (r.employee_name === editingRecord.employee_name &&
+            r.type === editingRecord.type &&
+            r.timestamp === editingRecord.timestamp);
+        return isMatch ? { ...r, timestamp: newIsoTimestamp, created_at: newIsoTimestamp } : r;
+      })
+    );
 
+    // 2. SIMPAN KE LOCALSTORAGE (Map koreksi permanen)
     try {
+      const origDate = safeIsoDate(editingRecord.timestamp);
+      const correctionsRaw = localStorage.getItem('attendance_corrections_map');
+      const corrections = correctionsRaw ? JSON.parse(correctionsRaw) : {};
+      if (editingRecord.id) {
+        corrections[editingRecord.id] = { timestamp: newIsoTimestamp, created_at: newIsoTimestamp };
+      }
+      corrections[`${editingRecord.employee_name}_${editingRecord.type}_${origDate}`] = {
+        timestamp: newIsoTimestamp,
+        created_at: newIsoTimestamp
+      };
+      localStorage.setItem('attendance_corrections_map', JSON.stringify(corrections));
+
       const local = localStorage.getItem('local_attendance_logs');
       if (local) {
         const parsed: AttendanceRecord[] = JSON.parse(local);
@@ -858,7 +876,32 @@ export default function AttendanceModule({
       }
     } catch (e) {}
 
-    await loadHistory();
+    // 3. UPDATE SUPABASE DI LATAR BELAKANG
+    try {
+      if (isSupabaseConfigured && supabase) {
+        if (editingRecord.id) {
+          await supabase
+            .from('attendance_logs')
+            .update({
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp
+            })
+            .eq('id', editingRecord.id);
+        }
+        await supabase
+          .from('attendance_logs')
+          .update({
+            timestamp: newIsoTimestamp,
+            created_at: newIsoTimestamp
+          })
+          .eq('employee_name', editingRecord.employee_name)
+          .eq('type', editingRecord.type)
+          .eq('timestamp', editingRecord.timestamp);
+      }
+    } catch (err) {
+      console.warn('[Supabase Update Timestamp Warning]', err);
+    }
+
     setSavingEdit(false);
     setEditingRecord(null);
     setSubmitSuccess('Waktu presensi berhasil dikoreksi! Status ketepatan waktu langsung terupdate. ✅');
@@ -958,6 +1001,7 @@ export default function AttendanceModule({
           <MonthlyAttendanceRecap
             manpowerList={manpowerList || []}
             absences={absences || []}
+            appUsers={appUsers || []}
             onRefreshAll={async () => {
               await loadHistory();
             }}

@@ -93,3 +93,8 @@ DROP POLICY IF EXISTS "Allow select attendance_logs" ON attendance_logs;
 CREATE POLICY "Allow select attendance_logs" ON attendance_logs FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow insert attendance_logs" ON attendance_logs;
 CREATE POLICY "Allow insert attendance_logs" ON attendance_logs FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow update attendance_logs" ON attendance_logs;
+CREATE POLICY "Allow update attendance_logs" ON attendance_logs FOR UPDATE USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow delete attendance_logs" ON attendance_logs;
+CREATE POLICY "Allow delete attendance_logs" ON attendance_logs FOR DELETE USING (true);
+
