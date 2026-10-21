@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
 import { AttendanceType, WorkLocationType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import MonthlyAttendanceRecap from './MonthlyAttendanceRecap';
 import {
   Camera,
   MapPin,
@@ -93,6 +94,37 @@ export default function AttendanceModule({
     activeUser?.toLowerCase() === 'zulfan' ||
     activeUser?.toLowerCase() === 'angga'
   );
+
+  // Akses Khusus:
+  // Zulfan = IT Staff (Bisa akses rekap & HANYA Zulfan yang punya wewenang edit waktu presensi)
+  // Marsya = Pengelola Rekap (Bisa akses rekap & catat izin/cuti)
+  const isZulfan = Boolean(
+    activeUser?.toLowerCase() === 'zulfan' ||
+    currentUser?.username?.toLowerCase() === 'zulfan' ||
+    currentUser?.email?.toLowerCase().includes('zulfan')
+  );
+
+  const isMarsya = Boolean(
+    activeUser?.toLowerCase() === 'marsya' ||
+    currentUser?.username?.toLowerCase() === 'marsya' ||
+    currentUser?.email?.toLowerCase().includes('marsya')
+  );
+
+  const canAccessRecap = Boolean(
+    isZulfan ||
+    isMarsya ||
+    isPrivilegedManager ||
+    currentUser?.division?.toLowerCase() === 'admin'
+  );
+
+  const [activeAttendanceView, setActiveAttendanceView] = useState<'selfie' | 'recap'>('selfie');
+
+  // State untuk modal koreksi waktu presensi (Strictly Zulfan ONLY)
+  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
+  const [editDate, setEditDate] = useState<string>('');
+  const [editTime, setEditTime] = useState<string>('');
+  const [savingEdit, setSavingEdit] = useState<boolean>(false);
+
   const [historyFilter, setHistoryFilter] = useState<'mine' | 'team'>('mine');
 
   // Submit & History state
@@ -757,6 +789,80 @@ export default function AttendanceModule({
     startCamera();
   };
 
+  // ── KOREKSI WAKTU PRESENSI (HUMAN ERROR) — STRICTLY ZULFAN ONLY ────────────
+  const handleOpenEditRecord = (rec: AttendanceRecord) => {
+    setEditingRecord(rec);
+    const d = new Date(rec.timestamp);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+
+    setEditDate(`${year}-${month}-${day}`);
+    setEditTime(`${hours}:${minutes}:${seconds}`);
+  };
+
+  const handleSaveEditTimestamp = async () => {
+    if (!editingRecord || !editDate || !editTime) return;
+    setSavingEdit(true);
+
+    const newDateObj = new Date(`${editDate}T${editTime}+07:00`);
+    const newIsoTimestamp = newDateObj.toISOString();
+
+    try {
+      if (isSupabaseConfigured && supabase) {
+        if (editingRecord.id) {
+          await supabase
+            .from('attendance_logs')
+            .update({
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp
+            })
+            .eq('id', editingRecord.id);
+        } else {
+          await supabase
+            .from('attendance_logs')
+            .update({
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp
+            })
+            .eq('employee_name', editingRecord.employee_name)
+            .eq('type', editingRecord.type)
+            .gte('timestamp', `${editDate}T00:00:00Z`)
+            .lte('timestamp', `${editDate}T23:59:59Z`);
+        }
+      }
+    } catch (err) {
+      console.warn('[Supabase Update Timestamp Warning]', err);
+    }
+
+    try {
+      const local = localStorage.getItem('local_attendance_logs');
+      if (local) {
+        const parsed: AttendanceRecord[] = JSON.parse(local);
+        const updated = parsed.map((r) => {
+          const isMatch =
+            (editingRecord.id && r.id === editingRecord.id) ||
+            (r.employee_name === editingRecord.employee_name &&
+              r.type === editingRecord.type &&
+              r.timestamp === editingRecord.timestamp);
+          if (isMatch) {
+            return { ...r, timestamp: newIsoTimestamp, created_at: newIsoTimestamp };
+          }
+          return r;
+        });
+        localStorage.setItem('local_attendance_logs', JSON.stringify(updated));
+      }
+    } catch (e) {}
+
+    await loadHistory();
+    setSavingEdit(false);
+    setEditingRecord(null);
+    setSubmitSuccess('Waktu presensi berhasil dikoreksi! Status ketepatan waktu langsung terupdate. ✅');
+  };
+
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16 md:pb-6">
       {/* Top Header Card */}
@@ -811,8 +917,55 @@ export default function AttendanceModule({
         </div>
       </div>
 
-      {/* Official Leave Notice (Connected with Kelola Manpower) */}
-      {todayOfficialLeave && (
+      {/* Tab Switcher: Presensi Mandiri vs Rekapitulasi Bulanan (Khusus Zulfan & Marsya) */}
+      {canAccessRecap && (
+        <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setActiveAttendanceView('selfie')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeAttendanceView === 'selfie'
+                ? 'bg-white text-emerald-800 shadow-xs border border-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Camera className="h-4 w-4 text-emerald-600" />
+            <span>Presensi Selfie Mandiri</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAttendanceView('recap')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeAttendanceView === 'recap'
+                ? 'bg-slate-900 text-emerald-400 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="h-4 w-4 text-emerald-400" />
+            <span>Rekapitulasi Bulanan (Siap Cetak A4)</span>
+            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-extrabold hidden md:inline">
+              Zulfan & Marsya
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* TAMPILKAN REKAPITULASI BULANAN JIKA MODE RECAP AKTIF */}
+      {activeAttendanceView === 'recap' && canAccessRecap ? (
+        <MonthlyAttendanceRecap
+          manpowerList={manpowerList}
+          absences={absences}
+          onRefreshAll={async () => {
+            await loadHistory();
+          }}
+          canEditTimestamp={isZulfan}
+          currentUserLabel={isZulfan ? 'Zulfan (IT Staff)' : 'Marsya (Support Staff)'}
+        />
+      ) : (
+        <>
+          {/* Official Leave Notice (Connected with Kelola Manpower) */}
+          {todayOfficialLeave && (
         <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-sm animate-in slide-in-from-top-2">
           <div className="flex items-start sm:items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-base shrink-0">
@@ -1527,22 +1680,37 @@ export default function AttendanceModule({
                         </div>
                       </div>
 
-                      {rec.photo_drive_url && rec.photo_drive_url !== '-' ? (
-                        <a
-                          href={rec.photo_drive_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shrink-0"
-                          title="Lihat foto bukti di Google Drive"
-                        >
-                          <span>Foto</span>
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                          {rec.latitude ? `📍 ${rec.latitude.toFixed(2)}` : '✅ Tercatat'}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Tombol Koreksi Waktu Presensi (Strictly Zulfan Only) */}
+                        {isZulfan && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditRecord(rec)}
+                            title="Koreksi Waktu Presensi (Khusus IT Zulfan)"
+                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer"
+                          >
+                            <Edit3 className="h-3 w-3 text-amber-600" />
+                            <span className="hidden sm:inline">Koreksi Jam</span>
+                          </button>
+                        )}
+
+                        {rec.photo_drive_url && rec.photo_drive_url !== '-' ? (
+                          <a
+                            href={rec.photo_drive_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                            title="Lihat foto bukti di Google Drive"
+                          >
+                            <span>Foto</span>
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {rec.latitude ? `📍 ${rec.latitude.toFixed(2)}` : '✅ Tercatat'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1551,6 +1719,8 @@ export default function AttendanceModule({
           </div>
         </div>
       </div>
+      </>
+      )}
       {/* Modal Pengaturan Google Apps Script & Drive */}
       {showGasModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1653,6 +1823,83 @@ export default function AttendanceModule({
                   Simpan URL
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Koreksi Waktu Presensi (Strictly Zulfan ONLY) */}
+      {editingRecord && isZulfan && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-amber-600" />
+                <h3 className="text-base font-black text-slate-800">Koreksi Waktu Presensi</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingRecord(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
+              <strong>Khusus Otoritas IT (Zulfan):</strong> Koreksi jam presensi karyawan untuk mengatasi keterlambatan akibat sinyal / human error. Status ketepatan waktu otomatis dikalkulasi ulang.
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <span className="text-[11px] text-slate-500 block">Karyawan:</span>
+                <span className="text-xs font-bold text-slate-800">{editingRecord.employee_name} ({editingRecord.type})</span>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Tanggal Presensi:</label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full text-xs font-mono p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Jam Presensi (WIB) — Format HH:mm:ss:
+                </label>
+                <input
+                  type="time"
+                  step="1"
+                  value={editTime}
+                  onChange={(e) => setEditTime(e.target.value)}
+                  className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  💡 Tips: Masuk sebelum pukul 09:00:00 WIB untuk status Tepat Waktu.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setEditingRecord(null)}
+                className="text-xs font-semibold px-3.5 py-2 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditTimestamp}
+                disabled={savingEdit}
+                className="text-xs font-bold px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {savingEdit && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                <span>{savingEdit ? 'Menyimpan...' : 'Simpan Koreksi'}</span>
+              </button>
             </div>
           </div>
         </div>
