@@ -6,6 +6,7 @@ import MonthlyAttendanceRecap from './MonthlyAttendanceRecap';
 import ErrorBoundary from './ErrorBoundary';
 import { safeParseDate, safeIsoDate, safeIsoString, safeFormatTime, safeFormatDate, safeToFixed } from '../lib/dateUtils';
 import {
+  FileText,
   Camera,
   MapPin,
   CheckCircle2,
