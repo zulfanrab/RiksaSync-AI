@@ -2,6 +2,15 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Manpower, ManpowerAbsence, AttendanceRecord, AttendanceType } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
+  safeParseDate,
+  safeIsoDate,
+  safeIsoString,
+  safeFormatTime,
+  safeFormatDate,
+  safeMinutesOfDay,
+  safeToFixed
+} from '../lib/dateUtils';
+import {
   Printer,
   Calendar,
   ChevronLeft,
@@ -23,8 +32,8 @@ import {
 } from 'lucide-react';
 
 interface MonthlyAttendanceRecapProps {
-  manpowerList: Manpower[];
-  absences: ManpowerAbsence[];
+  manpowerList?: Manpower[];
+  absences?: ManpowerAbsence[];
   onRefreshAll: () => Promise<void> | void;
   canEditTimestamp: boolean; // Khusus akun Zulfan
   currentUserLabel: string;
@@ -36,8 +45,8 @@ const MONTH_NAMES = [
 ];
 
 export default function MonthlyAttendanceRecap({
-  manpowerList,
-  absences,
+  manpowerList = [],
+  absences = [],
   onRefreshAll,
   canEditTimestamp,
   currentUserLabel
@@ -89,13 +98,15 @@ export default function MonthlyAttendanceRecap({
   // Load all attendance logs for the target month
   const fetchMonthlyLogs = useCallback(async () => {
     setLoading(true);
-    const startIso = new Date(selectedYear, selectedMonth, 1).toISOString();
-    const endIso = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999).toISOString();
+    const startD = new Date(selectedYear, selectedMonth, 1);
+    const endD = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
+    const startIso = safeIsoString(startD);
+    const endIso = safeIsoString(endD);
 
     let fetched: AttendanceRecord[] = [];
 
     try {
-      if (isSupabaseConfigured && supabase) {
+      if (isSupabaseConfigured && supabase && startIso && endIso) {
         const { data, error } = await supabase
           .from('attendance_logs')
           .select('*')
@@ -117,8 +128,9 @@ export default function MonthlyAttendanceRecap({
       if (local) {
         const parsed: AttendanceRecord[] = JSON.parse(local);
         const filteredLocal = parsed.filter((r) => {
-          if (!r.timestamp) return false;
-          const rDate = new Date(r.timestamp);
+          if (!r || !r.timestamp) return false;
+          const rDate = safeParseDate(r.timestamp);
+          if (!rDate) return false;
           return rDate.getFullYear() === selectedYear && rDate.getMonth() === selectedMonth;
         });
 
@@ -163,25 +175,27 @@ export default function MonthlyAttendanceRecap({
 
   // Kalkulasi agregasi kehadiran per karyawan
   const aggregatedData = useMemo(() => {
-    return manpowerList.map((m, index) => {
-      const mNameLower = m.name.toLowerCase();
+    return (manpowerList || []).filter(Boolean).map((m, index) => {
+      const mNameLower = (m.name || '').toLowerCase();
 
       // Filter presensi bulan ini untuk karyawan ini
-      const personLogs = monthlyLogs.filter((l) => {
+      const personLogs = (monthlyLogs || []).filter((l) => {
+        if (!l) return false;
         const lName = (l.employee_name || '').toLowerCase();
         const lEmail = (l.employee_email || '').toLowerCase();
         return (
           lName === mNameLower ||
-          lName.includes(mNameLower) ||
-          mNameLower.includes(lName) ||
-          (m.name.toLowerCase() === 'angga' && lName.includes('angga')) ||
-          (m.name.toLowerCase() === 'zulfan' && lName.includes('zulfan')) ||
-          (lEmail && lEmail.includes(m.name.toLowerCase()))
+          (mNameLower && lName.includes(mNameLower)) ||
+          (lName && mNameLower.includes(lName)) ||
+          (mNameLower === 'angga' && lName.includes('angga')) ||
+          (mNameLower === 'zulfan' && lName.includes('zulfan')) ||
+          (lEmail && mNameLower && lEmail.includes(mNameLower))
         );
       });
 
       // Filter absensi (Sakit, Cuti, Izin) dari tabel manpower_absences
-      const personAbsences = absences.filter((a) => {
+      const personAbsences = (absences || []).filter((a) => {
+        if (!a || !a.date || typeof a.date !== 'string') return false;
         if (a.manpower_id !== m.id) return false;
         return a.date.startsWith(monthCode);
       });
@@ -198,8 +212,11 @@ export default function MonthlyAttendanceRecap({
       const uniqueDaysMasuk = new Set<string>();
 
       personLogs.forEach((l) => {
-        const d = new Date(l.timestamp);
-        const dayStr = d.toISOString().split('T')[0];
+        if (!l || !l.timestamp) return;
+        const d = safeParseDate(l.timestamp);
+        if (!d) return;
+        const dayStr = safeIsoDate(d);
+        if (!dayStr) return;
 
         if (l.type === 'Masuk') {
           masukCount++;
@@ -264,8 +281,8 @@ export default function MonthlyAttendanceRecap({
     const term = searchTerm.toLowerCase();
     return aggregatedData.filter(
       (r) =>
-        r.manpower.name.toLowerCase().includes(term) ||
-        r.manpower.role.toLowerCase().includes(term)
+        (r?.manpower?.name || '').toLowerCase().includes(term) ||
+        (r?.manpower?.role || '').toLowerCase().includes(term)
     );
   }, [aggregatedData, searchTerm]);
 
@@ -348,7 +365,7 @@ export default function MonthlyAttendanceRecap({
   // ── SAVE EDIT WAKTU PRESENSI (KHUSUS ZULFAN) ────────────────────────────────
   const handleOpenEditRecord = (rec: AttendanceRecord) => {
     setEditingRecord(rec);
-    const d = new Date(rec.timestamp);
+    const d = safeParseDate(rec.timestamp) || new Date();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -365,8 +382,9 @@ export default function MonthlyAttendanceRecap({
     setSavingEdit(true);
 
     // Buat ISO string baru (WIB timezone GMT+7)
-    const newDateObj = new Date(`${editDate}T${editTime}+07:00`);
-    const newIsoTimestamp = newDateObj.toISOString();
+    const timeWithSec = editTime.includes(':') && editTime.split(':').length === 2 ? `${editTime}:00` : editTime;
+    const newDateObj = safeParseDate(`${editDate}T${timeWithSec}+07:00`) || new Date(`${editDate}T${timeWithSec}`);
+    const newIsoTimestamp = newDateObj && !isNaN(newDateObj.getTime()) ? newDateObj.toISOString() : new Date().toISOString();
 
     try {
       // 1. Update Supabase attendance_logs
@@ -524,7 +542,7 @@ export default function MonthlyAttendanceRecap({
           <button
             type="button"
             onClick={() => {
-              setTargetManpowerId(manpowerList[0]?.id || '');
+              setTargetManpowerId((manpowerList && manpowerList[0]?.id) || '');
               setAbsenceDate(`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`);
               setShowAddAbsenceModal(true);
             }}
@@ -605,7 +623,7 @@ export default function MonthlyAttendanceRecap({
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Karyawan</span>
             <span className="text-lg font-black text-slate-800 font-mono mt-0.5 block">
-              {manpowerList.length} <span className="text-xs font-normal text-slate-500">Orang</span>
+              {(manpowerList || []).length} <span className="text-xs font-normal text-slate-500">Orang</span>
             </span>
           </div>
 
@@ -660,7 +678,7 @@ export default function MonthlyAttendanceRecap({
           </div>
 
           <div className="text-[11px] text-slate-400 font-medium">
-            Menampilkan {filteredRows.length} dari {manpowerList.length} karyawan
+            Menampilkan {filteredRows.length} dari {(manpowerList || []).length} karyawan
           </div>
         </div>
 
@@ -903,7 +921,7 @@ export default function MonthlyAttendanceRecap({
                   onChange={(e) => setTargetManpowerId(e.target.value)}
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-semibold"
                 >
-                  {manpowerList.map((m) => (
+                  {(manpowerList || []).map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name} ({m.role})
                     </option>
@@ -1001,9 +1019,11 @@ export default function MonthlyAttendanceRecap({
                   Tidak ada catatan presensi selfie untuk bulan ini.
                 </div>
               ) : (
-                selectedPersonLogs.logs.map((log, idx) => {
-                  const d = new Date(log.timestamp);
-                  const isLate = log.type === 'Masuk' && d.getHours() * 60 + d.getMinutes() > 9 * 60;
+                (selectedPersonLogs.logs || []).map((log, idx) => {
+                  const d = safeParseDate(log.timestamp);
+                  const isLate = log.type === 'Masuk' && d ? (d.getHours() * 60 + d.getMinutes() > 9 * 60) : false;
+                  const dateLabel = safeFormatDate(log.timestamp, { weekday: 'short', day: '2-digit', month: 'short' });
+                  const timeLabel = safeFormatTime(log.timestamp);
 
                   return (
                     <div
@@ -1026,14 +1046,10 @@ export default function MonthlyAttendanceRecap({
                             {log.type}
                           </span>
                           <span className="font-mono text-slate-700 font-bold">
-                            {d.toLocaleDateString('id-ID', {
-                              weekday: 'short',
-                              day: '2-digit',
-                              month: 'short'
-                            })}
+                            {dateLabel}
                           </span>
                           <span className="font-mono text-slate-900 font-black">
-                            {d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                            {timeLabel}
                           </span>
                           {isLate ? (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800">

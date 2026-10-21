@@ -23,6 +23,7 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import GuideModal from './components/GuideModal';
 import NotificationCenter from './components/NotificationCenter';
 import AttendanceModule from './components/AttendanceModule';
+import { safeIsoDate } from './lib/dateUtils';
 
 const INITIAL_MANPOWER: Manpower[] = [
   { id: 'm1',  name: 'Angga',    role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
@@ -404,7 +405,7 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       const todayStr = new Date().toISOString().split('T')[0];
       const localAttendance = JSON.parse(localStorage.getItem('local_attendance_logs') || '[]');
       const userToday = localAttendance.filter((r) => {
-        const d = r.timestamp ? new Date(r.timestamp).toISOString().split('T')[0] : '';
+        const d = r.timestamp ? safeIsoDate(r.timestamp) : '';
         const matchName = r.employee_name && r.employee_name.toLowerCase() === activeUser.toLowerCase();
         return d === todayStr && matchName;
       });

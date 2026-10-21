@@ -3,6 +3,8 @@ import { useUser } from '../context/UserContext';
 import { AttendanceType, WorkLocationType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import MonthlyAttendanceRecap from './MonthlyAttendanceRecap';
+import ErrorBoundary from './ErrorBoundary';
+import { safeParseDate, safeIsoDate, safeIsoString, safeFormatTime, safeFormatDate, safeToFixed } from '../lib/dateUtils';
 import {
   Camera,
   MapPin,
@@ -208,7 +210,7 @@ export default function AttendanceModule({
 
   // Cross-check with Kelola Manpower absences (Sakit, Cuti, Izin)
   const currentManpower = manpowerList.find(
-    (m) => m.name.toLowerCase() === (activeUser || '').toLowerCase()
+    (m) => m?.name && m.name.toLowerCase() === (activeUser || '').toLowerCase()
   );
 
   const todayOfficialLeave = absences.find(
@@ -218,7 +220,7 @@ export default function AttendanceModule({
   // Check attendance records done today by active user
   const userTodayRecords = history.filter((r) => {
     try {
-      const recDate = getLocalDateString(new Date(r.timestamp));
+      const recDate = safeIsoDate(r.timestamp);
       const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase() === activeUserEmail.toLowerCase());
       const matchName = Boolean(r.employee_name && activeUser && r.employee_name.toLowerCase() === activeUser.toLowerCase());
       return recDate === todayStr && (matchEmail || matchName);
@@ -231,18 +233,15 @@ export default function AttendanceModule({
   const todayPulang = userTodayRecords.find((r) => r.type === 'Pulang');
 
   const formatTimeOnly = (isoStr: string) => {
-    try {
-      return new Date(isoStr).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
-    } catch {
-      return '';
-    }
+    return safeFormatTime(isoStr, '');
   };
 
   // Helper to check punctuality border color (subtle visual indicator, polite tone)
   const getPunctualityStyle = (type: AttendanceType, timestampStr?: string) => {
     if (!timestampStr) return null;
     try {
-      const d = new Date(timestampStr);
+      const d = safeParseDate(timestampStr);
+      if (!d) return null;
       const isSat = d.getDay() === 6;
       const hours = d.getHours();
       const minutes = d.getMinutes();
@@ -792,7 +791,7 @@ export default function AttendanceModule({
   // ── KOREKSI WAKTU PRESENSI (HUMAN ERROR) — STRICTLY ZULFAN ONLY ────────────
   const handleOpenEditRecord = (rec: AttendanceRecord) => {
     setEditingRecord(rec);
-    const d = new Date(rec.timestamp);
+    const d = safeParseDate(rec.timestamp) || new Date();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -808,8 +807,9 @@ export default function AttendanceModule({
     if (!editingRecord || !editDate || !editTime) return;
     setSavingEdit(true);
 
-    const newDateObj = new Date(`${editDate}T${editTime}+07:00`);
-    const newIsoTimestamp = newDateObj.toISOString();
+    const timeWithSec = editTime.includes(':') && editTime.split(':').length === 2 ? `${editTime}:00` : editTime;
+    const newDateObj = safeParseDate(`${editDate}T${timeWithSec}+07:00`) || new Date(`${editDate}T${timeWithSec}`);
+    const newIsoTimestamp = newDateObj && !isNaN(newDateObj.getTime()) ? newDateObj.toISOString() : new Date().toISOString();
 
     try {
       if (isSupabaseConfigured && supabase) {
@@ -953,15 +953,17 @@ export default function AttendanceModule({
 
       {/* TAMPILKAN REKAPITULASI BULANAN JIKA MODE RECAP AKTIF */}
       {activeAttendanceView === 'recap' && canAccessRecap ? (
-        <MonthlyAttendanceRecap
-          manpowerList={manpowerList}
-          absences={absences}
-          onRefreshAll={async () => {
-            await loadHistory();
-          }}
-          canEditTimestamp={isZulfan}
-          currentUserLabel={isZulfan ? 'Zulfan (IT Staff)' : 'Marsya (Support Staff)'}
-        />
+        <ErrorBoundary fallbackTitle="Gagal Menampilkan Rekapitulasi Presensi">
+          <MonthlyAttendanceRecap
+            manpowerList={manpowerList || []}
+            absences={absences || []}
+            onRefreshAll={async () => {
+              await loadHistory();
+            }}
+            canEditTimestamp={isZulfan}
+            currentUserLabel={isZulfan ? 'Zulfan (IT Staff)' : 'Marsya (Support Staff)'}
+          />
+        </ErrorBoundary>
       ) : (
         <>
           {/* Official Leave Notice (Connected with Kelola Manpower) */}
@@ -1629,9 +1631,10 @@ export default function AttendanceModule({
             ) : (
               <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                 {history.map((rec, idx) => {
-                  const dateObj = new Date(rec.timestamp);
                   const isMasuk = rec.type === 'Masuk';
                   const punctuality = getPunctualityStyle(rec.type, rec.timestamp);
+                  const dateLabel = safeFormatDate(rec.timestamp, { day: '2-digit', month: 'short', year: 'numeric' });
+                  const timeLabel = safeFormatTime(rec.timestamp);
 
                   return (
                     <div
@@ -1676,7 +1679,7 @@ export default function AttendanceModule({
                         )}
 
                         <div className="text-[10px] text-slate-400 font-mono">
-                          {dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })} • {dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          {dateLabel} • {timeLabel}
                         </div>
                       </div>
 
@@ -1707,7 +1710,7 @@ export default function AttendanceModule({
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-400 font-mono">
-                            {rec.latitude ? `📍 ${rec.latitude.toFixed(2)}` : '✅ Tercatat'}
+                            {rec.latitude ? `📍 ${safeToFixed(rec.latitude, 2)}` : '✅ Tercatat'}
                           </span>
                         )}
                       </div>
