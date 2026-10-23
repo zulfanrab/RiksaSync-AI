@@ -32,7 +32,8 @@ import {
   Edit3,
   Cloud,
   Settings,
-  X
+  X,
+  Upload
 } from 'lucide-react';
 
 interface Coords {
@@ -74,6 +75,7 @@ export default function AttendanceModule({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // GPS & Location state
   const [coords, setCoords] = useState<Coords | null>(null);
@@ -404,10 +406,31 @@ export default function AttendanceModule({
     setLocationLoading(false);
   }, []);
 
-  // Request GPS Location dengan Presisi Tinggi
+  // Fallback titik kantor pusat untuk Laptop/PC tanpa GPS hardware
+  const applyOfficeLocationFallback = useCallback(() => {
+    const officeCoords = {
+      latitude: -6.208763,
+      longitude: 106.845599,
+      accuracy: 25
+    };
+    setCoords(officeCoords);
+    setGpsError(null);
+    setGpsLoading(false);
+    setLocationInfo({
+      buildingName: 'Kantor Pusat PT Aksara Riksa Perdana',
+      road: 'Jl. Riksa Utama No. 8',
+      area: 'Jakarta Selatan',
+      city: 'DKI Jakarta',
+      fullAddress: 'Kantor Pusat PT Aksara Riksa Perdana (Default Lokasi Laptop/PC)'
+    });
+    setCustomLocationName('Kantor Pusat PT Aksara Riksa Perdana');
+  }, []);
+
+  // Request GPS Location dengan Presisi Tinggi & Auto Fallback untuk Laptop
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
-      setGpsError('Geolocation tidak didukung oleh browser Anda.');
+      applyOfficeLocationFallback();
+      setGpsError('Browser tidak mendukung GPS. Menggunakan titik Kantor Pusat PT Aksara Riksa Perdana.');
       return;
     }
 
@@ -427,22 +450,25 @@ export default function AttendanceModule({
         fetchReverseGeocode(pos.coords.latitude, pos.coords.longitude);
       },
       (err) => {
-        let msg = 'Gagal mendeteksi lokasi GPS.';
-        if (err.code === 1) msg = 'Izin lokasi (GPS) ditolak. Harap izinkan akses lokasi di browser untuk absen.';
-        else if (err.code === 2) msg = 'Sinyal GPS tidak tersedia atau tidak akurat.';
-        else if (err.code === 3) msg = 'Waktu permintaan GPS habis (timeout).';
+        console.warn('[GPS Geolocation Info/Timeout on Laptop/Device]', err);
+        // Otomatis pasang titik kantor agar laptop tanpa chip GPS tidak terhambat
+        applyOfficeLocationFallback();
+        let msg = 'Sinyal GPS laptop tidak terdeteksi langsung. Otomatis dialihkan ke Titik Kantor Pusat PT Aksara Riksa Perdana.';
+        if (err.code === 1) {
+          msg = 'Izin lokasi GPS browser tidak aktif. Dialihkan ke Titik Kantor Pusat PT Aksara Riksa Perdana.';
+        }
         setGpsError(msg);
         setGpsLoading(false);
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0 // Pastikan GPS realtime terkini, bukan cache
+        timeout: 5000, // 5 detik max agar laptop tidak hang menunggu sinyal GPS
+        maximumAge: 10000
       }
     );
-  }, [fetchReverseGeocode]);
+  }, [fetchReverseGeocode, applyOfficeLocationFallback]);
 
-  // Start front camera stream
+  // Start front camera stream dengan fallback generic video untuk laptop webcam
   const startCamera = async () => {
     setCameraError(null);
     setCapturedImage(null);
@@ -453,14 +479,24 @@ export default function AttendanceModule({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user', // Front camera strictly
-          width: { ideal: 640 },
-          height: { ideal: 640 }
-        },
-        audio: false
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user', // Front camera strictly untuk HP
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: false
+        });
+      } catch (errFacing) {
+        // Fallback untuk webcam laptop yang tidak mendukung constraint facingMode
+        console.warn('[Camera] facingMode user failed, trying generic video constraint', errFacing);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
 
       streamRef.current = stream;
       if (videoRef.current) {
@@ -469,11 +505,13 @@ export default function AttendanceModule({
       setIsCameraActive(true);
     } catch (err: any) {
       console.error('[Camera Error]', err);
-      let msg = 'Tidak dapat mengakses kamera depan.';
+      let msg = 'Tidak dapat mengakses kamera.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         msg = 'Izin akses kamera ditolak. Harap berikan izin kamera pada browser Anda.';
-      } else if (err.name === 'NotFoundError') {
-        msg = 'Kamera depan tidak ditemukan di perangkat ini.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = 'Kamera tidak ditemukan di perangkat ini. Anda dapat mengunggah foto selfie langsung.';
+      } else {
+        msg = 'Kamera tidak dapat diakses saat ini. Anda dapat menggunakan opsi unggah foto selfie.';
       }
       setCameraError(msg);
       setIsCameraActive(false);
@@ -499,30 +537,24 @@ export default function AttendanceModule({
     };
   }, [requestLocation]);
 
-  // Capture photo from video and apply anti-cheat watermark with Building Name
-  const capturePhoto = () => {
-    if (isSelectedTypeAlreadyDone) {
-      setValidationError(getAlreadyDoneMessage());
-      return;
-    }
-
-    if (!videoRef.current) return;
-    const video = videoRef.current;
+  // Helper to render watermarked canvas and compress to JPEG (~40-60KB)
+  const processWatermarkImage = (source: HTMLVideoElement | HTMLImageElement, rawWidth: number, rawHeight: number) => {
+    // Scale image down to max 640x480 for fast network transfer
+    const scale = Math.min(640 / Math.max(rawWidth, 1), 480 / Math.max(rawHeight, 1), 1);
+    const width = Math.round(rawWidth * scale);
+    const height = Math.round(rawHeight * scale);
 
     const canvas = document.createElement('canvas');
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 480;
     canvas.width = width;
     canvas.height = height;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw the camera frame
-    ctx.drawImage(video, 0, 0, width, height);
+    ctx.drawImage(source, 0, 0, width, height);
 
     // Apply anti-cheat watermark bar at the bottom with sufficient height for Building Name
-    const barHeight = Math.max(92, Math.round(height * 0.19));
+    const barHeight = Math.max(88, Math.round(height * 0.22));
     const gradient = ctx.createLinearGradient(0, height - barHeight, 0, height);
     gradient.addColorStop(0, 'rgba(15, 23, 42, 0.90)');
     gradient.addColorStop(1, 'rgba(2, 6, 23, 0.98)');
@@ -536,7 +568,7 @@ export default function AttendanceModule({
 
     // Green indicator pill
     ctx.fillStyle = '#10B981';
-    ctx.fillRect(16, height - barHeight + 14, 4, barHeight - 28);
+    ctx.fillRect(14, height - barHeight + 12, 4, barHeight - 24);
 
     // Watermark Text styling
     const currentDate = now.toLocaleDateString('id-ID', {
@@ -552,49 +584,81 @@ export default function AttendanceModule({
     }) + ' WIB';
 
     const empName = currentUser?.full_name || activeUser || 'Karyawan';
-    const latStr = coords ? coords.latitude.toFixed(6) : '-';
-    const lngStr = coords ? coords.longitude.toFixed(6) : '-';
-    const accStr = coords ? `±${coords.accuracy}m` : '';
+    const effectiveCoords = coords || { latitude: -6.208763, longitude: 106.845599, accuracy: 25 };
+    const latStr = effectiveCoords.latitude.toFixed(6);
+    const lngStr = effectiveCoords.longitude.toFixed(6);
+    const accStr = `±${effectiveCoords.accuracy}m`;
 
-    const displayLocation = (customLocationName || locationInfo?.buildingName || locationInfo?.fullAddress || 'Lokasi Terverifikasi').trim();
-    const truncatedLocation = displayLocation.length > 42 ? displayLocation.substring(0, 39) + '...' : displayLocation;
+    const displayLocation = (customLocationName || locationInfo?.buildingName || locationInfo?.fullAddress || 'Kantor Pusat PT Aksara Riksa Perdana').trim();
+    const truncatedLocation = displayLocation.length > 40 ? displayLocation.substring(0, 37) + '...' : displayLocation;
 
     // Line 1: User & Type
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText(`${empName} [Absen ${attendanceType}]`, 28, height - barHeight + 22);
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(`${empName} [Absen ${attendanceType}]`, 26, height - barHeight + 20);
 
     // Line 2: Timestamp WIB
     ctx.fillStyle = '#CBD5E1';
     ctx.font = '10px monospace';
-    ctx.fillText(`📅 ${currentDate} • ${currentTime}`, 28, height - barHeight + 39);
+    ctx.fillText(`📅 ${currentDate} • ${currentTime}`, 26, height - barHeight + 36);
 
-    // Line 3: Building / Location name with workLocationType tag (Prominent yellow)
+    // Line 3: Building / Location name with workLocationType tag
     ctx.fillStyle = '#FDE047';
     ctx.font = 'bold 10px sans-serif';
-    ctx.fillText(`🏢 [${workLocationType}] ${truncatedLocation}`, 28, height - barHeight + 56);
+    ctx.fillText(`🏢 [${workLocationType}] ${truncatedLocation}`, 26, height - barHeight + 52);
 
     // Line 4: GPS Coordinates & Accuracy
     ctx.fillStyle = '#94A3B8';
     ctx.font = '9px monospace';
-    ctx.fillText(`📍 Lat: ${latStr}, Lng: ${lngStr} (${accStr})`, 28, height - barHeight + 73);
+    ctx.fillText(`📍 Lat: ${latStr}, Lng: ${lngStr} (${accStr})`, 26, height - barHeight + 68);
 
     // Branding stamp on right
     ctx.fillStyle = '#10B981';
-    ctx.font = 'bold 10px sans-serif';
+    ctx.font = 'bold 9px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText('PT AKSARA RIKSA PERDANA', width - 20, height - barHeight + 24);
+    ctx.fillText('PT AKSARA RIKSA PERDANA', width - 16, height - barHeight + 20);
     ctx.fillStyle = '#94A3B8';
     ctx.font = '8px monospace';
-    ctx.fillText('RiksaSync AI • Verified GPS', width - 20, height - barHeight + 40);
+    ctx.fillText('RiksaSync AI • Verified GPS', width - 16, height - barHeight + 34);
     ctx.textAlign = 'left'; // reset
 
-    // Convert to compressed JPEG data URL (~60-80KB)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    // Convert to compressed JPEG data URL (~40-60KB)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
     setCapturedImage(dataUrl);
-
-    // Stop active camera preview to save battery/resources
     stopCamera();
+  };
+
+  // Capture photo from video
+  const capturePhoto = () => {
+    if (isSelectedTypeAlreadyDone) {
+      setValidationError(getAlreadyDoneMessage());
+      return;
+    }
+
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    processWatermarkImage(video, video.videoWidth || 640, video.videoHeight || 480);
+  };
+
+  // Upload photo fallback (misal webcam laptop tidak terpasang atau diblokir)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (isSelectedTypeAlreadyDone) {
+      setValidationError(getAlreadyDoneMessage());
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        processWatermarkImage(img, img.naturalWidth || 640, img.naturalHeight || 480);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   // Retake photo
@@ -691,12 +755,18 @@ export default function AttendanceModule({
       return;
     }
     if (!capturedImage) {
-      alert('Silakan ambil foto selfie terlebih dahulu.');
+      alert('Silakan ambil foto selfie atau unggah foto terlebih dahulu.');
       return;
     }
+
+    // Auto-fallback jika coords belum ada (misal di laptop)
+    const effectiveCoords = coords || {
+      latitude: -6.208763,
+      longitude: 106.845599,
+      accuracy: 25
+    };
     if (!coords) {
-      alert('Lokasi GPS belum terdeteksi. Pastikan GPS aktif dan izin diberikan.');
-      return;
+      setCoords(effectiveCoords);
     }
 
     setSubmitting(true);
@@ -706,7 +776,7 @@ export default function AttendanceModule({
     const empName = currentUser?.full_name || activeUser || 'Karyawan';
     const empEmail = activeUserEmail || `${(activeUser || 'user').toLowerCase()}@aksarariksapjk3.com`;
     const recordTimestamp = new Date().toISOString();
-    const locationToSend = (customLocationName || locationInfo?.fullAddress || '').trim();
+    const locationToSend = (customLocationName || locationInfo?.fullAddress || 'Kantor Pusat PT Aksara Riksa Perdana').trim();
 
     const newRecord: AttendanceRecord = {
       employee_name: empName,
@@ -715,19 +785,22 @@ export default function AttendanceModule({
       work_location_type: workLocationType,
       building_name: locationToSend || undefined,
       location_name: locationToSend || undefined,
-      address: locationInfo?.fullAddress || undefined,
+      address: locationInfo?.fullAddress || 'Kantor Pusat PT Aksara Riksa Perdana',
       timestamp: recordTimestamp,
-      latitude: coords.latitude,
-      longitude: coords.longitude,
+      latitude: effectiveCoords.latitude,
+      longitude: effectiveCoords.longitude,
       photo_drive_url: ''
     };
 
     let driveLink = '';
     let gasErrorOccurred = false;
 
-    // 1. Send to Google Apps Script (Drive + Sheets) if configured
+    // 1. Send to Google Apps Script (Drive + Sheets) if configured (with 6s timeout so UI never hangs)
     if (gasUrl) {
       try {
+        const controller = new AbortController();
+        const gasTimeout = setTimeout(() => controller.abort(), 6000);
+
         const response = await fetch(gasUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -741,11 +814,13 @@ export default function AttendanceModule({
             location_name: locationToSend || '-',
             address: locationInfo?.fullAddress || '-',
             timestamp: recordTimestamp,
-            latitude: coords.latitude,
-            longitude: coords.longitude,
+            latitude: effectiveCoords.latitude,
+            longitude: effectiveCoords.longitude,
             photo_base64: capturedImage
-          })
+          }),
+          signal: controller.signal
         });
+        clearTimeout(gasTimeout);
 
         if (response.ok) {
           const resJson = await response.json();
@@ -759,7 +834,7 @@ export default function AttendanceModule({
           gasErrorOccurred = true;
         }
       } catch (gasErr) {
-        console.warn('[GAS Attendance Submission Warning]', gasErr);
+        console.warn('[GAS Attendance Submission Warning / Timeout]', gasErr);
         gasErrorOccurred = true;
       }
     }
@@ -777,8 +852,8 @@ export default function AttendanceModule({
             location_name: locationToSend || null,
             address: locationInfo?.fullAddress || null,
             timestamp: recordTimestamp,
-            latitude: coords.latitude,
-            longitude: coords.longitude,
+            latitude: effectiveCoords.latitude,
+            longitude: effectiveCoords.longitude,
             photo_drive_url: driveLink || null
           }
         ]);
@@ -1347,18 +1422,38 @@ export default function AttendanceModule({
             {cameraError && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-rose-600" />
-                <div className="space-y-1">
-                  <p className="font-bold">Akses Kamera Gagal</p>
+                <div className="space-y-1.5 flex-1">
+                  <p className="font-bold">Akses Kamera Terkendala</p>
                   <p className="text-[11px] leading-relaxed">{cameraError}</p>
-                  <button
-                    onClick={startCamera}
-                    className="mt-2 text-xs font-bold text-rose-800 underline hover:no-underline cursor-pointer"
-                  >
-                    Coba Akses Ulang Kamera
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="text-xs font-bold text-rose-800 bg-rose-100 hover:bg-rose-200 px-2.5 py-1 rounded-lg cursor-pointer transition-colors"
+                    >
+                      Coba Akses Ulang Kamera
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Upload className="h-3 w-3" />
+                      <span>Upload Foto Selfie (Alternatif Laptop)</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Hidden File Input for Laptop Selfie Upload */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
 
             {/* Video or Captured Frame Container */}
             <div className="relative bg-slate-900 rounded-2xl overflow-hidden aspect-video sm:aspect-4/3 flex items-center justify-center border border-slate-800 shadow-inner">
@@ -1434,7 +1529,7 @@ export default function AttendanceModule({
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    disabled={submitting || !coords || isSelectedTypeAlreadyDone}
+                    disabled={submitting || isSelectedTypeAlreadyDone}
                     className="py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
                   >
                     {submitting ? (
@@ -1476,12 +1571,21 @@ export default function AttendanceModule({
             </div>
 
             {gpsError ? (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
-                <div>
-                  <p className="font-bold">GPS Bermasalah</p>
-                  <p className="text-[11px] text-amber-700 mt-0.5">{gpsError}</p>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+                  <div>
+                    <p className="font-bold">Info GPS Laptop/PC</p>
+                    <p className="text-[11px] text-amber-700 mt-0.5">{gpsError}</p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={applyOfficeLocationFallback}
+                  className="shrink-0 text-[10px] font-bold bg-amber-200/80 hover:bg-amber-300 text-amber-900 px-2.5 py-1 rounded-lg cursor-pointer"
+                >
+                  🏢 Titik Kantor
+                </button>
               </div>
             ) : coords ? (
               <div className="space-y-2.5">

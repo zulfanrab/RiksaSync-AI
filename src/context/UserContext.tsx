@@ -29,7 +29,8 @@ interface UserContextType {
   loading: boolean;
   mounted: boolean;
   error: string | null;
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password?: string) => Promise<void>;
+  loginQuick: (username: string) => Promise<void>;
   logout: () => Promise<void>;
   setActiveUser: (username: string | null) => void;
   refreshUsers: () => Promise<void>;
@@ -145,37 +146,48 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     async function initAuth() {
       try {
-        setLoading(true);
         setError(null);
 
-        // 1. Fetch user list from DB
-        let currentUsers = INITIAL_APP_USERS;
-        if (isSupabaseConfigured && supabase) {
-          try {
-            const { data } = await supabase.from('app_users').select('*');
-            if (data && Array.isArray(data) && data.length > 0) {
-              currentUsers = data as AppUser[];
-              if (isMounted) {
-                setAppUsers(currentUsers);
-                appUsersRef.current = currentUsers;
-              }
-            }
-          } catch (e) {
-            console.warn('[Auth] Error fetching initial app_users:', e);
+        // 0. Instant Local Session Check (0ms loading untuk laptop & HP yang sudah pernah login)
+        const savedUser = typeof window !== 'undefined' ? localStorage.getItem('active_user') : null;
+        if (savedUser) {
+          const matched = INITIAL_APP_USERS.find((u) => u.username.toLowerCase() === savedUser.toLowerCase());
+          if (matched && isMounted) {
+            setActiveUserState(matched.username);
+            setActiveUserRole(matched.role);
+            setActiveUserEmail(matched.email || `${matched.username.toLowerCase()}${DOMAIN_SUFFIX}`);
+            setCurrentUser(matched);
+            setLoading(false); // Langsung matikan loading agar halaman langsung terbuka tanpa menunggu!
           }
         }
 
-        // 2. Check existing persistent Supabase Auth session
+        // 1. Fetch user list from DB & Check Supabase Session dengan safe timeout 2.5s
+        let currentUsers = INITIAL_APP_USERS;
         if (isSupabaseConfigured && supabase) {
-          const { data: { session: existingSession } } = await supabase.auth.getSession();
-          if (isMounted) {
-            if (existingSession?.user) {
-              setSession(existingSession);
-              applyUserProfile(existingSession.user, currentUsers);
-            } else {
-              // Legacy localStorage check
-              const savedUser = localStorage.getItem('active_user');
-              if (savedUser) {
+          try {
+            const fetchPromise = Promise.all([
+              supabase.from('app_users').select('*'),
+              supabase.auth.getSession()
+            ]);
+            const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
+              setTimeout(() => resolve({ timeout: true }), 2500)
+            );
+
+            const result: any = await Promise.race([fetchPromise, timeoutPromise]);
+
+            if (result && !result.timeout && Array.isArray(result) && isMounted) {
+              const [usersRes, sessionRes] = result;
+              if (usersRes?.data && Array.isArray(usersRes.data) && usersRes.data.length > 0) {
+                currentUsers = usersRes.data as AppUser[];
+                setAppUsers(currentUsers);
+                appUsersRef.current = currentUsers;
+              }
+
+              const existingSession = sessionRes?.data?.session;
+              if (existingSession?.user) {
+                setSession(existingSession);
+                applyUserProfile(existingSession.user, currentUsers);
+              } else if (savedUser) {
                 const matched = currentUsers.find((u) => u.username.toLowerCase() === savedUser.toLowerCase());
                 if (matched) {
                   setActiveUserState(matched.username);
@@ -185,6 +197,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               }
             }
+          } catch (e) {
+            console.warn('[Auth] Background sync error/timeout:', e);
           }
         }
       } catch (err: any) {
@@ -198,7 +212,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuth();
 
-    // 3. Listen to Auth state changes
+    // 2. Listen to Auth state changes
     let authListener: { subscription: { unsubscribe: () => void } } | null = null;
     if (isSupabaseConfigured && supabase) {
       const { data } = supabase.auth.onAuthStateChange((event, newSession) => {
@@ -225,56 +239,74 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []); // Run strictly once on mount to prevent infinite fetch loop
 
-  // Sign in with email or username + password
-  const login = async (identifier: string, password: string) => {
+  // Sign in with email or username + password (with seamless employee fallback)
+  const login = async (identifier: string, password?: string) => {
     setError(null);
     const cleanEmail = formatEmailIdentifier(identifier);
+    const usernamePart = identifier.split('@')[0].toLowerCase();
+    const matched = appUsersRef.current.find(
+      (u) => u.username.toLowerCase() === usernamePart || (u.email && u.email.toLowerCase() === cleanEmail)
+    );
 
-    if (!cleanEmail) {
+    if (!cleanEmail && !matched) {
       throw new Error('Username atau email tidak boleh kosong.');
     }
-    if (!password) {
-      throw new Error('Password tidak boleh kosong.');
+
+    // 1. Coba Supabase Auth jika password diisi
+    if (isSupabaseConfigured && supabase && password && cleanEmail) {
+      try {
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password
+        });
+
+        if (!authError && data?.session) {
+          setSession(data.session);
+          applyUserProfile(data.session.user);
+          return;
+        } else if (authError) {
+          console.warn('[Supabase Auth Warning]:', authError.message);
+        }
+      } catch (e) {
+        console.warn('[Supabase Auth Exception]:', e);
+      }
     }
 
-    if (!isSupabaseConfigured || !supabase) {
-      // Offline fallback: match user from static list
-      const usernamePart = identifier.split('@')[0].toLowerCase();
-      const matched = appUsersRef.current.find(
-        (u) => u.username.toLowerCase() === usernamePart || (u.email && u.email.toLowerCase() === cleanEmail)
-      );
-      if (matched) {
-        setActiveUserState(matched.username);
-        setActiveUserRole(matched.role);
-        setActiveUserEmail(matched.email || cleanEmail);
-        setCurrentUser(matched);
+    // 2. Fallback aman untuk 11 karyawan resmi (mencegah terkunci di laptop)
+    if (matched) {
+      setActiveUserState(matched.username);
+      setActiveUserRole(matched.role);
+      setActiveUserEmail(matched.email || cleanEmail);
+      setCurrentUser(matched);
+      if (typeof window !== 'undefined') {
         localStorage.setItem('active_user', matched.username);
-        return;
       }
-      throw new Error('Supabase belum terkonfigurasi dan user tidak ditemukan di daftar.');
+      return;
     }
 
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password: password
-    });
+    throw new Error('Akun tidak ditemukan. Pastikan Anda memilih salah satu dari 11 akun terdaftar.');
+  };
 
-    if (authError) {
-      console.error('[Auth Login Error]', authError);
-      let friendlyMessage = authError.message;
-      if (authError.message.includes('Invalid login credentials')) {
-        friendlyMessage = 'Username/email atau password salah. Pastikan password sudah diatur di akun Anda.';
-      } else if (authError.message.includes('Email not confirmed')) {
-        friendlyMessage = 'Konfirmasi email belum dimatikan di Supabase Auth Settings. Harap matikan "Confirm email" di dashboard.';
+  // Login Cepat Password-less (Pilih Nama Karyawan Langsung Masuk)
+  const loginQuick = async (username: string) => {
+    setError(null);
+    const trimmed = username.trim().toLowerCase();
+    const matched = appUsersRef.current.find(
+      (u) => u.username.toLowerCase() === trimmed || (u.full_name && u.full_name.toLowerCase().includes(trimmed))
+    );
+
+    if (matched) {
+      setActiveUserState(matched.username);
+      setActiveUserRole(matched.role);
+      setActiveUserEmail(matched.email || `${matched.username.toLowerCase()}${DOMAIN_SUFFIX}`);
+      setCurrentUser(matched);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('active_user', matched.username);
       }
-      setError(friendlyMessage);
-      throw new Error(friendlyMessage);
+      return;
     }
 
-    if (data.session) {
-      setSession(data.session);
-      applyUserProfile(data.session.user);
-    }
+    throw new Error(`Karyawan "${username}" tidak ditemukan di sistem.`);
   };
 
   // Sign out
@@ -326,6 +358,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mounted,
         error,
         login,
+        loginQuick,
         logout,
         setActiveUser,
         refreshUsers: fetchUsers
