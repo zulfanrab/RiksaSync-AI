@@ -30,7 +30,6 @@ interface UserContextType {
   mounted: boolean;
   error: string | null;
   login: (identifier: string, password?: string) => Promise<void>;
-  loginQuick: (username: string) => Promise<void>;
   logout: () => Promise<void>;
   setActiveUser: (username: string | null) => void;
   refreshUsers: () => Promise<void>;
@@ -287,28 +286,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     throw new Error('Akun tidak ditemukan. Pastikan Anda memilih salah satu dari 11 akun terdaftar.');
   };
 
-  // Login Cepat Password-less (Pilih Nama Karyawan Langsung Masuk)
-  const loginQuick = async (username: string) => {
-    setError(null);
-    const trimmed = username.trim().toLowerCase();
-    const matched = appUsersRef.current.find(
-      (u) => u.username.toLowerCase() === trimmed || (u.full_name && u.full_name.toLowerCase().includes(trimmed))
-    );
-
-    if (matched) {
-      setActiveUserState(matched.username);
-      setActiveUserRole(matched.role);
-      setActiveUserEmail(matched.email || `${matched.username.toLowerCase()}${DOMAIN_SUFFIX}`);
-      setCurrentUser(matched);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('active_user', matched.username);
-      }
-      return;
-    }
-
-    throw new Error(`Karyawan "${username}" tidak ditemukan di sistem.`);
-  };
-
   // Sign out
   const logout = async () => {
     try {
@@ -358,7 +335,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mounted,
         error,
         login,
-        loginQuick,
         logout,
         setActiveUser,
         refreshUsers: fetchUsers
