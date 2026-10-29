@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
 import { AttendanceType, WorkLocationType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import MonthlyAttendanceRecap from './MonthlyAttendanceRecap';
-import ErrorBoundary from './ErrorBoundary';
 import { safeParseDate, safeIsoDate, safeIsoString, safeFormatTime, safeFormatDate, safeToFixed } from '../lib/dateUtils';
 import {
   FileText,
@@ -100,37 +98,18 @@ export default function AttendanceModule({
     activeUser?.toLowerCase() === 'angga'
   );
 
-  // Akses Khusus:
-  // Zulfan = IT Staff (Bisa akses rekap & HANYA Zulfan yang punya wewenang edit waktu presensi)
-  // Marsya = Pengelola Rekap (Bisa akses rekap & catat izin/cuti)
+  // Akses Khusus Zulfan (Koreksi waktu presensi human error)
   const isZulfan = Boolean(
     activeUser?.toLowerCase() === 'zulfan' ||
     currentUser?.username?.toLowerCase() === 'zulfan' ||
     currentUser?.email?.toLowerCase().includes('zulfan')
   );
 
-  const isMarsya = Boolean(
-    activeUser?.toLowerCase() === 'marsya' ||
-    currentUser?.username?.toLowerCase() === 'marsya' ||
-    currentUser?.email?.toLowerCase().includes('marsya')
-  );
-
-  const canAccessRecap = Boolean(
-    isZulfan ||
-    isMarsya ||
-    isPrivilegedManager ||
-    currentUser?.division?.toLowerCase() === 'admin'
-  );
-
-  const [activeAttendanceView, setActiveAttendanceView] = useState<'selfie' | 'recap'>('selfie');
-
   // State untuk modal koreksi waktu presensi (Strictly Zulfan ONLY)
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [editDate, setEditDate] = useState<string>('');
   const [editTime, setEditTime] = useState<string>('');
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
-
-  const [historyFilter, setHistoryFilter] = useState<'mine' | 'team'>('mine');
 
   // Submit & History state
   const [submitting, setSubmitting] = useState(false);
@@ -668,11 +647,9 @@ export default function AttendanceModule({
   };
 
   // Fetch attendance history with Strict Privacy
-  // Karyawan biasa HANYA bisa melihat riwayat presensi miliknya sendiri.
-  // Privileged Manager dapat melihat milik sendiri atau seluruh tim.
-  const loadHistory = useCallback(async (forcedFilter?: 'mine' | 'team') => {
+  // Karyawan HANYA bisa melihat riwayat presensi miliknya sendiri (Strict Privacy).
+  const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
-    const activeFilter = forcedFilter || historyFilter;
     const activeEmail = activeUserEmail || `${(activeUser || '').toLowerCase()}@aksarariksapjk3.com`;
     const activeName = activeUser || '';
 
@@ -683,15 +660,13 @@ export default function AttendanceModule({
           .select('*')
           .order('timestamp', { ascending: false });
 
-        // Privacy filter: Jika staf biasa ATAU mode 'mine', batasi query ke email/nama aktif saja
-        if (!isPrivilegedManager || activeFilter === 'mine') {
-          if (activeEmail && activeName) {
-            query = query.or(`employee_email.ilike.${activeEmail},employee_name.ilike.${activeName}`);
-          } else if (activeEmail) {
-            query = query.ilike('employee_email', activeEmail);
-          } else if (activeName) {
-            query = query.ilike('employee_name', activeName);
-          }
+        // Privacy ketat: Hanya ambil data presensi milik akun yang sedang aktif login
+        if (activeEmail && activeName) {
+          query = query.or(`employee_email.ilike.${activeEmail},employee_name.ilike.${activeName}`);
+        } else if (activeEmail) {
+          query = query.ilike('employee_email', activeEmail);
+        } else if (activeName) {
+          query = query.ilike('employee_name', activeName);
         }
 
         const { data, error } = await query.limit(50);
@@ -726,23 +701,19 @@ export default function AttendanceModule({
       const local = localStorage.getItem('local_attendance_logs');
       if (local) {
         const parsed: AttendanceRecord[] = JSON.parse(local);
-        if (!isPrivilegedManager || activeFilter === 'mine') {
-          const filtered = parsed.filter((r) => {
-            const matchEmail = Boolean(r.employee_email && activeEmail && r.employee_email.toLowerCase() === activeEmail.toLowerCase());
-            const matchName = Boolean(r.employee_name && activeName && r.employee_name.toLowerCase() === activeName.toLowerCase());
-            return matchEmail || matchName;
-          });
-          setHistory(filtered);
-        } else {
-          setHistory(parsed);
-        }
+        const filtered = parsed.filter((r) => {
+          const matchEmail = Boolean(r.employee_email && activeEmail && r.employee_email.toLowerCase() === activeEmail.toLowerCase());
+          const matchName = Boolean(r.employee_name && activeName && r.employee_name.toLowerCase() === activeName.toLowerCase());
+          return matchEmail || matchName;
+        });
+        setHistory(filtered);
       }
     } catch (e) {
       console.warn('[History Error]', e);
     } finally {
       setHistoryLoading(false);
     }
-  }, [activeUser, activeUserEmail, isPrivilegedManager, historyFilter]);
+  }, [activeUser, activeUserEmail]);
 
   useEffect(() => {
     loadHistory();
@@ -1036,56 +1007,7 @@ export default function AttendanceModule({
         </div>
       </div>
 
-      {/* Tab Switcher: Presensi Mandiri vs Rekapitulasi Bulanan (Khusus Zulfan & Marsya) */}
-      {canAccessRecap && (
-        <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-          <button
-            type="button"
-            onClick={() => setActiveAttendanceView('selfie')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeAttendanceView === 'selfie'
-                ? 'bg-white text-emerald-800 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Camera className="h-4 w-4 text-emerald-600" />
-            <span>Presensi Selfie Mandiri</span>
-          </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveAttendanceView('recap')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeAttendanceView === 'recap'
-                ? 'bg-slate-900 text-emerald-400 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="h-4 w-4 text-emerald-400" />
-            <span>Rekapitulasi Bulanan (Siap Cetak A4)</span>
-            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-extrabold hidden md:inline">
-              Zulfan & Marsya
-            </span>
-          </button>
-        </div>
-      )}
-
-      {/* TAMPILKAN REKAPITULASI BULANAN JIKA MODE RECAP AKTIF */}
-      {activeAttendanceView === 'recap' && canAccessRecap ? (
-        <ErrorBoundary fallbackTitle="Gagal Menampilkan Rekapitulasi Presensi">
-          <MonthlyAttendanceRecap
-            manpowerList={manpowerList || []}
-            absences={absences || []}
-            appUsers={appUsers || []}
-            onRefreshAll={async () => {
-              await loadHistory();
-            }}
-            canEditTimestamp={isZulfan}
-            currentUserLabel={isZulfan ? 'Zulfan (IT Staff)' : 'Marsya (Support Staff)'}
-          />
-        </ErrorBoundary>
-      ) : (
-        <>
           {/* Official Leave Notice (Connected with Kelola Manpower) */}
           {todayOfficialLeave && (
         <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-sm animate-in slide-in-from-top-2">
@@ -1712,42 +1634,11 @@ export default function AttendanceModule({
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-slate-600" />
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  {historyFilter === 'mine' ? 'Riwayat Presensi Saya' : 'Pantauan Seluruh Tim'}
+                  Riwayat Presensi Saya
                 </h3>
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Switcher Tab HANYA jika Admin / Leader / IT */}
-                {isPrivilegedManager && (
-                  <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHistoryFilter('mine');
-                        loadHistory('mine');
-                      }}
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
-                        historyFilter === 'mine' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      <User className="h-3 w-3" />
-                      <span>Saya</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHistoryFilter('team');
-                        loadHistory('team');
-                      }}
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
-                        historyFilter === 'team' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      <Users className="h-3 w-3" />
-                      <span>Tim (Leader)</span>
-                    </button>
-                  </div>
-                )}
 
                 <button
                   type="button"
@@ -1809,7 +1700,7 @@ export default function AttendanceModule({
                             {rec.work_location_type === 'On Site' ? '🏭 On Site' : rec.work_location_type === 'WFH' ? '🏠 WFH' : '🏢 Kantor'}
                           </span>
                           <span className="font-bold text-slate-800 truncate">
-                            {historyFilter === 'team' ? rec.employee_name : 'Presensi Saya'}
+                            Presensi Saya
                           </span>
                           {punctuality && (
                             <span className={`h-2 w-2 rounded-full shrink-0 ${punctuality.dot}`} title="Indikator Ketepatan Waktu" />
@@ -1871,8 +1762,7 @@ export default function AttendanceModule({
           </div>
         </div>
       </div>
-      </>
-      )}
+
       {/* Modal Pengaturan Google Apps Script & Drive */}
       {showGasModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
