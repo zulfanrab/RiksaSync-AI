@@ -599,79 +599,45 @@ export default function DivisionLinksModule({
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
-      {/* 1. Header Banner & Actions */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 text-white shadow-xl relative overflow-hidden">
-        {/* Subtle decorative glow */}
-        <div className="absolute -top-16 -right-16 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-16 -left-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 bg-indigo-500/20 border border-indigo-400/30 px-3 py-1 rounded-full text-indigo-300 text-xs font-black tracking-wide">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Enterprise Resource Hub</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2.5">
-              <span>Portal Akses Cepat Divisi</span>
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-normal">
-              Akses instan ke dokumen Google Drive, form operasional, template laporan, dan tautan kerja penting per divisi PT Aksara Riksa Perdana. Dilengkapi proteksi keamanan PIN terenkripsi.
-            </p>
+      {/* 1. Header Card (Bersih, Jelas, & Nyaman Digunakan) */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-2xl shrink-0 shadow-2xs">
+            🔗
           </div>
-
-          {/* Top Quick Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="px-3.5 py-2.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-              title="Refresh Tautan"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-
-            <button
-              onClick={openPinSettingsModal}
-              className="px-4 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer active:scale-95"
-              title="Kelola PIN Master & PIN per Divisi"
-            >
-              <KeyRound className="h-4 w-4 text-amber-400" />
-              <span>Kelola PIN Divisi</span>
-            </button>
-
-            <button
-              onClick={openAddLinkModal}
-              className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Tambah Tautan Baru</span>
-            </button>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg sm:text-xl font-extrabold text-slate-800 tracking-tight">
+                Link &amp; Akses Cepat Divisi
+              </h1>
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                {stats.total} Link Tersimpan
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 max-w-xl leading-relaxed">
+              Kumpulan link penting per divisi (Google Drive, formulir, spreadsheet, dan dokumen kerja) agar tim dapat langsung membukanya dalam satu klik.
+            </p>
           </div>
         </div>
 
-        {/* Quick Stats Bento */}
-        <div className="grid grid-cols-3 gap-3 pt-6 mt-6 border-t border-slate-800/80 text-xs">
-          <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Tautan</span>
-            <span className="text-xl sm:text-2xl font-black text-white mt-1 font-mono">{stats.total}</span>
-          </div>
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 shrink-0 self-stretch sm:self-auto">
+          <button
+            onClick={openPinSettingsModal}
+            className="flex-1 sm:flex-none px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+            title="Atur PIN Master &amp; PIN per Divisi"
+          >
+            <KeyRound className="h-4 w-4 text-amber-600" />
+            <span>Atur PIN Divisi</span>
+          </button>
 
-          <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
-              <Lock className="h-3 w-3 text-amber-400" />
-              <span>Diproteksi PIN</span>
-            </span>
-            <span className="text-xl sm:text-2xl font-black text-amber-300 mt-1 font-mono">{stats.locked}</span>
-          </div>
-
-          <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
-              <Unlock className="h-3 w-3 text-emerald-400" />
-              <span>Sesi Terbuka</span>
-            </span>
-            <span className="text-xl sm:text-2xl font-black text-emerald-300 mt-1 font-mono">{stats.unlocked}</span>
-          </div>
+          <button
+            onClick={openAddLinkModal}
+            className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Tambah Link Baru</span>
+          </button>
         </div>
       </div>
 
@@ -784,35 +750,39 @@ export default function DivisionLinksModule({
             return (
               <div
                 key={link.id}
-                className={`bg-white border ${style.border} ${style.hoverBorder} rounded-2xl p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between gap-4 group relative overflow-hidden`}
+                className={`bg-white border ${style.border} ${style.hoverBorder} rounded-2xl p-4 sm:p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 group relative overflow-hidden`}
               >
                 {/* Subtle top division gradient stripe */}
                 <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${style.cardBg}`} />
 
                 <div className="space-y-3">
-                  {/* Card Header: Icon & Badges */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-center text-2xl shadow-inner shrink-0 group-hover:scale-105 transition-transform">
+                  {/* Card Header: Icon, Division, Title & Badges */}
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div
+                      onClick={(e) => handleOpenLink(link, e)}
+                      className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer"
+                      title={`Buka ${link.title}`}
+                    >
+                      <div className="w-11 h-11 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-center text-2xl shadow-2xs shrink-0 group-hover:scale-105 transition-transform">
                         {link.emoji || '🔗'}
                       </div>
-                      <div className="space-y-0.5 min-w-0">
+                      <div className="space-y-0.5 min-w-0 flex-1">
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border inline-block ${style.pill}`}>
                           {link.division || 'Umum'}
                         </span>
-                        <h4 className="text-sm font-extrabold text-slate-800 leading-snug truncate max-w-[200px]" title={link.title}>
+                        <h4 className="text-sm font-extrabold text-slate-800 leading-snug truncate group-hover:text-indigo-600 transition-colors" title={link.title}>
                           {link.title}
                         </h4>
                       </div>
                     </div>
 
                     {/* Security Status Badge */}
-                    <div className="shrink-0">
+                    <div className="shrink-0 pt-0.5">
                       {isLocked ? (
                         isUnlocked ? (
                           <span
                             className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-2xs"
-                            title="Terbuka untuk sesi browser ini"
+                            title="PIN Terbuka untuk sesi browser ini"
                           >
                             <Unlock className="h-3 w-3 text-emerald-600" />
                             <span>Terbuka</span>
@@ -820,10 +790,10 @@ export default function DivisionLinksModule({
                         ) : (
                           <span
                             className="flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg shadow-2xs"
-                            title="Memerlukan PIN 4-digit"
+                            title="Tautan terkunci dengan PIN 4-digit"
                           >
                             <Lock className="h-3 w-3 text-amber-600" />
-                            <span>PIN</span>
+                            <span>Perlu PIN</span>
                           </span>
                         )
                       ) : (
@@ -835,8 +805,12 @@ export default function DivisionLinksModule({
                     </div>
                   </div>
 
-                  {/* URL Preview */}
-                  <div className="bg-slate-50/80 border border-slate-200/70 rounded-xl px-3 py-2 text-[11px] text-slate-500 font-mono truncate flex items-center gap-1.5" title={link.url}>
+                  {/* URL Preview (Clickable directly to open) */}
+                  <div
+                    onClick={(e) => handleOpenLink(link, e)}
+                    className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/70 rounded-xl px-3 py-2 text-[11px] text-slate-500 hover:text-indigo-600 font-mono truncate flex items-center gap-1.5 cursor-pointer transition-colors"
+                    title={`Klik untuk buka: ${link.url}`}
+                  >
                     <ExternalLink className="h-3 w-3 text-slate-400 shrink-0" />
                     <span className="truncate">{hostname}</span>
                   </div>
@@ -848,7 +822,7 @@ export default function DivisionLinksModule({
                     <button
                       onClick={(e) => handleCopyLink(link.url, link.id, e)}
                       className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                      title="Salin alamat URL"
+                      title={copiedId === link.id ? 'URL Tersalin!' : 'Salin alamat URL'}
                     >
                       {copiedId === link.id ? (
                         <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -860,7 +834,7 @@ export default function DivisionLinksModule({
                     <button
                       onClick={(e) => openEditLinkModal(link, e)}
                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                      title="Edit tautan ini"
+                      title="Edit link ini"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
@@ -868,7 +842,7 @@ export default function DivisionLinksModule({
                     <button
                       onClick={(e) => handleDeleteQuickLink(link.id, e)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                      title="Hapus tautan ini"
+                      title="Hapus link ini"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -877,8 +851,8 @@ export default function DivisionLinksModule({
                     {isLocked && isUnlocked && (
                       <button
                         onClick={(e) => handleRelockDivision(div, e)}
-                        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                        title="Kunci kembali seluruh tautan divisi ini"
+                        className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
+                        title="Kunci kembali seluruh link di divisi ini"
                       >
                         <Lock className="h-3.5 w-3.5" />
                       </button>
@@ -889,8 +863,9 @@ export default function DivisionLinksModule({
                   <button
                     onClick={(e) => handleOpenLink(link, e)}
                     className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-2xs hover:shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                    title={`Buka ${link.title}`}
                   >
-                    <span>Buka</span>
+                    <span>Buka Link</span>
                     <ExternalLink className="h-3.5 w-3.5" />
                   </button>
                 </div>
