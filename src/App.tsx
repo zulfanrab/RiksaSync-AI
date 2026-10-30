@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, RefreshCcw, ClipboardList, Database, Code, Copy, X, BookOpen, TrendingUp, MapPin } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, ClipboardList, Database, Code, Copy, X, BookOpen, MapPin, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
@@ -14,9 +14,8 @@ import ScheduleForm from './components/ScheduleForm';
 import ManpowerManagement from './components/ManpowerManagement';
 import WhatsappDispatcher from './components/WhatsappDispatcher';
 import TaskBoard from './components/TaskBoard';
-import RetentionModule from './components/RetentionModule';
-import InspectionPipelineModule from './components/InspectionPipelineModule';
-import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask, QuickLink, RetentionClient, ClientEquipment, FollowUpLog, InspectionJob } from './types';
+import DivisionLinksModule from './components/DivisionLinksModule';
+import { Manpower, Unit, Schedule, ManpowerAbsence, TeamTask, QuickLink } from './types';
 import { useUser } from './context/UserContext';
 import LoginScreen from './components/LoginScreen';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -126,15 +125,9 @@ export default function App() {
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'retention' | 'inspection' | 'attendance'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'links' | 'attendance'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-
-  // Retention & Inspection Module State
-  const [retentionClients, setRetentionClients] = useState<RetentionClient[]>([]);
-  const [clientEquipments, setClientEquipments] = useState<ClientEquipment[]>([]);
-  const [followUpLogs, setFollowUpLogs] = useState<FollowUpLog[]>([]);
-  const [inspectionJobs, setInspectionJobs] = useState<InspectionJob[]>([]);
 
   // System status
   const [supabaseConnected, setSupabaseConnected] = useState(false);
@@ -443,7 +436,7 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       setGeminiConnected(true);
 
       // Call Supabase queries in parallel for ultra fast load times
-      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes, quickLinksRes, equipmentsRes, logsRes, jobsRes] = await Promise.all([
+      const [manpowerRes, unitsRes, schedulesRes, clientsRes, absencesRes, tasksRes, quickLinksRes] = await Promise.all([
         supabase.from('manpower').select('*'),
         supabase.from('units').select('*'),
         supabase.from('schedules').select('*'),
@@ -461,18 +454,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         })(),
         (async () => {
           try { return await supabase.from('quick_links').select('*').order('created_at', { ascending: false }); }
-          catch (e) { return { data: [], error: e } as any; }
-        })(),
-        (async () => {
-          try { return await supabase.from('client_equipments').select('*').order('due_date', { ascending: true }); }
-          catch (e) { return { data: [], error: e } as any; }
-        })(),
-        (async () => {
-          try { return await supabase.from('follow_up_logs').select('*').order('created_at', { ascending: false }); }
-          catch (e) { return { data: [], error: e } as any; }
-        })(),
-        (async () => {
-          try { return await supabase.from('inspection_jobs').select('*').order('created_at', { ascending: false }); }
           catch (e) { return { data: [], error: e } as any; }
         })()
       ]);
@@ -615,10 +596,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         } catch (e) {}
       }
 
-      const equipmentsData = equipmentsRes && !equipmentsRes.error ? (equipmentsRes.data || []) : [];
-      const logsData = logsRes && !logsRes.error ? (logsRes.data || []) : [];
-      const jobsData = jobsRes && !jobsRes.error ? (jobsRes.data || []) : [];
-
       setManpowerList(manpowerData);
       setUnits(unitsData);
       setSchedules(schedulesRes.data as Schedule[] || []);
@@ -626,10 +603,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       setAbsences(absencesData as ManpowerAbsence[]);
       setTasks(tasksData);
       setQuickLinks(quickLinksData);
-      setRetentionClients(clientsData as RetentionClient[]);
-      setClientEquipments(equipmentsData as ClientEquipment[]);
-      setFollowUpLogs(logsData as FollowUpLog[]);
-      setInspectionJobs(jobsData as InspectionJob[]);
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
@@ -639,7 +612,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       setUnits(INITIAL_UNITS);
       setSchedules(getLocalSchedules());
       setClients(INITIAL_CLIENTS);
-      setRetentionClients(INITIAL_CLIENTS as RetentionClient[]);
       setTasks([]);
       setQuickLinks([]);
       const localAbs = localStorage.getItem('local_manpower_absences');
@@ -887,20 +859,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
 
     const uniqueClients = new Set(schedules.map(s => s.client_name)).size;
 
-    // 5. Retention critical count (H-30, belum deal/lost) — for red badge on tab
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const criticalRetentionCount = clientEquipments.filter(eq => {
-      const latestLog = followUpLogs
-        .filter(l => l.equipment_id === eq.id)
-        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
-      if (latestLog?.status === 'Deal (Lanjut)' || latestLog?.status === 'Lost (Lepas)') return false;
-      const due = new Date(eq.due_date);
-      due.setHours(0, 0, 0, 0);
-      const days = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      return days >= 0 && days <= 30;
-    }).length;
-
     return {
       todayCount: todaySchedules.length,
       todaySchedules,
@@ -909,10 +867,9 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       monthProgressPct,
       p1Count,
       activeManpowerTodayCount: activeManpowerSet.size,
-      uniqueClients,
-      criticalRetentionCount
+      uniqueClients
     };
-  }, [schedules, clientEquipments, followUpLogs]);
+  }, [schedules]);
 
   // Check login and display loading/login screen
   if (loading) {
@@ -1003,14 +960,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       </div>
     );
   }
-
-  const handleCreateInspectionJobs = async (jobs: Partial<InspectionJob>[]) => {
-    if (!isSupabaseConfigured || !supabase) return;
-    const { error } = await supabase.from('inspection_jobs').insert(jobs.map(j => ({ ...j, created_by: activeUser || undefined })));
-    if (!error) {
-      await loadAllData();
-    }
-  };
 
   return (
     <div className="min-h-screen bg-[#F8FAFB] text-slate-800 flex flex-col font-sans">
@@ -1171,29 +1120,14 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
             📝 Workspace &amp; Tugas
           </button>
           <button
-            onClick={() => setActiveTab('retention')}
-            className={`relative px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
-              activeTab === 'retention'
-                ? 'border-rose-500 bg-white text-rose-600 shadow-xs'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-            }`}
-          >
-            🔁 Retensi Klien
-            {stats.criticalRetentionCount > 0 && (
-              <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white shadow-sm">
-                {stats.criticalRetentionCount > 9 ? '9+' : stats.criticalRetentionCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('inspection')}
+            onClick={() => setActiveTab('links')}
             className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
-              activeTab === 'inspection'
-                ? 'border-violet-600 bg-white text-violet-700 shadow-xs'
+              activeTab === 'links'
+                ? 'border-indigo-600 bg-white text-indigo-700 shadow-xs'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            ⚙️ Progress Pemeriksaan
+            🔗 Akses Cepat Divisi
           </button>
           <button
             onClick={() => setIsManpowerMgmtOpen(true)}
@@ -1342,44 +1276,12 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
               onRefreshAll={loadAllData}
             />
           </div>
-        ) : activeTab === 'retention' ? (
+        ) : activeTab === 'links' ? (
           <div className="h-full flex-1">
-            {/* Critical alert banner */}
-            {stats.criticalRetentionCount > 0 && (
-              <div className="mb-4 bg-red-50 border border-red-200 text-red-800 px-5 py-3.5 rounded-2xl flex items-center gap-3 animate-fadeIn">
-                <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 animate-pulse" />
-                <div>
-                  <p className="text-xs font-black">
-                    ⚠️ {stats.criticalRetentionCount} alat klien dalam kondisi KRITIS (H-30 jatuh tempo, belum deal)
-                  </p>
-                  <p className="text-[10px] text-red-600 mt-0.5">Segera lakukan follow-up keras. Filter tab "Kritis" untuk melihat daftarnya.</p>
-                </div>
-              </div>
-            )}
-            <RetentionModule
-              clients={retentionClients}
-              equipments={clientEquipments}
-              logs={followUpLogs}
-              activeUser={activeUser || ''}
-              onRefresh={loadAllData}
-              onCreateInspectionJobs={handleCreateInspectionJobs}
-              onSwitchToInspection={() => setActiveTab('inspection')}
-            />
-          </div>
-        ) : activeTab === 'inspection' ? (
-          <div className="h-full flex-1">
-            <div className="mb-4 bg-violet-50 border border-violet-200 px-5 py-3.5 rounded-2xl flex items-center gap-3">
-              <TrendingUp className="h-5 w-5 text-violet-500 shrink-0" />
-              <div>
-                <p className="text-xs font-black text-violet-800">⚙️ Pipeline Teknis & Operasional</p>
-                <p className="text-[10px] text-violet-600">Job muncul otomatis saat klien di-Deal dari modul Retensi, atau tambahkan manual via tombol Tambah Job.</p>
-              </div>
-            </div>
-            <InspectionPipelineModule
-              jobs={inspectionJobs}
-              manpowerList={manpowerList}
-              activeUser={activeUser || ''}
-              onRefresh={loadAllData}
+            <DivisionLinksModule
+              quickLinks={quickLinks}
+              activeUser={activeUser}
+              onRefreshAll={loadAllData}
             />
           </div>
         ) : (
@@ -1612,23 +1514,13 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         </button>
 
         <button
-          onClick={() => setActiveTab('retention')}
+          onClick={() => setActiveTab('links')}
           className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
-            activeTab === 'retention' ? 'text-rose-600 bg-rose-50/80' : 'text-slate-500'
+            activeTab === 'links' ? 'text-indigo-600 bg-indigo-50/80' : 'text-slate-500'
           }`}
         >
-          <RefreshCcw className="h-4 w-4" />
-          <span>Retensi</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('inspection')}
-          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
-            activeTab === 'inspection' ? 'text-violet-600 bg-violet-50/80' : 'text-slate-500'
-          }`}
-        >
-          <TrendingUp className="h-4 w-4" />
-          <span>Pipeline</span>
+          <Link2 className="h-4 w-4" />
+          <span>Akses Cepat</span>
         </button>
       </nav>
 
