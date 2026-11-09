@@ -139,4 +139,7 @@ export interface AttendanceRecord {
   longitude: number;
   photo_drive_url?: string;             // Google Drive link
   created_at?: string;
+  notes?: string;                       // Keterangan manual (konfirmasi via WA / Surat)
+  note_source?: 'WhatsApp' | 'Surat' | 'Telepon' | 'Lisan';
+  noted_by?: string;                    // 'Zulfan' | 'Marsya'
 }

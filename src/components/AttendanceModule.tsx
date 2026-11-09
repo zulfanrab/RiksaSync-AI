@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useUser } from '../context/UserContext';
 import { AttendanceType, WorkLocationType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { safeParseDate, safeIsoDate, safeIsoString, safeFormatTime, safeFormatDate, safeToFixed } from '../lib/dateUtils';
+import AttendanceRecapModule, { isAllowedAttendanceAdmin, ManualAttendanceNote, checkLateMinutes } from './AttendanceRecapModule';
 import {
   FileText,
   Camera,
@@ -31,7 +32,11 @@ import {
   Cloud,
   Settings,
   X,
-  Upload
+  Upload,
+  Timer,
+  TrendingUp,
+  MessageSquare,
+  Plus
 } from 'lucide-react';
 
 interface Coords {
@@ -104,6 +109,63 @@ export default function AttendanceModule({
     currentUser?.username?.toLowerCase() === 'zulfan' ||
     currentUser?.email?.toLowerCase().includes('zulfan')
   );
+
+  // Akses Khusus Zulfan & Marsya (Rekapitulasi Tim & Input Keterangan Manual)
+  const isAllowedRecapAdmin = Boolean(
+    isAllowedAttendanceAdmin(activeUser) ||
+    isAllowedAttendanceAdmin(currentUser?.username)
+  );
+  const [showRecapModal, setShowRecapModal] = useState<boolean>(false);
+
+  // Manual Notes State (Konfirmasi via WhatsApp / Surat)
+  const [manualNotes, setManualNotes] = useState<ManualAttendanceNote[]>([]);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [targetNoteEmp, setTargetNoteEmp] = useState('');
+  const [targetNoteDate, setTargetNoteDate] = useState('');
+  const [noteSource, setNoteSource] = useState<'WhatsApp' | 'Surat' | 'Telepon' | 'Lisan'>('WhatsApp');
+  const [noteCategory, setNoteCategory] = useState<ManualAttendanceNote['category']>('Dispensasi Keterlambatan');
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+
+  const loadManualNotes = useCallback(() => {
+    try {
+      const raw = localStorage.getItem('attendance_manual_notes');
+      if (raw) setManualNotes(JSON.parse(raw));
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    loadManualNotes();
+  }, [loadManualNotes]);
+
+  const handleSaveNote = async () => {
+    if (!noteText.trim()) {
+      alert('Harap isi keterangan/alasan.');
+      return;
+    }
+    setSavingNote(true);
+    const newNote: ManualAttendanceNote = {
+      id: 'note_' + Date.now(),
+      employee_name: targetNoteEmp || activeUser || 'Karyawan',
+      date: targetNoteDate || todayStr,
+      source: noteSource,
+      category: noteCategory,
+      note: noteText.trim(),
+      created_by: activeUser || 'Zulfan',
+      created_at: new Date().toISOString()
+    };
+    try {
+      const updated = [newNote, ...manualNotes.filter(n => n.id !== newNote.id)];
+      localStorage.setItem('attendance_manual_notes', JSON.stringify(updated));
+      setManualNotes(updated);
+      setNoteText('');
+      setShowNoteModal(false);
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setSavingNote(false);
+    }
+  };
 
   // State untuk modal koreksi waktu presensi (Strictly Zulfan ONLY)
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
@@ -214,6 +276,66 @@ export default function AttendanceModule({
   const todayMasuk = userTodayRecords.find((r) => r.type === 'Masuk');
   const todayPulang = userTodayRecords.find((r) => r.type === 'Pulang');
 
+  // Pelacakan Sesi Masuk Aktif & Durasi Kerja (Support Shift Malam lintas hari)
+  const activeMasuk = useMemo(() => {
+    if (todayMasuk) return todayMasuk;
+    // Cari record terakhir jika semalam shift malam (masuk dalam 24 jam terakhir dan belum ada pulang)
+    const userAll = history.filter((r) => {
+      const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase() === activeUserEmail.toLowerCase());
+      const matchName = Boolean(r.employee_name && activeUser && r.employee_name.toLowerCase() === activeUser.toLowerCase());
+      return matchEmail || matchName;
+    });
+    if (userAll.length > 0 && userAll[0].type === 'Masuk') {
+      const masukTime = new Date(userAll[0].timestamp).getTime();
+      const diffHours = (now.getTime() - masukTime) / (1000 * 60 * 60);
+      if (diffHours < 24) {
+        return userAll[0];
+      }
+    }
+    return null;
+  }, [todayMasuk, history, activeUserEmail, activeUser, now]);
+
+  // Durasi Kerja Terhitung (Live Ticker atau Selesai)
+  const workingDuration = useMemo(() => {
+    if (!activeMasuk) return null;
+    const masukMs = new Date(activeMasuk.timestamp).getTime();
+
+    if (todayPulang) {
+      const pulangMs = new Date(todayPulang.timestamp).getTime();
+      const diffMs = pulangMs - masukMs;
+      if (diffMs > 0) {
+        const totalMinutes = Math.floor(diffMs / (1000 * 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const mins = totalMinutes % 60;
+        return {
+          isLive: false,
+          text: `${hours} jam ${mins} menit`,
+          hours,
+          mins,
+          diffMs
+        };
+      }
+    }
+
+    // Shift sedang berjalan (Live real-time timer)
+    const diffMs = now.getTime() - masukMs;
+    if (diffMs > 0) {
+      const totalSecs = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      const secs = totalSecs % 60;
+      return {
+        isLive: true,
+        text: `${hours}j ${mins}m ${secs}s`,
+        hours,
+        mins,
+        secs,
+        diffMs
+      };
+    }
+    return null;
+  }, [activeMasuk, todayPulang, now]);
+
   const formatTimeOnly = (isoStr: string) => {
     return safeFormatTime(isoStr, '');
   };
@@ -232,13 +354,16 @@ export default function AttendanceModule({
       if (type === 'Masuk') {
         // Target: <= 09:00 WIB (540 minutes)
         const isGood = totalMinutes <= 9 * 60;
+        const lateMinutes = totalMinutes > 9 * 60 ? totalMinutes - 9 * 60 : 0;
         return {
           isGood,
+          lateMinutes,
           border: isGood ? 'border-emerald-500' : 'border-rose-400',
           bg: isGood ? 'bg-emerald-50/50' : 'bg-rose-50/40',
           dot: isGood ? 'bg-emerald-500' : 'bg-rose-500',
           badge: isGood ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-rose-100 text-rose-800 border-rose-200',
-          cardBorder: isGood ? 'border-emerald-500/80 shadow-emerald-500/10' : 'border-rose-400/90 shadow-rose-500/10'
+          cardBorder: isGood ? 'border-emerald-500/80 shadow-emerald-500/10' : 'border-rose-400/90 shadow-rose-500/10',
+          badgeText: isGood ? '🟢 Tepat Waktu' : `🔴 Terlambat ${lateMinutes} mnt`
         };
       }
 
@@ -248,11 +373,13 @@ export default function AttendanceModule({
         const isGood = totalMinutes >= targetMin;
         return {
           isGood,
+          lateMinutes: 0,
           border: isGood ? 'border-emerald-500' : 'border-rose-400',
           bg: isGood ? 'bg-emerald-50/50' : 'bg-rose-50/40',
           dot: isGood ? 'bg-emerald-500' : 'bg-rose-500',
           badge: isGood ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-rose-100 text-rose-800 border-rose-200',
-          cardBorder: isGood ? 'border-emerald-500/80 shadow-emerald-500/10' : 'border-rose-400/90 shadow-rose-500/10'
+          cardBorder: isGood ? 'border-emerald-500/80 shadow-emerald-500/10' : 'border-rose-400/90 shadow-rose-500/10',
+          badgeText: isGood ? '🟢 Sesuai Jadwal' : '🔴 Pulang Awal'
         };
       }
 
@@ -973,8 +1100,23 @@ export default function AttendanceModule({
           </p>
         </div>
 
-        {/* Realtime clock display + Admin-only sync dot */}
-        <div className="flex items-center gap-2.5 self-start md:self-auto">
+        {/* Realtime clock display + Admin-only sync dot + Rekap Tim Button */}
+        <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+          {/* Tombol Rekap Presensi Tim — KHUSUS ZULFAN & MARSYA */}
+          {isAllowedRecapAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowRecapModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+            >
+              <TrendingUp className="h-4 w-4" />
+              <span>📊 Rekap Absensi Tim</span>
+              <span className="text-[9px] bg-white/20 text-white px-1.5 py-0.5 rounded font-mono">
+                Zulfan & Marsya
+              </span>
+            </button>
+          )}
+
           {/* Titik sinkronisasi — hanya terlihat oleh IT/Manager, tanpa label */}
           {isPrivilegedManager && (
             <button
@@ -1130,7 +1272,11 @@ export default function AttendanceModule({
                     {todayMasuk ? formatTimeOnly(todayMasuk.timestamp) : 'Belum Absen'}
                   </span>
                   {todayMasuk && (
-                    <span className="text-[9px] text-slate-400">Tercatat</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                      masukStyle?.isGood ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                    }`}>
+                      {masukStyle?.isGood ? '🟢 Tepat' : `🔴 Telat ${masukStyle?.lateMinutes}m`}
+                    </span>
                   )}
                 </div>
               </div>
@@ -1161,6 +1307,37 @@ export default function AttendanceModule({
                 </div>
               </div>
             </div>
+
+            {/* Durasi Kerja Terhitung (Live Ticker / Selesai - Support Shift Malam) */}
+            {activeMasuk && workingDuration && (
+              <div className="p-3 rounded-xl border border-sky-400/30 bg-sky-950/60 backdrop-blur-xs flex items-center justify-between text-xs animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-1.5 rounded-lg ${workingDuration.isLive ? 'bg-sky-500/20 text-sky-400 animate-pulse' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                    <Timer className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase tracking-wider block">
+                      {todayPulang ? 'Total Jam Kerja Hari Ini' : 'Durasi Kerja Berjalan (Live)'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-white tracking-tight">
+                      {workingDuration.text}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    workingDuration.isLive
+                      ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                      : 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/30'
+                  }`}>
+                    {workingDuration.isLive ? '⏳ Sedang Bertugas' : '✅ Selesai'}
+                  </span>
+                  <span className="text-[9px] text-slate-400 block mt-0.5">
+                    Masuk: {formatTimeOnly(activeMasuk.timestamp)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 1. Selection Buttons: Strictly 2 Buttons (Masuk & Pulang) */}
@@ -1702,8 +1879,15 @@ export default function AttendanceModule({
                           <span className="font-bold text-slate-800 truncate">
                             Presensi Saya
                           </span>
-                          {punctuality && (
-                            <span className={`h-2 w-2 rounded-full shrink-0 ${punctuality.dot}`} title="Indikator Ketepatan Waktu" />
+                          {/* Indikator Warna Keterlambatan Jelas */}
+                          {isMasuk && punctuality && (
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                              punctuality.isGood
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                            }`}>
+                              {punctuality.badgeText}
+                            </span>
                           )}
                         </div>
 
@@ -1721,9 +1905,44 @@ export default function AttendanceModule({
                         <div className="text-[10px] text-slate-400 font-mono">
                           {dateLabel} • {timeLabel}
                         </div>
+
+                        {/* Catatan Konfirmasi Manual (WhatsApp / Surat) */}
+                        {manualNotes
+                          .filter((n) => n.date === safeIsoDate(rec.timestamp))
+                          .map((n) => (
+                            <div
+                              key={n.id}
+                              className="mt-1 p-1.5 bg-indigo-50/90 border border-indigo-200 rounded-lg text-[10px] text-indigo-900 flex items-center justify-between gap-1.5"
+                            >
+                              <span>
+                                💬 <strong className="uppercase">[{n.source}]</strong> {n.note}
+                              </span>
+                              <span className="text-[8px] text-indigo-500 font-mono shrink-0">
+                                by {n.created_by}
+                              </span>
+                            </div>
+                          ))}
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Tombol Input Keterangan Manual (Zulfan & Marsya) */}
+                        {isAllowedRecapAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTargetNoteEmp(rec.employee_name || activeUser || 'Karyawan');
+                              setTargetNoteDate(safeIsoDate(rec.timestamp));
+                              setNoteText('');
+                              setShowNoteModal(true);
+                            }}
+                            title="Beri Keterangan / Konfirmasi Surat/WA"
+                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors cursor-pointer"
+                          >
+                            <MessageSquare className="h-3 w-3 text-indigo-600" />
+                            <span className="hidden sm:inline">Keterangan</span>
+                          </button>
+                        )}
+
                         {/* Tombol Koreksi Waktu Presensi (Strictly Zulfan Only) */}
                         {isZulfan && (
                           <button
@@ -1941,6 +2160,127 @@ export default function AttendanceModule({
               >
                 {savingEdit && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
                 <span>{savingEdit ? 'Menyimpan...' : 'Simpan Koreksi'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Rekapitulasi Presensi Tim (Strictly Zulfan & Marsya Only) */}
+      {showRecapModal && isAllowedRecapAdmin && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="w-full max-w-6xl max-h-[95vh] overflow-y-auto rounded-3xl animate-in zoom-in-95">
+            <AttendanceRecapModule
+              absences={absences}
+              manpowerList={manpowerList}
+              onClose={() => setShowRecapModal(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Modal Input Keterangan Manual (WhatsApp / Surat) */}
+      {showNoteModal && isAllowedRecapAdmin && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-indigo-600" />
+                <h3 className="text-base font-black text-slate-800">Catat Keterangan Karyawan</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNoteModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Nama Karyawan:</label>
+                <input
+                  type="text"
+                  value={targetNoteEmp}
+                  onChange={(e) => setTargetNoteEmp(e.target.value)}
+                  placeholder="Nama karyawan"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Tanggal:</label>
+                  <input
+                    type="date"
+                    value={targetNoteDate}
+                    onChange={(e) => setTargetNoteDate(e.target.value)}
+                    className="w-full p-2 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Media Konfirmasi:</label>
+                  <select
+                    value={noteSource}
+                    onChange={(e) => setNoteSource(e.target.value as any)}
+                    className="w-full p-2 rounded-xl border border-slate-300 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="WhatsApp">🟢 WhatsApp</option>
+                    <option value="Surat">📄 Surat Resmi</option>
+                    <option value="Telepon">📞 Telepon Langsung</option>
+                    <option value="Lisan">🗣️ Lisan / Di Tempat</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Kategori:</label>
+                <select
+                  value={noteCategory}
+                  onChange={(e) => setNoteCategory(e.target.value as any)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="Dispensasi Keterlambatan">⏰ Dispensasi Keterlambatan</option>
+                  <option value="Izin Dinas / Lapangan">🏭 Izin Dinas Lapangan / Site Klien</option>
+                  <option value="Shift Malam / Lembur">🌙 Shift Malam / Lembur</option>
+                  <option value="Surat Dokter">🩺 Sakit (Surat Dokter)</option>
+                  <option value="Lainnya">📝 Lainnya</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Isi Keterangan / Konfirmasi:</label>
+                <textarea
+                  rows={3}
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Contoh: Konfirmasi via WA jam 08:30 bahwa teknisi langsung menuju site klien PT X untuk shift riksa."
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[10px] text-slate-500">
+                🔒 Dicatat oleh: <strong>{activeUser || 'Zulfan'}</strong>. Catatan ini otomatis tersimpan dan terlampir pada log kehadiran karyawan yang bersangkutan.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowNoteModal(false)}
+                className="text-xs font-semibold px-3.5 py-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNote}
+                disabled={savingNote}
+                className="text-xs font-bold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                {savingNote && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                <span>{savingNote ? 'Menyimpan...' : 'Simpan Keterangan'}</span>
               </button>
             </div>
           </div>
