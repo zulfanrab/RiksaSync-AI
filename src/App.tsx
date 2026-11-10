@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, ClipboardList, Database, Code, Copy, X, BookOpen, MapPin, Link2 } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, ClipboardList, Database, Code, Copy, X, BookOpen, MapPin, Link2, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
@@ -22,6 +22,7 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import GuideModal from './components/GuideModal';
 import NotificationCenter from './components/NotificationCenter';
 import AttendanceModule from './components/AttendanceModule';
+import PenomoranModule from './components/PenomoranModule';
 import { safeIsoDate } from './lib/dateUtils';
 
 const INITIAL_MANPOWER: Manpower[] = [
@@ -125,7 +126,7 @@ export default function App() {
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'links' | 'attendance'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'links' | 'attendance' | 'penomoran'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -1146,6 +1147,16 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
           >
             📍 Absensi
           </button>
+          <button
+            onClick={() => setActiveTab('penomoran')}
+            className={`px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs font-bold transition-all rounded-t-xl cursor-pointer border-b-2 whitespace-nowrap ${
+              activeTab === 'penomoran'
+                ? 'border-emerald-600 bg-white text-emerald-700 shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            📜 Penomoran Surat
+          </button>
         </div>
 
                 {activeTab === 'calendar' ? (
@@ -1284,13 +1295,17 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
               onRefreshAll={loadAllData}
             />
           </div>
-        ) : (
+        ) : activeTab === 'attendance' ? (
           <div className="h-full flex-1">
             <AttendanceModule
               absences={absences}
               manpowerList={manpowerList}
               onOpenManpowerMgmt={() => setIsManpowerMgmtOpen(true)}
             />
+          </div>
+        ) : (
+          <div className="h-full flex-1">
+            <PenomoranModule />
           </div>
         )}
       </main>
@@ -1521,6 +1536,16 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         >
           <Link2 className="h-4 w-4" />
           <span>Akses Cepat</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('penomoran')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+            activeTab === 'penomoran' ? 'text-emerald-700 bg-emerald-50/80 font-black' : 'text-slate-500'
+          }`}
+        >
+          <FileText className="h-4 w-4" />
+          <span>Nomor</span>
         </button>
       </nav>
 

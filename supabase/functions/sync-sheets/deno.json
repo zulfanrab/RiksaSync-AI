@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "googleapis": "npm:googleapis@^140.0.1",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.45.0"
+  }
+}
+
