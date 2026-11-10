@@ -1349,8 +1349,7 @@ app.post('/api/penomoran/sync-sheets', async (req, res) => {
         revisi_dari,
         status,
         alasan_batal,
-        pn_jenis:jenis_id (kode, nama, pad, kelompok),
-        pn_profil:dibuat_oleh (nama)
+        pn_jenis:jenis_id (kode, nama, pad, kelompok)
       `)
       .order('tahun', { ascending: true })
       .order('no_urut', { ascending: true });
@@ -1359,13 +1358,23 @@ app.post('/api/penomoran/sync-sheets', async (req, res) => {
       return res.status(500).json({ error: fetchErr.message });
     }
 
+    // Ambil nama pembuat dari app_users
+    const { data: users } = await supa
+      .from('app_users')
+      .select('auth_id, full_name, username');
+
+    const userMap = new Map<string, string>();
+    (users || []).forEach((u: any) => {
+      if (u.auth_id) userMap.set(u.auth_id, u.full_name || u.username);
+    });
+
     const formattedRecords = (rows || []).map((r: any) => ({
       jenis_kode: r.pn_jenis?.kode || '',
       jenis_nama: r.pn_jenis?.nama || '',
       tahun: r.tahun,
       no_urut: r.no_urut,
       tanggal: r.tanggal,
-      dibuat_oleh_nama: r.pn_profil?.nama || r.dibuat_oleh || '',
+      dibuat_oleh_nama: userMap.get(r.dibuat_oleh) || 'Admin ARP',
       klien: r.klien || '',
       perihal: r.perihal || '',
       ref: r.ref || '',
