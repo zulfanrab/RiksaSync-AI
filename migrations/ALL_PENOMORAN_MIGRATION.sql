@@ -615,3 +615,4 @@ DROP TRIGGER IF EXISTS on_auth_user_pn_profil_sync ON auth.users;
 CREATE TRIGGER on_auth_user_pn_profil_sync
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_pn_profil_sync();
+
