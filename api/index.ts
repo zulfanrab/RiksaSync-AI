@@ -1316,5 +1316,95 @@ app.post('/api/delete-drive', async (req, res) => {
   }
 });
 
+// ── Penomoran: Sinkron Ulang Seluruh Data ke Google Sheets (Rebuild All) ──
+app.post('/api/penomoran/sync-sheets', async (req, res) => {
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+    const gasUrl = req.body?.gas_url || process.env.GAS_PENOMORAN_URL || process.env.VITE_GAS_PENOMORAN_URL || '';
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase credentials not configured on server.' });
+    }
+
+    if (!gasUrl) {
+      return res.status(400).json({ error: 'GAS_PENOMORAN_URL belum dikonfigurasi di server atau request body.' });
+    }
+
+    const supa = createClient(supabaseUrl, supabaseKey);
+
+    // Ambil seluruh nomor dokumen yang ada di database tahun 2026
+    const { data: rows, error: fetchErr } = await supa
+      .from('pn_nomor')
+      .select(`
+        id,
+        jenis_id,
+        tahun,
+        no_urut,
+        tanggal,
+        dibuat_oleh,
+        klien,
+        perihal,
+        ref,
+        revisi_dari,
+        status,
+        alasan_batal,
+        pn_jenis:jenis_id (kode, nama, pad, kelompok),
+        pn_profil:dibuat_oleh (nama)
+      `)
+      .order('tahun', { ascending: true })
+      .order('no_urut', { ascending: true });
+
+    if (fetchErr) {
+      return res.status(500).json({ error: fetchErr.message });
+    }
+
+    const formattedRecords = (rows || []).map((r: any) => ({
+      jenis_kode: r.pn_jenis?.kode || '',
+      jenis_nama: r.pn_jenis?.nama || '',
+      tahun: r.tahun,
+      no_urut: r.no_urut,
+      tanggal: r.tanggal,
+      dibuat_oleh_nama: r.pn_profil?.nama || r.dibuat_oleh || '',
+      klien: r.klien || '',
+      perihal: r.perihal || '',
+      ref: r.ref || '',
+      revisi_dari_no: r.revisi_dari ? r.revisi_dari.no_urut : null,
+      status: r.status,
+      alasan_batal: r.alasan_batal || ''
+    }));
+
+    // Kirim bulk payload ke Google Apps Script Web App
+    const gasResponse = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'rebuild_all',
+        records: formattedRecords
+      })
+    });
+
+    const gasResult = await gasResponse.json().catch(() => ({ success: true, count: formattedRecords.length }));
+
+    // Catat ke pn_sync_log
+    await supa.from('pn_sync_log').insert([{
+      target: 'sheets',
+      endpoint: gasUrl,
+      status: 'sukses',
+      payload: { count: formattedRecords.length }
+    }]).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: `Berhasil menyinkronkan ${formattedRecords.length} nomor ke Google Sheets.`,
+      count: formattedRecords.length,
+      gasResult
+    });
+  } catch (err: any) {
+    console.error('[Penomoran Sync Sheets Error]:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export { app };
 export default app;

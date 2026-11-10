@@ -239,6 +239,16 @@ export default function PenomoranModule() {
 
   // Sinkronisasi ulang manual ke Google Sheets (Rebuild All)
   const handleSyncAllSheets = async () => {
+    let gasUrl = localStorage.getItem('gas_penomoran_url') || (import.meta.env.VITE_GAS_PENOMORAN_URL as string) || '';
+    if (!gasUrl) {
+      const inputUrl = window.prompt('Masukkan Web App URL Google Apps Script Anda:\n(Contoh: https://script.google.com/macros/s/.../exec)');
+      if (!inputUrl || !inputUrl.trim()) {
+        return;
+      }
+      gasUrl = inputUrl.trim();
+      localStorage.setItem('gas_penomoran_url', gasUrl);
+    }
+
     if (!window.confirm('Sinkron ulang semua tab di Google Sheets dari database Supabase sekarang?')) {
       return;
     }
@@ -250,7 +260,7 @@ export default function PenomoranModule() {
       const res = await fetch('/api/penomoran/sync-sheets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'rebuild_all' })
+        body: JSON.stringify({ action: 'rebuild_all', gas_url: gasUrl })
       });
 
       if (!res.ok) {
@@ -258,11 +268,12 @@ export default function PenomoranModule() {
         throw new Error(errJson.error || 'Gagal menyinkronkan spreadsheet.');
       }
 
-      setSyncResult('✅ Berhasil menyinkronkan seluruh nomor ke Google Sheets!');
-      setTimeout(() => setSyncResult(null), 4000);
+      const result = await res.json();
+      setSyncResult(`✅ Berhasil menyinkronkan ${result.count || ''} nomor ke Google Sheets!`);
+      setTimeout(() => setSyncResult(null), 5000);
     } catch (e: any) {
       console.error('[Sync Error]:', e);
-      setSyncResult(`⚠️ Info: Sinkronisasi Google Sheets otomatis berjalan via Supabase Webhook. (${e.message})`);
+      setSyncResult(`⚠️ Info: Sinkronisasi Google Sheets: ${e.message}`);
     } finally {
       setSyncingSheets(false);
     }
