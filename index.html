@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>AksaraSync AI - Manpower Plotting & Inspection Scheduling</title>
     <meta name="description" content="AksaraSync AI — Aplikasi manajemen manpower dan penjadwalan riksa uji berbasis AI secara real-time." />
 
@@ -32,8 +32,13 @@
         });
 
         // Automatically reload app when a new Service Worker (app update) takes over
+        let hadController = !!navigator.serviceWorker.controller;
         let refreshing = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController) {
+            hadController = true;
+            return;
+          }
           if (!refreshing) {
             refreshing = true;
             window.location.reload();

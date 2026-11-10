@@ -182,8 +182,20 @@ export default function NotificationCenter({ isFloating = false, className = '' 
         console.log('[Push] Unsubscribed existing subscription for a fresh sync.');
       }
       
-      // Request permission again if needed and subscribe
-      const p = await Notification.requestPermission();
+      // Request permission again if needed and subscribe (safely handles both Promise & callback for Safari/iOS)
+      let p: NotificationPermission = 'default';
+      try {
+        p = await new Promise<NotificationPermission>((resolve) => {
+          const res = Notification.requestPermission((status) => {
+            if (status) resolve(status);
+          });
+          if (res && typeof (res as any).then === 'function') {
+            (res as Promise<NotificationPermission>).then(resolve).catch(() => resolve('denied'));
+          }
+        });
+      } catch {
+        p = Notification.permission;
+      }
       setPermission(p);
       if (p === 'granted') {
         await subscribeToWebPush();
@@ -199,16 +211,17 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
   // Request browser notification permission + auto-subscribe
   useEffect(() => {
-    if (!('Notification' in window)) return;
-    setPermission(Notification.permission);
-
-    if (Notification.permission === 'granted') {
-      subscribeToWebPush();
-    } else if (Notification.permission !== 'denied') {
-      Notification.requestPermission().then(p => {
-        setPermission(p);
-        if (p === 'granted') subscribeToWebPush();
-      });
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    try {
+      setPermission(Notification.permission);
+      if (Notification.permission === 'granted') {
+        subscribeToWebPush();
+      }
+      // Note: Di iOS / iPadOS (Safari & PWA Standalone), memanggil Notification.requestPermission()
+      // tanpa interaksi langsung dari user (gesture click) akan ditolak / throw error oleh WebKit.
+      // Oleh karena itu, permintaan izin hanya dilakukan saat user menekan tombol aktifkan notifikasi.
+    } catch (e) {
+      console.warn('[Notification] Check permission warning:', e);
     }
   }, []);
 

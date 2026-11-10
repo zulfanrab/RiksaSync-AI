@@ -6,7 +6,7 @@
   "display": "standalone",
   "background_color": "#F8FAFB",
   "theme_color": "#10b981",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "icons": [
     {
       "src": "/logo-AksaraSyncAI.png",
