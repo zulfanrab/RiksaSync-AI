@@ -164,3 +164,4 @@ BEGIN
   RAISE NOTICE 'ALL TESTS PASSED SUCCESSFULLY! (6/6 SKENARIO LULUS)';
   RAISE NOTICE '=======================================================';
 END $$;
+

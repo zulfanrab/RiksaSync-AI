@@ -138,3 +138,4 @@ CREATE TRIGGER on_auth_user_pn_profil_sync
 --   'list-pengajuan-admin', 'surat-tugas-admin', 'surat-tugas-ahli'
 -- );
 -- ==============================================================================
+

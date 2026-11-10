@@ -117,3 +117,4 @@ CREATE POLICY "pn_sync_log_select_all"
 -- ALTER TABLE public.pn_jenis DISABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.pn_profil DISABLE ROW LEVEL SECURITY;
 -- ==============================================================================
+

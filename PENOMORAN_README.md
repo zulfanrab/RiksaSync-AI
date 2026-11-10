@@ -95,3 +95,4 @@ Untuk beralih mulus dari spreadsheet manual ke aplikasi:
 4. **Deploy & Jalankan Webhook:** Aktifkan Supabase Webhook ke Edge Function `sync-sheets`.
 5. **Switch Staf ke Web:** Seluruh staf mulai mengambil nomor hanya melalui tombol **"Ambil Nomor Baru"** di RiksaSync AI.
 6. **Arsipkan Sheet Lama:** Jadikan sheet lama sebagai arsip baca saja (*view only*).
+

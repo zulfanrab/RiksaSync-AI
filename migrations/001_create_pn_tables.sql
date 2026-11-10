@@ -103,3 +103,4 @@ CREATE INDEX IF NOT EXISTS idx_pn_sync_status ON public.pn_sync_log(status);
 -- DROP TABLE IF EXISTS public.pn_jenis CASCADE;
 -- DROP TABLE IF EXISTS public.pn_profil CASCADE;
 -- ==============================================================================
+
