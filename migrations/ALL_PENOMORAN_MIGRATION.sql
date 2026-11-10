@@ -572,25 +572,27 @@ ON CONFLICT (jenis_id, tahun) DO UPDATE SET
   terakhir = EXCLUDED.terakhir;
 
 -- 3. Sinkronkan Akun Pengguna ke pn_profil
+-- Mengambil HANYA dari auth.users yang aktif (mencegah error Foreign Key jika ada auth_id usang di app_users)
 -- Akun Zulfan & Marsya otomatis memperoleh hak Admin
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'app_users') THEN
-    INSERT INTO public.pn_profil (id, nama, role)
-    SELECT 
-      u.auth_id,
-      COALESCE(u.full_name, u.username) AS nama,
-      CASE 
-        WHEN LOWER(u.username) IN ('zulfan', 'marsya') OR LOWER(u.division) = 'it' THEN 'admin'
-        ELSE 'staf'
-      END AS role
-    FROM public.app_users u
-    WHERE u.auth_id IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET
-      nama = EXCLUDED.nama,
-      role = EXCLUDED.role,
-      updated_at = now();
-  END IF;
+  INSERT INTO public.pn_profil (id, nama, role)
+  SELECT 
+    a.id,
+    COALESCE(u.full_name, u.username, a.raw_user_meta_data->>'full_name', a.raw_user_meta_data->>'name', split_part(a.email, '@', 1)) AS nama,
+    CASE 
+      WHEN LOWER(COALESCE(u.username, '')) IN ('zulfan', 'marsya') 
+        OR LOWER(COALESCE(u.division, '')) = 'it'
+        OR LOWER(COALESCE(a.email, '')) LIKE 'zulfan@%'
+        OR LOWER(COALESCE(a.email, '')) LIKE 'marsya@%' THEN 'admin'
+      ELSE 'staf'
+    END AS role
+  FROM auth.users a
+  LEFT JOIN public.app_users u ON u.auth_id = a.id OR LOWER(u.email) = LOWER(a.email)
+  ON CONFLICT (id) DO UPDATE SET
+    nama = EXCLUDED.nama,
+    role = EXCLUDED.role,
+    updated_at = now();
 END $$;
 
 -- 4. Trigger Auto-Sync untuk Pengguna Baru
