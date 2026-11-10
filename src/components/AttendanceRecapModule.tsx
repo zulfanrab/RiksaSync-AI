@@ -242,6 +242,33 @@ export default function AttendanceRecapModule({
         }
       }
 
+      // 1b. Google Apps Script (Google Sheets) Fallback/Sync - Ambil seluruh presensi tim termasuk Marsya
+      const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta.env.VITE_GAS_ATTENDANCE_URL as string) || '';
+      if (gasUrl) {
+        try {
+          const res = await fetch(gasUrl, { method: 'GET' });
+          if (res.ok) {
+            const resJson = await res.json();
+            if (resJson && Array.isArray(resJson.records)) {
+              const gasRecords = resJson.records as AttendanceRecord[];
+              const existingKeys = new Set(
+                records.map(r => `${(r.employee_name || '').toLowerCase()}_${r.type}_${(r as any).date || safeIsoDate(r.timestamp)}`)
+              );
+              gasRecords.forEach((gr) => {
+                const grDate = (gr as any).date || safeIsoDate(gr.timestamp);
+                const key = `${(gr.employee_name || '').toLowerCase()}_${gr.type}_${grDate}`;
+                if (!existingKeys.has(key)) {
+                  records.push(gr);
+                  existingKeys.add(key);
+                }
+              });
+            }
+          }
+        } catch (gasErr) {
+          console.warn('[AttendanceRecap] GAS fetch warning:', gasErr);
+        }
+      }
+
       // 2. LocalStorage Fallback & Merge
       try {
         const localRaw = localStorage.getItem('local_attendance_logs');
@@ -378,15 +405,25 @@ export default function AttendanceRecapModule({
       };
     });
 
-    // Helper match username
-    const findMatchUser = (nameStr: string): string | null => {
+    // Helper match username (Akurat untuk nama lengkap, username & email)
+    const findMatchUser = (nameStr?: string, emailStr?: string): string | null => {
       const lower = (nameStr || '').trim().toLowerCase();
+      const lowerEmail = (emailStr || '').trim().toLowerCase();
+      const emailUser = lowerEmail.includes('@') ? lowerEmail.split('@')[0] : lowerEmail;
+
       for (const emp of MASTER_EMPLOYEES) {
         const full = emp.fullName.toLowerCase();
         const user = emp.username.toLowerCase();
-        if (lower === user || lower === full || lower.includes(user) || full.includes(lower)) {
-          return user;
-        }
+        
+        // 1. Direct match username atau email username
+        if (lower === user || emailUser === user) return user;
+        // 2. Full name match
+        if (lower === full || lower.includes(full) || full.includes(lower)) return user;
+        // 3. Substring / Token match (e.g. "Marsya Aulia" matches "Marsya")
+        if (lower.split(/\s+/).some(part => part && part === user)) return user;
+        if (lower.includes(user) || user.includes(lower)) return user;
+        // 4. Email check
+        if (lowerEmail && (lowerEmail.startsWith(user + '@') || lowerEmail.includes(user))) return user;
       }
       return null;
     };
@@ -395,14 +432,14 @@ export default function AttendanceRecapModule({
     const sortedRecords = [...allRecords].sort((a, b) => {
       const ta = new Date(a.timestamp).getTime();
       const tb = new Date(b.timestamp).getTime();
-      return ta - tb;
+      return (isNaN(ta) ? 0 : ta) - (isNaN(tb) ? 0 : tb);
     });
 
     // 1. Proses Records Absensi (Masuk & Pulang)
     // Kelompokkan record per karyawan
     const empRecordsMap: Record<string, AttendanceRecord[]> = {};
     sortedRecords.forEach((rec) => {
-      const matched = findMatchUser(rec.employee_name);
+      const matched = findMatchUser(rec.employee_name, rec.employee_email);
       if (matched) {
         if (!empRecordsMap[matched]) empRecordsMap[matched] = [];
         empRecordsMap[matched].push(rec);
@@ -416,8 +453,16 @@ export default function AttendanceRecapModule({
 
       // Telusuri record dalam bulan yang dipilih
       records.forEach((rec, idx) => {
-        const recDate = safeIsoDate(rec.timestamp);
+        const recDate = (rec as any).date || safeIsoDate(rec.timestamp);
         if (!recDate || !recDate.startsWith(monthStr)) return;
+
+        // Normalisasi timestamp jika perlu
+        let effTimestamp = rec.timestamp;
+        if (!effTimestamp || isNaN(new Date(effTimestamp).getTime())) {
+          if ((rec as any).date && (rec as any).time) {
+            effTimestamp = `${(rec as any).date}T${(rec as any).time}+07:00`;
+          }
+        }
 
         const type = rec.type;
         const mode = rec.work_location_type || 'Kantor';
@@ -437,14 +482,14 @@ export default function AttendanceRecapModule({
         if (type === 'Masuk') {
           r.masuk++;
           r.uniqueDaysHadir.add(recDate);
-          dayDet.masukTime = rec.timestamp;
+          dayDet.masukTime = effTimestamp || rec.timestamp;
 
           if (mode === 'On Site') r.onSite++;
           else if (mode === 'WFH') r.wfh++;
           else r.kantor++;
 
           // Keterlambatan: Masuk lewat dari 09:00 WIB
-          const lateMin = checkLateMinutes(rec.timestamp);
+          const lateMin = checkLateMinutes(effTimestamp || rec.timestamp);
           if (lateMin > 0) {
             dayDet.isLate = true;
             dayDet.lateMinutes = lateMin;

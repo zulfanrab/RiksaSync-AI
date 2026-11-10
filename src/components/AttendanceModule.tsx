@@ -773,74 +773,146 @@ export default function AttendanceModule({
     startCamera();
   };
 
-  // Fetch attendance history with Strict Privacy
-  // Karyawan HANYA bisa melihat riwayat presensi miliknya sendiri (Strict Privacy).
-  const loadHistory = useCallback(async () => {
+  // Fetch attendance history with Strict Privacy & Admin Filtering
+  // Karyawan biasa HANYA bisa melihat riwayat presensi miliknya sendiri.
+  // Zulfan & Marsya (Admin/IT) dapat memfilter untuk melihat presensi Marsya atau seluruh tim.
+  const [historyFilter, setHistoryFilter] = useState<string>('me');
+
+  const loadHistory = useCallback(async (forcedFilter?: string) => {
     setHistoryLoading(true);
+    const filter = forcedFilter !== undefined ? forcedFilter : historyFilter;
     const activeEmail = activeUserEmail || `${(activeUser || '').toLowerCase()}@aksarariksapjk3.com`;
     const activeName = activeUser || '';
 
     try {
+      let combinedRecords: AttendanceRecord[] = [];
+
+      // 1. Ambil dari Supabase jika tersedia
       if (isSupabaseConfigured && supabase) {
-        let query = supabase
-          .from('attendance_logs')
-          .select('*')
-          .order('timestamp', { ascending: false });
+        try {
+          let query = supabase
+            .from('attendance_logs')
+            .select('*')
+            .order('timestamp', { ascending: false });
 
-        // Privacy ketat: Hanya ambil data presensi milik akun yang sedang aktif login
-        if (activeEmail && activeName) {
-          query = query.or(`employee_email.ilike.${activeEmail},employee_name.ilike.${activeName}`);
-        } else if (activeEmail) {
-          query = query.ilike('employee_email', activeEmail);
-        } else if (activeName) {
-          query = query.ilike('employee_name', activeName);
+          if (filter === 'me') {
+            if (activeEmail && activeName) {
+              query = query.or(`employee_email.ilike.${activeEmail},employee_name.ilike.${activeName}`);
+            } else if (activeEmail) {
+              query = query.ilike('employee_email', activeEmail);
+            } else if (activeName) {
+              query = query.ilike('employee_name', activeName);
+            }
+          } else if (filter === 'marsya') {
+            query = query.or(`employee_email.ilike.%marsya%,employee_name.ilike.%marsya%`);
+          } else if (filter !== 'all') {
+            query = query.or(`employee_email.ilike.%${filter}%,employee_name.ilike.%${filter}%`);
+          }
+
+          const { data, error } = await query.limit(filter === 'me' ? 50 : 200);
+          if (!error && data && Array.isArray(data)) {
+            combinedRecords = data as AttendanceRecord[];
+          }
+        } catch (sbErr) {
+          console.warn('[Supabase History Error]', sbErr);
         }
+      }
 
-        const { data, error } = await query.limit(50);
+      // 2. AMBIL DARI GOOGLE APPS SCRIPT (Google Sheets) — Tempat penyimpanan utama selfie & presensi
+      const effectiveGasUrl = gasUrl || localStorage.getItem('gas_attendance_url') || (import.meta.env.VITE_GAS_ATTENDANCE_URL as string) || '';
+      if (effectiveGasUrl) {
+        try {
+          let param = '';
+          if (filter === 'me') param = `?email=${encodeURIComponent(activeEmail)}`;
+          else if (filter === 'marsya') param = `?email=marsya@aksarariksapjk3.com`;
+          else if (filter !== 'all') param = `?email=${encodeURIComponent(filter)}@aksarariksapjk3.com`;
 
-        if (!error && data) {
-          // Terapkan koreksi waktu Zulfan agar tidak tertimpa data lama Supabase
-          let mergedData = data as AttendanceRecord[];
-          try {
-            const correctionsRaw = localStorage.getItem('attendance_corrections_map');
-            if (correctionsRaw) {
-              const corrections: Record<string, { timestamp: string; created_at: string }> = JSON.parse(correctionsRaw);
-              mergedData = mergedData.map((rec) => {
-                const key1 = rec.id || '';
-                const recDate = safeIsoDate(rec.timestamp);
-                const key2 = `${rec.employee_name}_${rec.type}_${recDate}`;
-                const match = (key1 && corrections[key1]) || corrections[key2];
-                if (match) {
-                  return { ...rec, timestamp: match.timestamp, created_at: match.created_at || match.timestamp };
+          const res = await fetch(`${effectiveGasUrl}${param}`, { method: 'GET' });
+          if (res.ok) {
+            const resJson = await res.json();
+            if (resJson && Array.isArray(resJson.records)) {
+              const gasRecords = resJson.records as AttendanceRecord[];
+              const existingKeys = new Set(
+                combinedRecords.map(r => `${(r.employee_name || '').toLowerCase()}_${r.type}_${(r as any).date || safeIsoDate(r.timestamp)}`)
+              );
+              gasRecords.forEach((gr) => {
+                const grDate = (gr as any).date || safeIsoDate(gr.timestamp);
+                const key = `${(gr.employee_name || '').toLowerCase()}_${gr.type}_${grDate}`;
+                if (!existingKeys.has(key)) {
+                  combinedRecords.push(gr);
+                  existingKeys.add(key);
                 }
-                return rec;
               });
             }
-          } catch (e) {}
-
-          setHistory(mergedData);
-          setHistoryLoading(false);
-          return;
+          }
+        } catch (gasErr) {
+          console.warn('[GAS History Fetch Warning]', gasErr);
         }
       }
 
-      // Fallback to local storage if supabase not available
+      // 3. Gabungkan dengan LocalStorage
       const local = localStorage.getItem('local_attendance_logs');
       if (local) {
-        const parsed: AttendanceRecord[] = JSON.parse(local);
-        const filtered = parsed.filter((r) => {
-          const matchEmail = Boolean(r.employee_email && activeEmail && r.employee_email.toLowerCase() === activeEmail.toLowerCase());
-          const matchName = Boolean(r.employee_name && activeName && r.employee_name.toLowerCase() === activeName.toLowerCase());
-          return matchEmail || matchName;
-        });
-        setHistory(filtered);
+        try {
+          const parsed: AttendanceRecord[] = JSON.parse(local);
+          const existingKeys = new Set(
+            combinedRecords.map(r => `${(r.employee_name || '').toLowerCase()}_${r.type}_${(r as any).date || safeIsoDate(r.timestamp)}`)
+          );
+          parsed.forEach((lr) => {
+            const lrName = (lr.employee_name || '').toLowerCase();
+            const lrEmail = (lr.employee_email || '').toLowerCase();
+            let isMatch = true;
+            if (filter === 'me') {
+              isMatch = Boolean((activeEmail && lrEmail.includes(activeEmail.toLowerCase())) || (activeName && lrName.includes(activeName.toLowerCase())));
+            } else if (filter === 'marsya') {
+              isMatch = Boolean(lrName.includes('marsya') || lrEmail.includes('marsya'));
+            } else if (filter !== 'all') {
+              isMatch = Boolean(lrName.includes(filter) || lrEmail.includes(filter));
+            }
+            if (isMatch) {
+              const lrDate = (lr as any).date || safeIsoDate(lr.timestamp);
+              const key = `${lrName}_${lr.type}_${lrDate}`;
+              if (!existingKeys.has(key)) {
+                combinedRecords.push(lr);
+                existingKeys.add(key);
+              }
+            }
+          });
+        } catch (e) {}
       }
+
+      // 4. Terapkan koreksi waktu Zulfan
+      try {
+        const correctionsRaw = localStorage.getItem('attendance_corrections_map');
+        if (correctionsRaw) {
+          const corrections: Record<string, { timestamp: string; created_at: string }> = JSON.parse(correctionsRaw);
+          combinedRecords = combinedRecords.map((rec) => {
+            const key1 = rec.id || '';
+            const recDate = safeIsoDate(rec.timestamp) || (rec as any).date;
+            const key2 = `${rec.employee_name}_${rec.type}_${recDate}`;
+            const match = (key1 && corrections[key1]) || corrections[key2];
+            if (match) {
+              return { ...rec, timestamp: match.timestamp, created_at: match.created_at || match.timestamp };
+            }
+            return rec;
+          });
+        }
+      } catch (e) {}
+
+      // Urutkan terbaru di atas
+      combinedRecords.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+      });
+
+      setHistory(combinedRecords);
     } catch (e) {
       console.warn('[History Error]', e);
     } finally {
       setHistoryLoading(false);
     }
-  }, [activeUser, activeUserEmail]);
+  }, [activeUser, activeUserEmail, historyFilter, gasUrl]);
 
   useEffect(() => {
     loadHistory();
@@ -1805,17 +1877,68 @@ export default function AttendanceModule({
             </div>
           </div>
 
-          {/* Riwayat Absensi Terkini - PRIVASI KETAT */}
+          {/* Riwayat Absensi Terkini - PRIVASI KETAT & FILTER PENGAWAS */}
           <div className="bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl shadow-sm space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Calendar className="h-4 w-4 text-slate-600" />
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  Riwayat Presensi Saya
+                  {historyFilter === 'me'
+                    ? 'Riwayat Presensi Saya'
+                    : historyFilter === 'marsya'
+                    ? 'Riwayat Presensi Marsya'
+                    : 'Riwayat Presensi Seluruh Tim'}
                 </h3>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Filter Karyawan untuk Zulfan & Marsya / Pengawas */}
+                {isPrivilegedManager && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryFilter('me');
+                        loadHistory('me');
+                      }}
+                      className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-colors cursor-pointer ${
+                        historyFilter === 'me'
+                          ? 'bg-white text-emerald-700 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      👤 Saya
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryFilter('marsya');
+                        loadHistory('marsya');
+                      }}
+                      className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-colors cursor-pointer ${
+                        historyFilter === 'marsya'
+                          ? 'bg-indigo-100 text-indigo-800 shadow-xs border border-indigo-200'
+                          : 'text-slate-500 hover:text-indigo-700'
+                      }`}
+                    >
+                      👩 Marsya
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryFilter('all');
+                        loadHistory('all');
+                      }}
+                      className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-colors cursor-pointer ${
+                        historyFilter === 'all'
+                          ? 'bg-white text-slate-800 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      👥 Semua Tim
+                    </button>
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -1832,7 +1955,11 @@ export default function AttendanceModule({
             {/* Privacy notice badge */}
             <div className="flex items-center gap-1.5 text-[10px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200/80">
               <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
-              <span>Privasi Terjaga: Karyawan hanya dapat melihat data & foto presensi miliknya sendiri.</span>
+              <span>
+                {isPrivilegedManager
+                  ? 'Akses Pengawas (IT/Admin): Anda dapat memantau presensi Marsya dan seluruh karyawan secara real-time.'
+                  : 'Privasi Terjaga: Karyawan hanya dapat melihat data & foto presensi miliknya sendiri.'}
+              </span>
             </div>
 
             {historyLoading && history.length === 0 ? (
@@ -1877,7 +2004,10 @@ export default function AttendanceModule({
                             {rec.work_location_type === 'On Site' ? '🏭 On Site' : rec.work_location_type === 'WFH' ? '🏠 WFH' : '🏢 Kantor'}
                           </span>
                           <span className="font-bold text-slate-800 truncate">
-                            Presensi Saya
+                            {rec.employee_name || 'Presensi Karyawan'}
+                            {activeUser && (rec.employee_name || '').toLowerCase().includes(activeUser.toLowerCase()) && (
+                              <span className="ml-1 text-[9px] text-emerald-600 font-semibold">(Saya)</span>
+                            )}
                           </span>
                           {/* Indikator Warna Keterlambatan Jelas */}
                           {isMasuk && punctuality && (
