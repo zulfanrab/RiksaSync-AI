@@ -79,7 +79,28 @@ export default function PenomoranDetailModal({
         throw new Error(error.message || 'Gagal membatalkan nomor surat.');
       }
 
-      onCancelSuccess(data as PnNomor);
+      const updated = data as PnNomor;
+
+      // Sinkronisasi status pembatalan ke Google Apps Script Web App jika URL terkonfigurasi
+      const gasUrl = localStorage.getItem('gas_penomoran_url') || (import.meta.env.VITE_GAS_PENOMORAN_URL as string) || '';
+      if (gasUrl) {
+        fetch(gasUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            record: {
+              ...updated,
+              jenis_kode: jenis.kode,
+              jenis_nama: jenis.nama,
+              status: 'batal',
+              alasan_batal: cancelReason.trim()
+            }
+          })
+        }).catch(() => {});
+      }
+
+      onCancelSuccess(updated);
       onClose();
     } catch (err: any) {
       console.error('[pn_batalkan Error]:', err);

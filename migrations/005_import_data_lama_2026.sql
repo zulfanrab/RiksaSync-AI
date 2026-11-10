@@ -22,6 +22,56 @@ BEGIN
   -- TEMPORARY DISABLE AUDIT TRIGGER UNTUK MEMPERCEPAT BULK INSERT
   ALTER TABLE public.pn_nomor DISABLE TRIGGER trg_pn_nomor_audit;
 
+  -- ── Jenis: BAP-IL-IPP (2 baris) ──
+  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
+  VALUES
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bap-il-ipp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'NO BAP IL/IPP #1', 'NO BAP IL/IPP #1', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bap-il-ipp'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'NO BAP IL/IPP #2', 'NO BAP IL/IPP #2', NULL, 'aktif', NULL)
+  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
+    klien = EXCLUDED.klien,
+    perihal = EXCLUDED.perihal,
+    ref = EXCLUDED.ref,
+    status = EXCLUDED.status,
+    alasan_batal = EXCLUDED.alasan_batal;
+
+  -- ── Jenis: BAP-PTP (1 baris) ──
+  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
+  VALUES
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bap-ptp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'NO BAP PTP #1', 'NO BAP PTP #1', NULL, 'aktif', NULL)
+  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
+    klien = EXCLUDED.klien,
+    perihal = EXCLUDED.perihal,
+    ref = EXCLUDED.ref,
+    status = EXCLUDED.status,
+    alasan_batal = EXCLUDED.alasan_batal;
+
+  -- ── Jenis: BASTP (17 baris) ──
+  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
+  VALUES
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'BASTP #1', 'BASTP #1', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'BASTP #2', 'BASTP #2', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'BASTP #3', 'BASTP #3', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 4, '2026-01-01'::DATE, v_admin_id, 'BASTP #4', 'BASTP #4', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 5, '2026-01-01'::DATE, v_admin_id, '(PHC 4700012178)', '(PHC 4700012178)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 6, '2026-01-01'::DATE, v_admin_id, '(PHC  4700012194)', '(PHC  4700012194)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 7, '2026-01-01'::DATE, v_admin_id, '(Combi  4900001638)', '(Combi  4900001638)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 8, '2026-01-01'::DATE, v_admin_id, '(Comb 4900001641)', '(Comb 4900001641)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 9, '2026-01-01'::DATE, v_admin_id, '(PHC 4700012523)', '(PHC 4700012523)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 10, '2026-01-01'::DATE, v_admin_id, '(PHC 4700012753)', '(PHC 4700012753)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 11, '2026-01-01'::DATE, v_admin_id, 'BASTP #11', 'BASTP #11', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 12, '2026-01-01'::DATE, v_admin_id, '(PHC KBB 4700012904)', '(PHC KBB 4700012904)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 13, '2026-01-01'::DATE, v_admin_id, '(Combi KBB 4500047398)', '(Combi KBB 4500047398)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 14, '2026-01-01'::DATE, v_admin_id, '(PT PHC 4700012609)', '(PT PHC 4700012609)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 15, '2026-01-01'::DATE, v_admin_id, '(PT PHC 4700012753)', '(PT PHC 4700012753)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 16, '2026-01-01'::DATE, v_admin_id, '(Comb DA 4900001688)', '(Comb DA 4900001688)', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 17, '2026-01-01'::DATE, v_admin_id, '(Comb DA 4900001728)', '(Comb DA 4900001728)', NULL, 'aktif', NULL)
+  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
+    klien = EXCLUDED.klien,
+    perihal = EXCLUDED.perihal,
+    ref = EXCLUDED.ref,
+    status = EXCLUDED.status,
+    alasan_batal = EXCLUDED.alasan_batal;
+
   -- ── Jenis: INVOICE (173 baris) ──
   INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
   VALUES
@@ -205,6 +255,30 @@ BEGIN
     status = EXCLUDED.status,
     alasan_batal = EXCLUDED.alasan_batal;
 
+  -- ── Jenis: KONTRAK (3 baris) ──
+  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
+  VALUES
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'kontrak'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'Kontrak #1', 'Kontrak #1', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'kontrak'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'Kontrak #2', 'Kontrak #2', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'kontrak'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'Kontrak #3', 'Kontrak #3', NULL, 'aktif', NULL)
+  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
+    klien = EXCLUDED.klien,
+    perihal = EXCLUDED.perihal,
+    ref = EXCLUDED.ref,
+    status = EXCLUDED.status,
+    alasan_batal = EXCLUDED.alasan_batal;
+
+  -- ── Jenis: LIST-PENGAJUAN-ADMIN (1 baris) ──
+  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
+  VALUES
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'list-pengajuan-admin'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'LIST PENGAJUAN DIVISI ADMIN #1', 'LIST PENGAJUAN DIVISI ADMIN #1', NULL, 'aktif', NULL)
+  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
+    klien = EXCLUDED.klien,
+    perihal = EXCLUDED.perihal,
+    ref = EXCLUDED.ref,
+    status = EXCLUDED.status,
+    alasan_batal = EXCLUDED.alasan_batal;
+
   -- ── Jenis: PEMBERITAHUAN (165 baris) ──
   INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
   VALUES
@@ -360,7 +434,7 @@ BEGIN
     ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 150, '2026-01-01'::DATE, v_admin_id, 'Tata', 'Tata', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 151, '2026-01-01'::DATE, v_admin_id, 'ewindo', 'ewindo', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 152, '2026-01-01'::DATE, v_admin_id, 'Pastapora', 'Pastapora', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 151, '2026-01-01'::DATE, v_admin_id, 'Aemco', 'Aemco', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 153, '2026-01-01'::DATE, v_admin_id, 'Aemco', 'Aemco', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 154, '2026-01-01'::DATE, v_admin_id, 'Asuransi Astra', 'Asuransi Astra', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 155, '2026-01-01'::DATE, v_admin_id, 'JBA', 'JBA', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 'pemberitahuan'), 2026, 156, '2026-01-01'::DATE, v_admin_id, 'CV Perintis', 'CV Perintis', NULL, 'aktif', NULL),
@@ -706,22 +780,11 @@ BEGIN
     status = EXCLUDED.status,
     alasan_batal = EXCLUDED.alasan_batal;
 
-  -- ── Jenis: BAP-PTP (1 baris) ──
+  -- ── Jenis: PURCHASE-ORDER (2 baris) ──
   INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
   VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bap-ptp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'NO BAP PTP #1', 'NO BAP PTP #1', NULL, 'aktif', NULL)
-  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
-    klien = EXCLUDED.klien,
-    perihal = EXCLUDED.perihal,
-    ref = EXCLUDED.ref,
-    status = EXCLUDED.status,
-    alasan_batal = EXCLUDED.alasan_batal;
-
-  -- ── Jenis: BAP-IL-IPP (2 baris) ──
-  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
-  VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bap-il-ipp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'NO BAP IL/IPP #1', 'NO BAP IL/IPP #1', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bap-il-ipp'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'NO BAP IL/IPP #2', 'NO BAP IL/IPP #2', NULL, 'aktif', NULL)
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'purchase-order'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'PT MITRAMULTI HIJAU ABADI', 'PT MITRAMULTI HIJAU ABADI', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'purchase-order'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'PT MITRAMULTI HIJAU ABADI', 'PT MITRAMULTI HIJAU ABADI', NULL, 'aktif', NULL)
   ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
     klien = EXCLUDED.klien,
     perihal = EXCLUDED.perihal,
@@ -735,53 +798,6 @@ BEGIN
     ((SELECT id FROM public.pn_jenis WHERE kode = 's-refund'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'S-refund #1', 'S-refund #1', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 's-refund'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'S-refund #2', 'S-refund #2', NULL, 'aktif', NULL),
     ((SELECT id FROM public.pn_jenis WHERE kode = 's-refund'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'S-refund #3', 'S-refund #3', NULL, 'aktif', NULL)
-  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
-    klien = EXCLUDED.klien,
-    perihal = EXCLUDED.perihal,
-    ref = EXCLUDED.ref,
-    status = EXCLUDED.status,
-    alasan_batal = EXCLUDED.alasan_batal;
-
-  -- ── Jenis: SURAT-PERMOHONAN-SKP (10 baris) ──
-  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
-  VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #1', 'surat permohonan SKP #1', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #2', 'surat permohonan SKP #2', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #3', 'surat permohonan SKP #3', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 4, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #4', 'surat permohonan SKP #4', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 5, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #5', 'surat permohonan SKP #5', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 6, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #6', 'surat permohonan SKP #6', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 7, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #7', 'surat permohonan SKP #7', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 8, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #8', 'surat permohonan SKP #8', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 9, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #9', 'surat permohonan SKP #9', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 10, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #10', 'surat permohonan SKP #10', NULL, 'aktif', NULL)
-  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
-    klien = EXCLUDED.klien,
-    perihal = EXCLUDED.perihal,
-    ref = EXCLUDED.ref,
-    status = EXCLUDED.status,
-    alasan_batal = EXCLUDED.alasan_batal;
-
-  -- ── Jenis: BASTP (17 baris) ──
-  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
-  VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'BASTP #1', 'BASTP #1', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'BASTP #2', 'BASTP #2', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'BASTP #3', 'BASTP #3', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 4, '2026-01-01'::DATE, v_admin_id, 'BASTP #4', 'BASTP #4', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 5, '2026-01-01'::DATE, v_admin_id, '(PHC 4700012178)', '(PHC 4700012178)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 6, '2026-01-01'::DATE, v_admin_id, '(PHC  4700012194)', '(PHC  4700012194)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 7, '2026-01-01'::DATE, v_admin_id, '(Combi  4900001638)', '(Combi  4900001638)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 8, '2026-01-01'::DATE, v_admin_id, '(Comb 4900001641)', '(Comb 4900001641)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 9, '2026-01-01'::DATE, v_admin_id, '(PHC 4700012523)', '(PHC 4700012523)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 10, '2026-01-01'::DATE, v_admin_id, '(PHC 4700012753)', '(PHC 4700012753)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 11, '2026-01-01'::DATE, v_admin_id, 'BASTP #11', 'BASTP #11', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 12, '2026-01-01'::DATE, v_admin_id, '(PHC KBB 4700012904)', '(PHC KBB 4700012904)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 13, '2026-01-01'::DATE, v_admin_id, '(Combi KBB 4500047398)', '(Combi KBB 4500047398)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 14, '2026-01-01'::DATE, v_admin_id, '(PT PHC 4700012609)', '(PT PHC 4700012609)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 15, '2026-01-01'::DATE, v_admin_id, '(PT PHC 4700012753)', '(PT PHC 4700012753)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 16, '2026-01-01'::DATE, v_admin_id, '(Comb DA 4900001688)', '(Comb DA 4900001688)', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'bastp'), 2026, 17, '2026-01-01'::DATE, v_admin_id, '(Comb DA 4900001728)', '(Comb DA 4900001728)', NULL, 'aktif', NULL)
   ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
     klien = EXCLUDED.klien,
     perihal = EXCLUDED.perihal,
@@ -1004,35 +1020,19 @@ BEGIN
     status = EXCLUDED.status,
     alasan_batal = EXCLUDED.alasan_batal;
 
-  -- ── Jenis: KONTRAK (3 baris) ──
+  -- ── Jenis: SURAT-PERMOHONAN-SKP (10 baris) ──
   INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
   VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'kontrak'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'Kontrak #1', 'Kontrak #1', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'kontrak'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'Kontrak #2', 'Kontrak #2', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'kontrak'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'Kontrak #3', 'Kontrak #3', NULL, 'aktif', NULL)
-  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
-    klien = EXCLUDED.klien,
-    perihal = EXCLUDED.perihal,
-    ref = EXCLUDED.ref,
-    status = EXCLUDED.status,
-    alasan_batal = EXCLUDED.alasan_batal;
-
-  -- ── Jenis: PURCHASE-ORDER (2 baris) ──
-  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
-  VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'purchase-order'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'PT MITRAMULTI HIJAU ABADI', 'PT MITRAMULTI HIJAU ABADI', NULL, 'aktif', NULL),
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'purchase-order'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'PT MITRAMULTI HIJAU ABADI', 'PT MITRAMULTI HIJAU ABADI', NULL, 'aktif', NULL)
-  ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
-    klien = EXCLUDED.klien,
-    perihal = EXCLUDED.perihal,
-    ref = EXCLUDED.ref,
-    status = EXCLUDED.status,
-    alasan_batal = EXCLUDED.alasan_batal;
-
-  -- ── Jenis: LIST-PENGAJUAN-ADMIN (1 baris) ──
-  INSERT INTO public.pn_nomor (jenis_id, tahun, no_urut, tanggal, dibuat_oleh, klien, perihal, ref, status, alasan_batal)
-  VALUES
-    ((SELECT id FROM public.pn_jenis WHERE kode = 'list-pengajuan-admin'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'LIST PENGAJUAN DIVISI ADMIN #1', 'LIST PENGAJUAN DIVISI ADMIN #1', NULL, 'aktif', NULL)
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 1, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #1', 'surat permohonan SKP #1', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 2, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #2', 'surat permohonan SKP #2', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 3, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #3', 'surat permohonan SKP #3', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 4, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #4', 'surat permohonan SKP #4', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 5, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #5', 'surat permohonan SKP #5', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 6, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #6', 'surat permohonan SKP #6', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 7, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #7', 'surat permohonan SKP #7', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 8, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #8', 'surat permohonan SKP #8', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 9, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #9', 'surat permohonan SKP #9', NULL, 'aktif', NULL),
+    ((SELECT id FROM public.pn_jenis WHERE kode = 'surat-permohonan-skp'), 2026, 10, '2026-01-01'::DATE, v_admin_id, 'surat permohonan SKP #10', 'surat permohonan SKP #10', NULL, 'aktif', NULL)
   ON CONFLICT (jenis_id, tahun, no_urut) DO UPDATE SET
     klien = EXCLUDED.klien,
     perihal = EXCLUDED.perihal,

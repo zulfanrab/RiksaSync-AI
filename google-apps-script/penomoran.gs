@@ -261,3 +261,4 @@ function doGet(e) {
     time: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
 }
+

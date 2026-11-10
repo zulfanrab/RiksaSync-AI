@@ -79,6 +79,25 @@ export default function PenomoranFormModal({
         body: JSON.stringify({ record })
       }).catch(() => {});
 
+      // Sinkronisasi langsung ke Google Apps Script Web App jika URL terkonfigurasi
+      const gasUrl = localStorage.getItem('gas_penomoran_url') || (import.meta.env.VITE_GAS_PENOMORAN_URL as string) || '';
+      if (gasUrl) {
+        fetch(gasUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            record: {
+              ...record,
+              jenis_kode: jenis.kode,
+              jenis_nama: jenis.nama,
+              dibuat_oleh_nama: creatorName,
+              revisi_dari_no: revisiDariNomor ? revisiDariNomor.no_urut : null
+            }
+          })
+        }).catch((e) => console.warn('[GAS Mirror Sync Warning]:', e));
+      }
+
     } catch (err: any) {
       console.error('[pn_ambil_nomor Error]:', err);
       setErrorMsg(err.message || 'Terjadi kesalahan saat memproses penomoran.');
