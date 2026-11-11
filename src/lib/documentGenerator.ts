@@ -252,3 +252,4 @@ export async function generateSuratTugasDocx(
 
   saveAs(blob, fileName);
 }
+
