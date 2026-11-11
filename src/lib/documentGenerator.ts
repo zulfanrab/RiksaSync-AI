@@ -369,7 +369,6 @@ export function extractKotaTujuan(address: string): string {
   const commaIdx = address.lastIndexOf(',');
   if (commaIdx !== -1) {
     const candidate = address.slice(commaIdx + 1).trim();
-    // Jangan ambil jika berisi PT atau CV
     if (candidate && !/^(pt|cv|tbk)\b/i.test(candidate) && candidate.length <= 30) {
       return candidate;
     }
@@ -378,7 +377,7 @@ export function extractKotaTujuan(address: string): string {
   return 'Bandung';
 }
 
-// ── BAGIAN PENOMORAN SURAT PERSISTENCE ────────────────────────────────────────
+// ── BAGIAN PENOMORAN SURAT & FILENAME HELPER ──────────────────────────────────
 
 /**
  * Format nomor surat standar: 003/ARP/ST/XI/2026 atau 003/ARP/SPPD/XI/2026
@@ -389,6 +388,28 @@ export function formatNomorSurat(nomorUrut: number, jenis: 'ST' | 'SPPD', dateSt
   const year = d.getFullYear();
   const padded = String(nomorUrut).padStart(3, '0');
   return `${padded}/ARP/${jenis}/${ROMAWI[month]}/${year}`;
+}
+
+/**
+ * Format nama file hasil download:
+ * - Menggunakan nomor surat murni (tanpa kode surat, e.g. "003")
+ * - TANPA menggunakan tanda baca underscore (_), melainkan spasi
+ * Contoh: "Surat Tugas 003 PT Indofood CBP Sukses Makmur Tbk 2026-11-12.docx"
+ */
+export function buildDocFileName(
+  nomorUrut: number,
+  clientName: string,
+  startDate: string,
+  extension: 'docx' | 'pdf'
+): string {
+  const paddedNomor = String(nomorUrut).padStart(3, '0');
+  // Hapus tanda baca underscore, slash, backslash, simbol dilarang di filesystem
+  const cleanClient = (clientName || 'Klien')
+    .replace(/[_/\\?%*:|"<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  return `Surat Tugas ${paddedNomor} ${cleanClient} ${startDate}.${extension}`;
 }
 
 /**
@@ -404,7 +425,6 @@ export function getStoredNomorUrut(scheduleId: string): number {
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
 
-  // Ambil counter global terakhir
   const globalCounterKey = `st_last_counter_${year}`;
   const lastGlobal = parseInt(localStorage.getItem(globalCounterKey) || '0', 10);
   return lastGlobal + 1;
@@ -441,7 +461,9 @@ export interface GenerateDocOptions {
  * Auto-patch XML template Word:
  * 1. Ubah kemunculan kedua {{NOMOR_SURAT_AUTO}} menjadi {{NOMOR_SURAT_SPPD}}
  * 2. Patch 1. {{NAMA_PERSONEL_2}} 2. {{NAMA_PERSONEL_3}} menjadi {{DAFTAR_PENGIKUT}}
- * 3. Typo Tanda Tangan: "HABSI GUFIRA PRADANA...DIREKTUR" -> "HABSI GUFIRA PRADANA, S.AP.\nDirector"
+ * 3. Typo & Format Tanda Tangan:
+ *    - Hilangkan gelar pada Pak Habsi (tanpa S.AP.)
+ *    - Gunakan huruf kapital pada jabatan DIRECTOR di bagian tanda tangan
  * 4. Hapus duplikasi kalimat "Mengesahkan, Perwakilan Perusahaan / Instansi Tujuan" pada Lembar Visum
  * 5. Potong Halaman 2 jika includeSppd === false
  * 6. Normalisasi {{VAR}} -> {VAR}
@@ -465,19 +487,22 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
   xml = xml.replace(/1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*/g, '{{DAFTAR_PENGIKUT}}');
   xml = xml.replace(/1\.\s*\{NAMA_PERSONEL_2\}\s*2\.\s*\{NAMA_PERSONEL_3\}\s*/g, '{DAFTAR_PENGIKUT}');
 
-  // 3. Typo Tanda Tangan: pisah baris dan perbarui gelar/jabatan
+  // 3. Hilangkan gelar Pak Habsi & Gunakan HURUF KAPITAL "DIRECTOR" di bagian tanda tangan:
   xml = xml.replace(
     /<w:t xml:space="preserve">HABSI GUFIRA PRADANA<\/w:t><w:br w:type="textWrapping"\/><w:t xml:space="preserve">DIREKTUR<\/w:t>/g,
-    '<w:t xml:space="preserve">HABSI GUFIRA PRADANA, S.AP.</w:t><w:br/><w:t xml:space="preserve">Director</w:t>'
+    '<w:t xml:space="preserve">HABSI GUFIRA PRADANA</w:t><w:br/><w:t xml:space="preserve">DIRECTOR</w:t>'
   );
-  xml = xml.replace(/HABSI GUFIRA PRADANADIREKTUR/g, 'HABSI GUFIRA PRADANA, S.AP.<w:br/>Director');
+  xml = xml.replace(/HABSI GUFIRA PRADANADIREKTUR/g, 'HABSI GUFIRA PRADANA<w:br/>DIRECTOR');
+  xml = xml.replace(/HABSI GUFIRA PRADANA,\s*S\.AP\.<w:br\/>Director/gi, 'HABSI GUFIRA PRADANA<w:br/>DIRECTOR');
+  xml = xml.replace(/HABSI GUFIRA PRADANA,\s*S\.AP\./gi, 'HABSI GUFIRA PRADANA');
+  xml = xml.replace(/Habsi Gufira Pradana,\s*S\.AP\./gi, 'Habsi Gufira Pradana');
+  xml = xml.replace(/Habsi Gufira Pradana\s*\(Director\)/gi, 'Habsi Gufira Pradana (DIRECTOR)');
 
   // 4. Hapus duplikasi kalimat "Mengesahkan, Perwakilan Perusahaan / Instansi Tujuan" pada Lembar Visum
   const visumDuplicateRegex = /<w:p[^>]*w14:paraId="00000064"[\s\S]*?<w:p[^>]*w14:paraId="00000067"[\s\S]*?<\/w:p>/;
   if (visumDuplicateRegex.test(xml)) {
     xml = xml.replace(visumDuplicateRegex, '');
   } else {
-    // Fallback replace
     xml = xml.replace(
       /<w:p[^>]*>(?:(?!<\/w:p>)[\s\S])*?Mengesahkan,[\s\S]*?<\/w:p>\s*<w:p[^>]*>(?:(?!<\/w:p>)[\s\S])*?Perwakilan Perusahaan \/ Instansi Tujuan[\s\S]*?<\/w:p>/,
       ''
@@ -520,8 +545,6 @@ function buildPayload(
   const ketuaJabatan = personnelsList[0]?.JABATAN || '-';
 
   // Daftar Pengikut SPPD:
-  // Jika hanya 1 orang (Lead saja), tanda strip "-"
-  // Jika ada pengikut, buat daftar bernomor
   let daftarPengikut = '-';
   if (personnelsList.length > 1) {
     daftarPengikut = personnelsList
@@ -530,13 +553,13 @@ function buildPayload(
       .join('\n');
   }
 
-  // Format tanggal cetak: murni tanggal saja, tanpa jam/WIB!
+  // Format tanggal cetak: murni tanggal saja, tanpa jam/WIB
   const tglMulaiFormatted = formatTanggalIndonesia(schedule.start_date);
   const tglSelesaiFormatted = formatTanggalIndonesia(schedule.end_date);
   const todayIso = new Date().toISOString().split('T')[0];
   const tglCetakFormatted = formatTanggalIndonesia(todayIso);
 
-  // Lama Hari: cukup angka + terbilang, contoh "1 (Satu)" karena kata "Hari" sudah ada di template
+  // Lama Hari: cukup angka + terbilang, contoh "1 (Satu)"
   const lamaHari = hitungLamaHari(schedule.start_date, schedule.end_date);
   const lamaHariFormatted = `${lamaHari} (${terbilangHari(lamaHari)})`;
 
@@ -569,7 +592,7 @@ function buildPayload(
       JABATAN_KETUA: ketuaJabatan,
       DAFTAR_PENGIKUT: daftarPengikut,
       LOKASI_KOTA_TUJUAN: kotaTujuan,
-      LAMA_HARI: lamaHariFormatted, // e.g. "1 (Satu)"
+      LAMA_HARI: lamaHariFormatted,
     },
     nomorUrut,
     includeSppd: options.includeSppd !== false
@@ -660,9 +683,8 @@ export async function generateSuratTugasDocx(
     compression: 'DEFLATE',
   });
 
-  const safeClientName = (schedule.client_name || 'Klien').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-  const fileName = `Surat_Tugas_${safeClientName}_${schedule.start_date}.docx`;
-
+  // Nama file tanpa underscore, memuat nomor surat murni
+  const fileName = buildDocFileName(nomorUrut, schedule.client_name, schedule.start_date, 'docx');
   saveAs(blob, fileName);
 }
 
@@ -674,10 +696,10 @@ function generateHtmlContent(
   includeSppd: boolean
 ): string {
   return `
-    <div style="font-family: 'Cambria', 'Times New Roman', serif; font-size: 10pt; color: #000; line-height: 1.35; padding: 2px;">
+    <div style="width: 794px; background: #ffffff; padding: 20px 30px; box-sizing: border-box; font-family: 'Cambria', 'Times New Roman', serif; font-size: 10pt; color: #000; line-height: 1.35;">
       <!-- HALAMAN 1: SURAT TUGAS -->
-      <div style="margin-bottom: 25px;">
-        ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 10px;" />` : ''}
+      <div style="min-height: 1040px; position: relative;">
+        ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
 
         <div style="text-align: center; margin-bottom: 12px;">
           <div style="font-size: 13pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5px;">SURAT TUGAS</div>
@@ -687,8 +709,8 @@ function generateHtmlContent(
         <div style="margin-bottom: 8px;">
           <div>Yang bertanda tangan di bawah ini:</div>
           <table style="width: 100%; border-collapse: collapse; margin-top: 3px; font-size: 10pt;">
-            <tr><td style="width: 100px; vertical-align: top;">Nama</td><td style="width: 15px; vertical-align: top;">:</td><td style="font-weight: bold;">Habsi Gufira Pradana, S.AP.</td></tr>
-            <tr><td style="vertical-align: top;">Jabatan</td><td style="vertical-align: top;">:</td><td>Director</td></tr>
+            <tr><td style="width: 100px; vertical-align: top;">Nama</td><td style="width: 15px; vertical-align: top;">:</td><td style="font-weight: bold;">Habsi Gufira Pradana</td></tr>
+            <tr><td style="vertical-align: top;">Jabatan</td><td style="vertical-align: top;">:</td><td style="font-weight: bold;">DIRECTOR</td></tr>
             <tr><td style="vertical-align: top;">Perusahaan</td><td style="vertical-align: top;">:</td><td>PT Aksara Riksa Perdana</td></tr>
           </table>
           <div style="margin-top: 6px;">Dalam hal ini bertindak sah untuk dan atas nama PT Aksara Riksa Perdana, menugaskan kepada:</div>
@@ -746,17 +768,17 @@ function generateHtmlContent(
             <div>Bandung, ${payload.TANGGAL_CETAK}</div>
             <div style="font-weight: bold;">PT AKSARA RIKSA PERDANA</div>
             <div style="height: 52px;"></div>
-            <div style="font-weight: bold; text-decoration: underline;">HABSI GUFIRA PRADANA, S.AP.</div>
-            <div>Director</div>
+            <div style="font-weight: bold; text-decoration: underline;">HABSI GUFIRA PRADANA</div>
+            <div style="font-weight: bold;">DIRECTOR</div>
           </div>
         </div>
       </div>
 
       <!-- HALAMAN 2: SPPD & LEMBAR VISUM -->
       ${includeSppd ? `
-        <div class="html2pdf__page-break" style="page-break-before: always; margin-top: 25px;"></div>
-        <div>
-          ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 10px;" />` : ''}
+        <div class="html2pdf__page-break" style="page-break-before: always; height: 1px;"></div>
+        <div style="min-height: 1040px; position: relative; padding-top: 10px;">
+          ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
 
           <div style="text-align: center; margin-bottom: 12px;">
             <div style="font-size: 13pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5px;">SURAT PERINTAH PERJALANAN DINAS (SPPD)</div>
@@ -768,7 +790,7 @@ function generateHtmlContent(
               <tr>
                 <td style="border: 1px solid #000; padding: 4px 6px; text-align: center; width: 30px;">1</td>
                 <td style="border: 1px solid #000; padding: 4px 8px; width: 220px;">Pejabat yang Memberi Perintah</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Habsi Gufira Pradana, S.AP. (Director)</td>
+                <td style="border: 1px solid #000; padding: 4px 8px; font-weight: bold;">Habsi Gufira Pradana (DIRECTOR)</td>
               </tr>
               <tr>
                 <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">2</td>
@@ -822,8 +844,8 @@ function generateHtmlContent(
               <div>Bandung, ${payload.TANGGAL_CETAK}</div>
               <div style="font-weight: bold;">PT AKSARA RIKSA PERDANA</div>
               <div style="height: 48px;"></div>
-              <div style="font-weight: bold; text-decoration: underline;">HABSI GUFIRA PRADANA, S.AP.</div>
-              <div>Director</div>
+              <div style="font-weight: bold; text-decoration: underline;">HABSI GUFIRA PRADANA</div>
+              <div style="font-weight: bold;">DIRECTOR</div>
             </div>
           </div>
 
@@ -873,32 +895,67 @@ export async function generateSuratTugasPdf(
   // Simpan nomor urut
   saveStoredNomorUrut(schedule.id, nomorUrut);
 
-  const safeClientName = (schedule.client_name || 'Klien').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-  const fileName = `Surat_Tugas_${safeClientName}_${schedule.start_date}.pdf`;
+  // Nama file tanpa underscore, memuat nomor surat murni
+  const fileName = buildDocFileName(nomorUrut, schedule.client_name, schedule.start_date, 'pdf');
 
   // Buat container HTML
+  // Catatan: Posisikan di top: 0, left: 0 dengan z-index: 30 (di bawah modal dialog z-50),
+  // opacity: 1 agar html2canvas merender piksel dengan sempurna tanpa blank screen.
   const container = document.createElement('div');
+  container.id = 'surat-tugas-pdf-render-container';
   container.style.position = 'fixed';
-  container.style.left = '-9999px';
   container.style.top = '0';
-  container.style.width = '794px'; // Standard A4 width at 96 DPI
+  container.style.left = '0';
+  container.style.width = '794px';
+  container.style.minHeight = '1123px';
   container.style.backgroundColor = '#ffffff';
-  container.innerHTML = generateHtmlContent(payload, kopSuratBase64, includeSppd);
+  container.style.zIndex = '30';
+  container.style.opacity = '1';
+  container.style.pointerEvents = 'none';
+  container.style.boxSizing = 'border-box';
+  container.style.padding = '0';
+  container.style.margin = '0';
 
+  container.innerHTML = generateHtmlContent(payload, kopSuratBase64, includeSppd);
   document.body.appendChild(container);
 
   try {
+    // Tunggu gambar (kop surat) selesai dimuat dan didecode oleh browser
+    const images = Array.from(container.querySelectorAll('img'));
+    await Promise.all(
+      images.map(img => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise(resolve => {
+          img.onload = resolve;
+          img.onerror = resolve;
+        });
+      })
+    );
+
+    // Beri jeda render font dan layout browser
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     const opt = {
-      margin: [10, 15, 10, 15], // mm: top, right, bottom, left
+      margin: [8, 10, 8, 10], // mm: top, right, bottom, left
       filename: fileName,
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        letterRendering: true,
+        scrollY: 0,
+        scrollX: 0,
+        windowWidth: 794
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] }
     };
 
     // Render dan save via html2pdf
     await html2pdf().set(opt).from(container).save();
   } finally {
-    document.body.removeChild(container);
+    if (document.body.contains(container)) {
+      document.body.removeChild(container);
+    }
   }
 }

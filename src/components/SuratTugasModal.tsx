@@ -24,6 +24,7 @@ import { Schedule, Manpower } from '../types';
 import { 
   getStoredNomorUrut, 
   formatNomorSurat, 
+  buildDocFileName,
   resolveSchedulePersonnels, 
   extractKotaTujuan, 
   formatTanggalIndonesia,
@@ -94,6 +95,10 @@ export default function SuratTugasModal({
   const nomorSuratSPPD = useMemo(() => {
     return formatNomorSurat(nomorUrut || 1, 'SPPD', schedule.start_date);
   }, [nomorUrut, schedule.start_date]);
+
+  const sampleFileName = useMemo(() => {
+    return buildDocFileName(nomorUrut || 1, schedule.client_name, schedule.start_date, 'docx');
+  }, [nomorUrut, schedule]);
 
   // ── RESOLVED PERSONNELS ────────────────────────────────────────────────────
   const resolvedPersonnels = useMemo(() => {
@@ -217,6 +222,10 @@ export default function SuratTugasModal({
                     <span className="font-mono font-bold text-indigo-700">{nomorSuratSPPD}</span>
                   </div>
                 )}
+                <div className="text-[10px] text-slate-500 border-t border-slate-100 pt-1 flex items-center justify-between">
+                  <span className="font-semibold text-slate-400">File:</span>
+                  <span className="font-mono text-slate-600 truncate max-w-[260px]" title={sampleFileName}>{sampleFileName}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -415,3 +424,4 @@ export default function SuratTugasModal({
     </div>
   );
 }
+
