@@ -5,16 +5,16 @@
 
 /**
  * documentGenerator.ts
- * Utility untuk generate Surat Tugas & SPPD dalam format .DOCX dan .PDF.
- * Mendukung Auto-patch XML template Word, Fallback Database Personel Resmi,
- * serta sinkronisasi penomoran surat.
+ * Utility untuk generate Surat Tugas & SPPD.
+ * - Format .DOCX: Dirender langsung di client menggunakan docxtemplater & pizzip.
+ * - Format .PDF: Menghasilkan PDF 1:1 identik dengan Microsoft Word dengan cara
+ *   mengirimkan Blob .DOCX yang sudah jadi ke Server-side Document Conversion API
+ *   (ConvertAPI / Gotenberg / LibreOffice API), bukan rendering HTML browser.
  */
 
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { saveAs } from 'file-saver';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import { Schedule, Manpower } from '../types';
 
 // ── BAGIAN 1: OFFICIAL PERSONNEL DATABASE ─────────────────────────────────────
@@ -603,38 +603,21 @@ function buildPayload(
   };
 }
 
-// ── EKSTRAKSI KOP SURAT IMAGE ─────────────────────────────────────────────────
+// ── CORE DOCX BLOB RENDERER ───────────────────────────────────────────────────
 
-let cachedKopSuratBase64: string | null = null;
-
-async function extractKopSuratBase64(zip: PizZip): Promise<string> {
-  if (cachedKopSuratBase64) return cachedKopSuratBase64;
-  const imgFile = zip.file('word/media/image1.png');
-  if (imgFile) {
-    const ab = imgFile.asArrayBuffer();
-    if (typeof FileReader !== 'undefined') {
-      const blob = new Blob([ab], { type: 'image/png' });
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          cachedKopSuratBase64 = reader.result as string;
-          resolve(cachedKopSuratBase64);
-        };
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(blob);
-      });
-    }
-  }
-  return '';
-}
-
-// ── GENERATE DOCX ─────────────────────────────────────────────────────────────
-
-export async function generateSuratTugasDocx(
+/**
+ * Render file .docx di memory menggunakan template Word statis & docxtemplater.
+ * Menghasilkan Blob Word murni yang siap diunduh atau dikirim ke API konversi.
+ */
+export async function renderSuratTugasDocxBlob(
   schedule: Schedule,
   manpowerList: Manpower[] = [],
   options: GenerateDocOptions = {}
-): Promise<void> {
+): Promise<{
+  blob: Blob;
+  nomorUrut: number;
+  fileNameBase: string;
+}> {
   const templatePath = '/templates/template_surat_tugas.docx';
   let content: ArrayBuffer;
   try {
@@ -685,300 +668,146 @@ export async function generateSuratTugasDocx(
     compression: 'DEFLATE',
   });
 
-  // Nama file tanpa underscore, memuat nomor surat murni
-  const fileName = buildDocFileName(nomorUrut, schedule.client_name, schedule.start_date, 'docx');
-  saveAs(blob, fileName);
+  const paddedNomor = String(nomorUrut).padStart(3, '0');
+  const cleanClient = (schedule.client_name || 'Klien')
+    .replace(/[_/\\?%*:|"<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const fileNameBase = `Surat Tugas ${paddedNomor} ${cleanClient} ${schedule.start_date}`;
+
+  return { blob, nomorUrut, fileNameBase };
 }
 
-// ── BAGIAN 3: GENERATE PDF ────────────────────────────────────────────────────
+// ── GENERATE DOCX DOWNLOAD ────────────────────────────────────────────────────
 
-function generateHtmlContent(
-  payload: ReturnType<typeof buildPayload>['payload'],
-  kopSuratBase64: string,
-  includeSppd: boolean
-): string {
-  return `
-    <div style="background: #ffffff; color: #000000; box-sizing: border-box; font-family: 'Cambria', 'Times New Roman', serif;">
-      <!-- HALAMAN 1: SURAT TUGAS -->
-      <div id="pdf-page-1" style="width: 794px; min-height: 1123px; background: #ffffff; padding: 30px 42px 20px 42px; box-sizing: border-box; font-size: 10pt; line-height: 1.35; position: relative;">
-        ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
-
-        <div style="text-align: center; margin-bottom: 12px;">
-          <div style="font-size: 13pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5px;">SURAT TUGAS</div>
-          <div style="font-size: 10pt; margin-top: 2px;">Nomor: ${payload.NOMOR_SURAT_AUTO}</div>
-        </div>
-
-        <div style="margin-bottom: 8px;">
-          <div>Yang bertanda tangan di bawah ini:</div>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 3px; font-size: 10pt;">
-            <tr><td style="width: 100px; vertical-align: top;">Nama</td><td style="width: 15px; vertical-align: top;">:</td><td style="font-weight: bold;">Habsi Gufira Pradana</td></tr>
-            <tr><td style="vertical-align: top;">Jabatan</td><td style="vertical-align: top;">:</td><td>Director</td></tr>
-            <tr><td style="vertical-align: top;">Perusahaan</td><td style="vertical-align: top;">:</td><td>PT Aksara Riksa Perdana</td></tr>
-          </table>
-          <div style="margin-top: 6px;">Dalam hal ini bertindak sah untuk dan atas nama PT Aksara Riksa Perdana, menugaskan kepada:</div>
-        </div>
-
-        <!-- Tabel Personel -->
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 9.5pt;">
-          <thead>
-            <tr style="background-color: #f7f7f7; text-align: center; font-weight: bold;">
-              <th style="border: 1px solid #000; padding: 4px 6px; width: 35px;">No</th>
-              <th style="border: 1px solid #000; padding: 4px 8px; text-align: left;">Nama Personel</th>
-              <th style="border: 1px solid #000; padding: 4px 8px; text-align: center; width: 130px;">NIK</th>
-              <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 220px;">Jabatan Resmi</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${payload.PERSONNELS.map(p => `
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">${p.NO}</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">${p.NAMA}</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; text-align: center;">${p.NIK}</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">${p.JABATAN}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <!-- Rincian Penugasan -->
-        <div style="margin-bottom: 10px;">
-          <div>Untuk melaksanakan tugas kedinasan dengan rincian sebagai berikut:</div>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 10pt;">
-            <tr><td style="width: 25px; vertical-align: top;">1.</td><td style="width: 155px; vertical-align: top;">Jenis Kegiatan</td><td style="width: 15px; vertical-align: top;">:</td><td style="font-weight: bold;">${payload.JENIS_AGENDA}</td></tr>
-            <tr><td style="vertical-align: top;">2.</td><td style="vertical-align: top;">Objek Pemeriksaan</td><td style="vertical-align: top;">:</td><td>${payload.DETAIL_UNIT}</td></tr>
-            <tr><td style="vertical-align: top;">3.</td><td style="vertical-align: top;">Tujuan / Instansi</td><td style="vertical-align: top;">:</td><td style="font-weight: bold;">${payload.NAMA_KLIEN}</td></tr>
-            <tr><td style="vertical-align: top;">4.</td><td style="vertical-align: top;">PIC & Kontak</td><td style="vertical-align: top;">:</td><td>${payload.PIC_LAPANGAN} (${payload.KONTAK_PIC})</td></tr>
-            <tr><td style="vertical-align: top;">5.</td><td style="vertical-align: top;">Lokasi Penugasan</td><td style="vertical-align: top;">:</td><td>${payload.ALAMAT_KLIEN}</td></tr>
-            <tr><td style="vertical-align: top;">6.</td><td style="vertical-align: top;">Waktu Pelaksanaan</td><td style="vertical-align: top;">:</td><td>${payload.TANGGAL_MULAI} s.d. ${payload.TANGGAL_SELESAI}</td></tr>
-          </table>
-        </div>
-
-        <!-- Ketentuan dan Tanggung Jawab -->
-        <div style="font-size: 9pt; line-height: 1.3; margin-bottom: 10px;">
-          <div style="font-weight: bold; margin-bottom: 2px;">Ketentuan dan Tanggung Jawab:</div>
-          <ol style="margin: 0; padding-left: 18px;">
-            <li>Penerima tugas wajib mematuhi standar prosedur kerja (SOP), regulasi K3 yang berlaku, serta mematuhi peraturan keselamatan di lokasi pemberi kerja.</li>
-            <li>Penerima tugas dilarang melakukan aktivitas di luar ruang lingkup yang telah ditetapkan tanpa persetujuan tertulis dari manajemen.</li>
-            <li>Segera setelah penugasan selesai, penerima tugas wajib menyerahkan Laporan Hasil Pekerjaan (Berita Acara) kepada manajemen.</li>
-          </ol>
-          <div style="margin-top: 6px;">Demikian Surat Tugas ini diterbitkan untuk dilaksanakan dengan penuh rasa tanggung jawab dan dipergunakan sebagaimana mestinya.</div>
-        </div>
-
-        <!-- Tanda Tangan Surat Tugas -->
-        <div style="margin-top: 14px; text-align: right;">
-          <div style="display: inline-block; text-align: left; width: 250px; font-size: 10pt;">
-            <div>Bandung, ${payload.TANGGAL_CETAK}</div>
-            <div style="font-weight: bold;">PT AKSARA RIKSA PERDANA</div>
-            <div style="height: 52px;"></div>
-            <div style="font-weight: bold; text-decoration: underline;">HABSI GUFIRA PRADANA</div>
-            <div style="font-weight: bold;">DIRECTOR</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- HALAMAN 2: SPPD & LEMBAR VISUM -->
-      ${includeSppd ? `
-        <div id="pdf-page-2" style="width: 794px; min-height: 1123px; background: #ffffff; padding: 30px 42px 20px 42px; box-sizing: border-box; font-size: 10pt; line-height: 1.35; position: relative;">
-          ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
-
-          <div style="text-align: center; margin-bottom: 12px;">
-            <div style="font-size: 13pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5px;">SURAT PERINTAH PERJALANAN DINAS (SPPD)</div>
-            <div style="font-size: 10pt; margin-top: 2px;">Nomor: ${payload.NOMOR_SURAT_SPPD}</div>
-          </div>
-
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9.5pt;">
-            <tbody>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center; width: 30px;">1</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; width: 220px;">Pejabat yang Memberi Perintah</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; font-weight: bold;">Habsi Gufira Pradana (DIRECTOR)</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">2</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Nama Pegawai yang Diperintahkan</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; font-weight: bold;">${payload.NAMA_KETUA} (${payload.JABATAN_KETUA})</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: top;">3</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; vertical-align: top;">Pengikut / Tim Pendukung</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; white-space: pre-line;">${payload.DAFTAR_PENGIKUT}</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">4</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Maksud Perjalanan Dinas</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">${payload.JENIS_AGENDA}</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">5</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Alat Angkutan yang Digunakan</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Kendaraan Dinas / Pribadi</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: top;">6</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; vertical-align: top;">
-                  a. Tempat Berangkat<br/>b. Tempat Tujuan
-                </td>
-                <td style="border: 1px solid #000; padding: 4px 8px; vertical-align: top;">
-                  a. Kota Bandung<br/>b. ${payload.LOKASI_KOTA_TUJUAN}
-                </td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: top;">7</td>
-                <td style="border: 1px solid #000; padding: 4px 8px; vertical-align: top;">
-                  a. Lama Perjalanan Dinas<br/>b. Tanggal Berangkat<br/>c. Tanggal Harus Kembali
-                </td>
-                <td style="border: 1px solid #000; padding: 4px 8px; vertical-align: top;">
-                  a. ${payload.LAMA_HARI} Hari<br/>b. ${payload.TANGGAL_MULAI}<br/>c. ${payload.TANGGAL_SELESAI}
-                </td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #000; padding: 4px 6px; text-align: center;">8</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Pembebanan Anggaran</td>
-                <td style="border: 1px solid #000; padding: 4px 8px;">Kas Operasional PT Aksara Riksa Perdana</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <!-- Tanda Tangan SPPD -->
-          <div style="margin-top: 10px; text-align: right;">
-            <div style="display: inline-block; text-align: left; width: 250px; font-size: 10pt;">
-              <div>Bandung, ${payload.TANGGAL_CETAK}</div>
-              <div style="font-weight: bold;">PT AKSARA RIKSA PERDANA</div>
-              <div style="height: 48px;"></div>
-              <div style="font-weight: bold; text-decoration: underline;">HABSI GUFIRA PRADANA</div>
-              <div style="font-weight: bold;">DIRECTOR</div>
-            </div>
-          </div>
-
-          <!-- LEMBAR VISUM -->
-          <div style="margin-top: 14px; border-top: 1px dashed #777; padding-top: 8px;">
-            <div style="font-size: 10.5pt; font-weight: bold; text-align: center; margin-bottom: 6px;">LEMBAR VISUM / PENGESAHAN KLIEN</div>
-            <div style="font-size: 9.5pt; line-height: 1.35; margin-bottom: 8px;">
-              Telah Tiba di Tempat Tujuan<br/>
-              Tempat: <strong>${payload.NAMA_KLIEN}</strong><br/>
-              Tanggal: ${payload.TANGGAL_MULAI}
-            </div>
-            <div style="text-align: right;">
-              <div style="display: inline-block; width: 260px; border: 1px solid #000; padding: 6px 10px; text-align: center; font-size: 9pt;">
-                <div>Mengesahkan,</div>
-                <div style="font-weight: bold;">Perwakilan Perusahaan / Instansi Tujuan</div>
-                <div style="height: 50px;"></div>
-                <div>(....................................................................)</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ` : ''}
-    </div>
-  `;
+export async function generateSuratTugasDocx(
+  schedule: Schedule,
+  manpowerList: Manpower[] = [],
+  options: GenerateDocOptions = {}
+): Promise<void> {
+  const { blob, fileNameBase } = await renderSuratTugasDocxBlob(schedule, manpowerList, options);
+  saveAs(blob, `${fileNameBase}.docx`);
 }
 
+// ── BAGIAN 3: GENERATE PDF VIA SERVER-SIDE WORD CONVERSION API ────────────────
+
+/**
+ * Konversi DOCX Blob ke PDF menggunakan ConvertAPI REST API:
+ * Endpoint: https://v2.convertapi.com/convert/docx/to/pdf
+ */
+async function convertDocxToPdfViaConvertApi(
+  docxBlob: Blob,
+  fileName: string,
+  secret: string
+): Promise<Blob> {
+  const formData = new FormData();
+  formData.append('File', docxBlob, fileName);
+  formData.append('StoreFile', 'false');
+
+  const response = await fetch(`https://v2.convertapi.com/convert/docx/to/pdf?Secret=${encodeURIComponent(secret)}`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let errDetail = '';
+    try {
+      const errJson = await response.json();
+      errDetail = errJson.Message || JSON.stringify(errJson);
+    } catch {
+      errDetail = await response.text();
+    }
+    throw new Error(`ConvertAPI Error (${response.status}): ${errDetail}`);
+  }
+
+  const result = await response.json();
+  if (result.Files && result.Files.length > 0) {
+    const fileItem = result.Files[0];
+    if (fileItem.FileData) {
+      // Decode Base64 binary
+      const binaryString = atob(fileItem.FileData);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: 'application/pdf' });
+    } else if (fileItem.Url) {
+      const fileRes = await fetch(fileItem.Url);
+      return await fileRes.blob();
+    }
+  }
+
+  throw new Error('ConvertAPI tidak mengembalikan file PDF yang valid.');
+}
+
+/**
+ * Konversi DOCX Blob ke PDF menggunakan Custom / Self-hosted LibreOffice API (seperti Gotenberg):
+ * Endpoint: VITE_DOCX_TO_PDF_API_URL (e.g. https://your-gotenberg.com/forms/libreoffice/convert)
+ */
+async function convertDocxToPdfViaCustomService(
+  docxBlob: Blob,
+  fileName: string,
+  apiUrl: string
+): Promise<Blob> {
+  const formData = new FormData();
+  formData.append('files', docxBlob, fileName);
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API Konversi Error (${response.status}): ${await response.text()}`);
+  }
+
+  return await response.blob();
+}
+
+/**
+ * Fungsi Utama: Generate Surat Tugas & SPPD sebagai PDF 1:1 identik dengan Word.
+ * Mengalirkan:
+ * 1. Render template Word (.docx) di memory (100% presisi font Cambria, tabel, & kop surat).
+ * 2. Kirim docx Blob ke Conversion API (ConvertAPI / Gotenberg).
+ * 3. Unduh hasil PDF yang 100% identik dengan tampilan Microsoft Word asli.
+ */
 export async function generateSuratTugasPdf(
   schedule: Schedule,
   manpowerList: Manpower[] = [],
   options: GenerateDocOptions = {}
 ): Promise<void> {
-  const templatePath = '/templates/template_surat_tugas.docx';
-  let kopSuratBase64 = '';
-  try {
-    const response = await fetch(templatePath);
-    if (response.ok) {
-      const content = await response.arrayBuffer();
-      const zip = new PizZip(content);
-      kopSuratBase64 = await extractKopSuratBase64(zip);
+  // 1. Render .docx di memory terlebih dahulu
+  const { blob: docxBlob, fileNameBase } = await renderSuratTugasDocxBlob(schedule, manpowerList, options);
+
+  const convertApiSecret = (import.meta.env.VITE_CONVERTAPI_SECRET as string)?.trim();
+  const customApiUrl = (import.meta.env.VITE_DOCX_TO_PDF_API_URL as string)?.trim();
+
+  let pdfBlob: Blob;
+
+  if (convertApiSecret) {
+    // Jalur ConvertAPI
+    pdfBlob = await convertDocxToPdfViaConvertApi(docxBlob, `${fileNameBase}.docx`, convertApiSecret);
+  } else if (customApiUrl) {
+    // Jalur Custom Gotenberg / LibreOffice endpoint
+    pdfBlob = await convertDocxToPdfViaCustomService(docxBlob, `${fileNameBase}.docx`, customApiUrl);
+  } else {
+    // Skeleton fallback / Panduan user jika API Key belum diset
+    const message = 
+      `Fitur ekspor PDF berkualitas 1:1 identik dengan Microsoft Word memerlukan Conversion API Key.\n\n` +
+      `Cara Aktivasi Gratis (ConvertAPI - 250 konversi gratis):\n` +
+      `1. Daftar gratis di https://www.convertapi.com\n` +
+      `2. Salin "API Secret" Anda dari dashboard.\n` +
+      `3. Pasang di file .env atau Vercel Environment Variables:\n` +
+      `   VITE_CONVERTAPI_SECRET=your_secret_here\n\n` +
+      `Apakah Anda ingin mengunduh dokumen Word (.docx) yang sudah ter-render sempurna sekarang?`;
+
+    if (window.confirm(message)) {
+      saveAs(docxBlob, `${fileNameBase}.docx`);
     }
-  } catch {
-    console.warn('Tidak dapat mengekstrak kop surat untuk PDF, rendering tanpa gambar kop.');
+    return;
   }
 
-  const { payload, nomorUrut, includeSppd } = buildPayload(schedule, manpowerList, options);
-
-  // Simpan nomor urut
-  saveStoredNomorUrut(schedule.id, nomorUrut);
-
-  // Nama file tanpa underscore, memuat nomor surat murni
-  const fileName = buildDocFileName(nomorUrut, schedule.client_name, schedule.start_date, 'pdf');
-
-  // Buat container HTML
-  // Gunakan position absolute di top: 0, left: 0 dengan z-index di bawah modal
-  const container = document.createElement('div');
-  container.id = 'surat-tugas-pdf-render-container';
-  container.style.position = 'fixed';
-  container.style.top = '0';
-  container.style.left = '0';
-  container.style.width = '794px';
-  container.style.backgroundColor = '#ffffff';
-  container.style.zIndex = '30';
-  container.style.opacity = '1';
-  container.style.pointerEvents = 'none';
-  container.style.boxSizing = 'border-box';
-  container.style.padding = '0';
-  container.style.margin = '0';
-
-  container.innerHTML = generateHtmlContent(payload, kopSuratBase64, includeSppd);
-  document.body.appendChild(container);
-
-  try {
-    // Tunggu gambar (kop surat) selesai dimuat dan didecode oleh browser
-    const images = Array.from(container.querySelectorAll('img'));
-    await Promise.all(
-      images.map(img => {
-        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-        return new Promise(resolve => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        });
-      })
-    );
-
-    // Beri jeda render font dan layout browser
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true,
-    });
-
-    const page1El = container.querySelector('#pdf-page-1') as HTMLElement;
-    if (!page1El) throw new Error('Elemen Halaman 1 tidak ditemukan.');
-
-    const canvas1 = await html2canvas(page1El, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: 794,
-    });
-
-    const imgData1 = canvas1.toDataURL('image/jpeg', 0.98);
-    pdf.addImage(imgData1, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-
-    if (includeSppd) {
-      const page2El = container.querySelector('#pdf-page-2') as HTMLElement;
-      if (page2El) {
-        const canvas2 = await html2canvas(page2El, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth: 794,
-        });
-        const imgData2 = canvas2.toDataURL('image/jpeg', 0.98);
-        pdf.addPage('a4', 'portrait');
-        pdf.addImage(imgData2, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-      }
-    }
-
-    pdf.save(fileName);
-  } finally {
-    if (document.body.contains(container)) {
-      document.body.removeChild(container);
-    }
-  }
+  // 3. Simpan file PDF hasil konversi
+  saveAs(pdfBlob, `${fileNameBase}.pdf`);
 }
