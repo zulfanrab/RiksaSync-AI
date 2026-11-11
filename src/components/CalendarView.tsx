@@ -22,13 +22,12 @@ import {
   Edit, 
   Trash2, 
   ExternalLink, 
-  Eye,
-  Loader2
+  Eye
 } from 'lucide-react';
 import { Schedule, Unit, Manpower, ManpowerAbsence, TeamTask } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { generateSuratTugasDocx } from '../lib/documentGenerator';
+import SuratTugasModal from './SuratTugasModal';
 
 interface CalendarViewProps {
   schedules: Schedule[];
@@ -61,19 +60,7 @@ export default function CalendarView({
   const [viewMode, setViewMode] = useState<'monthly' | 'weekly'>('monthly');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [activeModalDate, setActiveModalDate] = useState<string | null>(null);
-  const [generatingDocxId, setGeneratingDocxId] = useState<string | null>(null);
-
-  const handleDownloadSuratTugas = async (schedule: Schedule) => {
-    setGeneratingDocxId(schedule.id);
-    try {
-      await generateSuratTugasDocx(schedule, manpowerList);
-    } catch (err) {
-      console.error('Gagal generate Surat Tugas:', err);
-      alert(`Gagal generate Surat Tugas & SPPD.\n\nPastikan:\n1. Template tersedia di /public/templates/template_surat_tugas.docx\n2. Placeholder di template sudah sesuai.\n\nDetail: ${(err as Error).message}`);
-    } finally {
-      setGeneratingDocxId(null);
-    }
-  };
+  const [suratTugasModalSchedule, setSuratTugasModalSchedule] = useState<Schedule | null>(null);
 
   // Helper for generating month calendar grid
   const getDaysInMonth = (date: Date): Date[] => {
@@ -1067,14 +1054,11 @@ export default function CalendarView({
 
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handleDownloadSuratTugas(s)}
-                            disabled={generatingDocxId === s.id}
-                            className="text-[9px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded border border-blue-200 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                            title="Download Surat Tugas & SPPD (.docx)"
+                            onClick={() => setSuratTugasModalSchedule(s)}
+                            className="text-[9px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded border border-blue-200 transition-all cursor-pointer flex items-center gap-1"
+                            title="Konfigurasi & Cetak Surat Tugas & SPPD"
                           >
-                            {generatingDocxId === s.id
-                              ? <Loader2 className="h-3 w-3 animate-spin" />
-                              : <FileDown className="h-3 w-3" />}
+                            <FileDown className="h-3 w-3" />
                             ST & SPPD
                           </button>
                           <button
@@ -1388,14 +1372,13 @@ export default function CalendarView({
 
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleDownloadSuratTugas(s)}
-                              disabled={generatingDocxId === s.id}
-                              className="text-xs font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Download Surat Tugas & SPPD (.docx)"
+                              onClick={() => {
+                                setSuratTugasModalSchedule(s);
+                              }}
+                              className="text-xs font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer"
+                              title="Konfigurasi & Cetak Surat Tugas & SPPD"
                             >
-                              {generatingDocxId === s.id
-                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                : <FileDown className="h-3.5 w-3.5" />}
+                              <FileDown className="h-3.5 w-3.5" />
                               <span>Surat Tugas & SPPD</span>
                             </button>
                             <button
@@ -1527,6 +1510,14 @@ export default function CalendarView({
           </div>
         </div>
       )}
+
+      {/* Modal Cetak Surat Tugas & SPPD */}
+      <SuratTugasModal
+        isOpen={!!suratTugasModalSchedule}
+        onClose={() => setSuratTugasModalSchedule(null)}
+        schedule={suratTugasModalSchedule}
+        manpowerList={manpowerList}
+      />
     </div>
   );
 }
