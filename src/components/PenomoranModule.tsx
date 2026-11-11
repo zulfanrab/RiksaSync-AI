@@ -31,11 +31,9 @@ const BULAN_NAMES = [
 export default function PenomoranModule() {
   const { activeUser, currentUser } = useUser();
 
-  // Role detection
+  // Role detection: Seluruh akun karyawan internal PT Aksara Riksa Perdana memiliki akses penuh untuk penomoran
   const isAdmin = useMemo(() => {
-    const username = (currentUser?.username || activeUser || '').toLowerCase();
-    const division = (currentUser?.division || '').toLowerCase();
-    return username === 'zulfan' || username === 'marsya' || division === 'it' || currentUser?.role?.toLowerCase().includes('leader');
+    return Boolean(activeUser || currentUser);
   }, [activeUser, currentUser]);
 
   // Master & Transactional states

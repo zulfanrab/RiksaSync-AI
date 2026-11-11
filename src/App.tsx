@@ -1087,6 +1087,18 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
             </button>
 
             <button
+              onClick={() => setActiveTab('penomoran')}
+              className={`w-full sm:w-auto flex items-center justify-center gap-2 font-bold text-xs px-4 py-2.5 rounded-xl border shadow-sm transition-all active:scale-95 cursor-pointer ${
+                activeTab === 'penomoran'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-emerald-500/20'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+            >
+              <FileText className={`h-4 w-4 ${activeTab === 'penomoran' ? 'text-white' : 'text-emerald-600'}`} />
+              <span>Penomoran Surat</span>
+            </button>
+
+            <button
               onClick={() => {
                 setEditingSchedule(null);
                 setIsFormOpen(true);
