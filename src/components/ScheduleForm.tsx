@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Sparkles, Calendar, User, Save, X, AlertTriangle, Info, HelpCircle, Plus, Trash2, Check, Phone, MapPin, Copy, FileUp, File, ExternalLink, Loader } from 'lucide-react';
-import { Schedule, Manpower, Unit, ManpowerAbsence } from '../types';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Sparkles, User, Save, X, AlertTriangle, Check, Phone, 
+  MapPin, Copy, Trash2, Plus, Loader 
+} from 'lucide-react';
+import { Schedule, Manpower, Unit, ManpowerAbsence, SupportTeamDetail } from '../types';
 
 interface ScheduleFormProps {
   initialSchedule?: Schedule | null;
@@ -77,6 +79,7 @@ export default function ScheduleForm({
 }: ScheduleFormProps) {
   // Form States
   const [clientName, setClientName] = useState('');
+  const [clientAddress, setClientAddress] = useState('');
   const [picName, setPicName] = useState('');
   const [picPhone, setPicPhone] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -87,6 +90,7 @@ export default function ScheduleForm({
   const [unitDescriptions, setUnitDescriptions] = useState<string[]>(['']);
   const [leadExpertId, setLeadExpertId] = useState('');
   const [selectedSupportIds, setSelectedSupportIds] = useState<string[]>([]);
+  const [supportTeamDetails, setSupportTeamDetails] = useState<SupportTeamDetail[]>([]);
   const [priority, setPriority] = useState<'P1' | 'P2' | 'P3'>('P2');
   const [status, setStatus] = useState<Schedule['status']>('Scheduled');
 
@@ -131,6 +135,7 @@ export default function ScheduleForm({
   useEffect(() => {
     if (initialSchedule) {
       setClientName(initialSchedule.client_name || '');
+      setClientAddress(initialSchedule.client_address || initialSchedule.location || '');
       setPicName(initialSchedule.pic_name || '');
       setPicPhone(initialSchedule.pic_phone || '');
       setStartDate(initialSchedule.start_date || new Date().toISOString().split('T')[0]);
@@ -155,6 +160,7 @@ export default function ScheduleForm({
     } else {
       // Clear form & Set Dynamic defaults
       setClientName('');
+      setClientAddress('');
       setPicName('');
       setPicPhone('');
       const todayStr = new Date().toISOString().split('T')[0];
@@ -166,6 +172,7 @@ export default function ScheduleForm({
       setUnitDescriptions(['']);
       setLeadExpertId('');
       setSelectedSupportIds([]);
+      setSupportTeamDetails([]);
       setPriority('P2');
       setStatus('Scheduled');
       setAiRecommendation(null);
@@ -178,6 +185,39 @@ export default function ScheduleForm({
       setLocation('');
     }
   }, [initialSchedule]);
+
+  // Sync Support Team Details whenever selectedSupportIds or manpowerList changes
+  useEffect(() => {
+    const details: SupportTeamDetail[] = selectedSupportIds.map(sid => {
+      if (sid.startsWith('vendor:')) {
+        const vendorName = sid.replace('vendor:', '');
+        return {
+          id: sid,
+          name: vendorName,
+          nama_panggilan: vendorName,
+          nama_lengkap: vendorName,
+          nik: '-',
+          jabatan_resmi: 'Vendor / Tim Eksternal',
+          role: 'Vendor Eksternal',
+          kategori_tim: 'Eksternal',
+          status_aktif: true
+        };
+      }
+      const person = manpowerList.find(m => m.id === sid);
+      return {
+        id: sid,
+        name: person?.name || sid,
+        nama_panggilan: person?.nama_panggilan || person?.name || sid,
+        nama_lengkap: person?.nama_lengkap || person?.name || sid,
+        nik: person?.nik || '',
+        jabatan_resmi: person?.jabatan_resmi || person?.role || 'Support Staff',
+        role: person?.role || 'Support Staff',
+        kategori_tim: person?.kategori_tim || 'Internal',
+        status_aktif: person?.status_aktif !== false
+      };
+    });
+    setSupportTeamDetails(details);
+  }, [selectedSupportIds, manpowerList]);
 
   // Client Autocomplete List Filtering
   const filteredClients = useMemo(() => {
@@ -304,11 +344,11 @@ export default function ScheduleForm({
   const filteredLeadExperts = useMemo(() => {
     if (requiredSKPs.length === 0) {
       // If no unit is selected, show all experts who have at least one SKP license
-      return manpowerList.filter(m => m.skp.length > 0);
+      return manpowerList.filter(m => m.skp.length > 0 && m.status_aktif !== false);
     }
     // Filter to only experts whose licenses overlap with ANY of the required SKPs for selected units
     return manpowerList.filter(m => {
-      return m.skp.some(license => requiredSKPs.includes(license));
+      return m.status_aktif !== false && m.skp.some(license => requiredSKPs.includes(license));
     });
   }, [requiredSKPs, manpowerList]);
 
@@ -376,9 +416,18 @@ export default function ScheduleForm({
     return map;
   }, [selectedSupportIds, bookingsForCurrentDates]);
 
-  // Support list & Toggle Bulk Select Helpers
+  // =========================================================================
+  // SUPPORT TEAM FILTER:
+  // HANYA menampilkan personel dengan kategori_tim === 'Internal' DAN status_aktif !== false
+  // Dan jika Riksa Uji, exclude leadExpertId
+  // =========================================================================
   const availableSupportList = useMemo(() => {
-    return manpowerList.filter(m => agendaType !== 'Riksa Uji' || m.id !== leadExpertId);
+    return manpowerList.filter(m => {
+      const isInternal = m.kategori_tim ? m.kategori_tim === 'Internal' : (m.status !== 'external');
+      const isActive = m.status_aktif !== false;
+      const notLeadExpert = agendaType !== 'Riksa Uji' || m.id !== leadExpertId;
+      return isInternal && isActive && notLeadExpert;
+    });
   }, [manpowerList, agendaType, leadExpertId]);
 
   const areAllSupportSelected = useMemo(() => {
@@ -477,10 +526,11 @@ export default function ScheduleForm({
 
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim()) return alert('Mohon isi Nama Klien');
+    if (!clientName.trim()) return alert('Mohon isi Nama Klien / Perusahaan');
+    if (!clientAddress.trim()) return alert('Mohon isi Alamat Lokasi Proyek/Klien (wajib untuk Surat Tugas)');
     if (!picPhone.trim()) return alert('Mohon isi Kontak PIC');
     if (!agendaType) return alert('Mohon tentukan Jenis Agenda');
-    if (!startDate || !endDate) return alert('Mohon tentukan tanggal');
+    if (!startDate || !endDate) return alert('Mohon tentukan tanggal kegiatan');
 
     // Strict validation guidelines: only technical fields are conditional based on type Riksa Uji
     if (agendaType === 'Riksa Uji') {
@@ -501,10 +551,41 @@ export default function ScheduleForm({
       }
     }
 
+    // Construct full support team details for saving/exporting to PDF
+    const resolvedSupportDetails: SupportTeamDetail[] = selectedSupportIds.map(sid => {
+      if (sid.startsWith('vendor:')) {
+        const vendorName = sid.replace('vendor:', '');
+        return {
+          id: sid,
+          name: vendorName,
+          nama_panggilan: vendorName,
+          nama_lengkap: vendorName,
+          nik: '-',
+          jabatan_resmi: 'Vendor / Tim Eksternal',
+          role: 'Vendor Eksternal',
+          kategori_tim: 'Eksternal',
+          status_aktif: true
+        };
+      }
+      const person = manpowerList.find(m => m.id === sid);
+      return {
+        id: sid,
+        name: person?.name || sid,
+        nama_panggilan: person?.nama_panggilan || person?.name || sid,
+        nama_lengkap: person?.nama_lengkap || person?.name || sid,
+        nik: person?.nik || '',
+        jabatan_resmi: person?.jabatan_resmi || person?.role || 'Support Staff',
+        role: person?.role || 'Support Staff',
+        kategori_tim: person?.kategori_tim || 'Internal',
+        status_aktif: person?.status_aktif !== false
+      };
+    });
+
     setIsSaving(true);
     try {
-      const savedId = await onSave({
+      await onSave({
         client_name: clientName.trim(),
+        client_address: clientAddress.trim(),
         pic_name: picName.trim() || 'Staff PIC',
         pic_phone: picPhone.trim(),
         start_date: startDate,
@@ -515,15 +596,14 @@ export default function ScheduleForm({
         unit_descriptions: agendaType === 'Riksa Uji' ? unitDescriptions.filter(val => val.trim() !== '') : [],
         lead_expert_id: agendaType === 'Riksa Uji' ? leadExpertId : undefined,
         support_ids: selectedSupportIds,
+        support_team_details: resolvedSupportDetails,
         priority,
         status,
         agenda_type: agendaType,
         manual_agenda: agendaType === 'Lainnya' ? manualAgenda : undefined,
         is_until_finished: isUntilFinished,
-        location: location || undefined
+        location: location || clientAddress.trim() || undefined
       });
-
-      // Schedule saved successfully — Google Drive integration removed
     } catch (err: any) {
       console.error(err);
       alert(`Gagal menyimpan plotting: ${err.message || err}`);
@@ -544,24 +624,24 @@ export default function ScheduleForm({
           <h3 className="font-bold text-slate-800 text-sm md:text-base tracking-tight uppercase">
             {initialSchedule ? 'Ubah Plotting Jadwal' : 'Tambah Plotting Baru'}
           </h3>
-          <p className="text-[10px] text-slate-450 mt-0.5">Lengkapi data koordinasi riksa teknik di bawah ini</p>
+          <p className="text-[10px] text-slate-450 mt-0.5">Lengkapi data koordinasi riksa teknik & persiapan Surat Tugas di bawah ini</p>
         </div>
         <button
           id="btn_cancel_form"
           type="button"
           onClick={onCancel}
-          className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all"
+          className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all cursor-pointer"
         >
           <X className="h-4.5 w-4.5" />
         </button>
       </div>
 
       {/* SCROLLABLE FORM BODY */}
-      <div className="overflow-y-auto flex-1 p-5 md:p-6 space-y-5">
+      <div className="overflow-y-auto flex-1 p-5 md:p-6 space-y-4">
         
         {/* Basic Inputs (Klien, PIC, and Contact) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* PT Client input with beautiful dropdown autocomplete suggestions */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* PT Client input with dropdown autocomplete suggestions */}
           <div className="space-y-1 relative">
             <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
               {agendaType === 'Riksa Uji' ? 'Nama Klien / Perusahaan' : 'Instansi / Tujuan / Klien'}
@@ -645,6 +725,29 @@ export default function ScheduleForm({
           </div>
         </div>
 
+        {/* 2. FIELD MANDATORY: Alamat Lokasi Proyek / Klien (Wajib untuk Surat Tugas) */}
+        <div className="space-y-1 bg-slate-50/60 p-3 rounded-xl border border-slate-200/80">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider block flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Alamat Lokasi Proyek / Klien</span>
+              <span className="text-rose-500 font-bold">*</span>
+            </label>
+            <span className="text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold border border-emerald-100">
+              Wajib untuk Cetak PDF Surat Tugas
+            </span>
+          </div>
+          <textarea
+            id="input_client_address"
+            required
+            rows={2}
+            value={clientAddress}
+            onChange={e => setClientAddress(e.target.value)}
+            placeholder="Contoh: Kawasan Industri MM2100, Jl. Irian Blok NN-1, Cikarang Barat, Kab. Bekasi, Jawa Barat"
+            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 placeholder-slate-400 font-medium resize-y"
+          />
+        </div>
+
         {/* Jenis Agenda */}
         <div className="space-y-1.5 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/60">
           <label className="text-[11px] font-extrabold text-slate-450 uppercase tracking-wider block">Jenis Agenda Kegiatan</label>
@@ -659,7 +762,7 @@ export default function ScheduleForm({
                 key={opt.id}
                 type="button"
                 onClick={() => setAgendaType(opt.id)}
-                className={`px-1.5 py-2 text-[10px] md:text-[11px] font-extrabold rounded-lg border text-center transition-all ${
+                className={`px-1.5 py-2 text-[10px] md:text-[11px] font-extrabold rounded-lg border text-center transition-all cursor-pointer ${
                   agendaType === opt.id
                     ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
                     : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
@@ -677,7 +780,7 @@ export default function ScheduleForm({
                 required
                 value={manualAgenda}
                 onChange={e => setManualAgenda(e.target.value)}
-                placeholder="Tuliskan nama kegiatan manual riksa teknik..."
+                placeholder="Tuliskan nama kegiatan manual..."
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-medium h-10"
               />
             </div>
@@ -689,7 +792,7 @@ export default function ScheduleForm({
           <div className="space-y-1 bg-emerald-50/20 p-3 rounded-xl border border-emerald-100">
             <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block flex items-center gap-1.5">
               <MapPin className="h-3.5 w-3.5 text-emerald-600" />
-              <span>Lokasi Kegiatan (Ruangan/Situs)</span>
+              <span>Lokasi Spesifik Ruangan / Gedung (Opsional)</span>
             </label>
             <input
               id="input_location"
@@ -842,9 +945,12 @@ export default function ScheduleForm({
           </div>
         </div>
 
-        {/* TECHNICAL SHIELD: ONLY DISPLAY UNITS CHECKLIST AND DETAILS IF RIKSA UJI TYPE */}
-        {agendaType === 'Riksa Uji' ? (
-          <>
+        {/* ========================================================================= */}
+        {/* CONDITIONAL RENDERING: HANYA TAMPIL JIKA agendaType === 'Riksa Uji'        */}
+        {/* (Unit Alat yang Diinspeksi, Detail Deskripsi Unit, AI Auto-Plot, Lead)   */}
+        {/* ========================================================================= */}
+        {agendaType === 'Riksa Uji' && (
+          <div className="space-y-4 pt-1">
             {/* Unit Inspeksi (Checkboxes) */}
             <div className="space-y-2">
               <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">Unit Alat yang Diinspeksi</label>
@@ -900,7 +1006,7 @@ export default function ScheduleForm({
                     key={chip.label}
                     type="button"
                     onClick={() => handleAppendChip(chip.value)}
-                    className="px-2 py-1 text-[10px] font-bold bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 rounded-md transition-all active:scale-95"
+                    className="px-2 py-1 text-[10px] font-bold bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 rounded-md transition-all active:scale-95 cursor-pointer"
                   >
                     {chip.label}
                   </button>
@@ -939,7 +1045,7 @@ export default function ScheduleForm({
                                 key={tool}
                                 type="button"
                                 onMouseDown={() => selectDescSuggestion(tool)}
-                                className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-slate-800 text-xs font-bold transition-colors flex items-center justify-between"
+                                className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-slate-800 text-xs font-bold transition-colors flex items-center justify-between cursor-pointer"
                               >
                                 <span>{tool}</span>
                                 <span className="text-[8px] text-emerald-600 bg-emerald-50 px-1 rounded uppercase font-mono tracking-wider">K3 Tool</span>
@@ -954,7 +1060,7 @@ export default function ScheduleForm({
                         type="button"
                         onClick={() => handleDuplicateDescriptionRow(index)}
                         title="Duplikat Baris"
-                        className="p-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 rounded-lg transition-all flex items-center justify-center shrink-0 h-10 w-10 active:scale-95"
+                        className="p-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 rounded-lg transition-all flex items-center justify-center shrink-0 h-10 w-10 active:scale-95 cursor-pointer"
                       >
                         <Copy className="h-4 w-4" />
                       </button>
@@ -964,7 +1070,7 @@ export default function ScheduleForm({
                         type="button"
                         onClick={() => handleRemoveDescriptionRow(index)}
                         title="Hapus Baris"
-                        className="p-2.5 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 rounded-lg transition-all flex items-center justify-center shrink-0 h-10 w-10 active:scale-95"
+                        className="p-2.5 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 rounded-lg transition-all flex items-center justify-center shrink-0 h-10 w-10 active:scale-95 cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -996,7 +1102,7 @@ export default function ScheduleForm({
                 type="button"
                 onClick={handleAiAutoPlot}
                 disabled={aiLoading}
-                className="w-full bg-[#D4AF37] hover:bg-[#B8860B] text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-50 h-11"
+                className="w-full bg-[#D4AF37] hover:bg-[#B8860B] text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-50 h-11 cursor-pointer"
               >
                 <Sparkles className={`h-4 w-4 text-white ${aiLoading ? 'animate-spin' : ''}`} />
                 {aiLoading ? 'Mengotomatisasi Plotting via AI...' : 'AI Auto-Plot (Smart Planner)'}
@@ -1036,7 +1142,8 @@ export default function ScheduleForm({
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-                  {agendaType === 'Riksa Uji' ? 'Lead Expert (Ahli SKP)' : 'Penanggung Jawab Utama (Lead)'}
+                  <span>Lead Expert (Ahli SKP)</span>
+                  <span className="text-rose-500">*</span>
                 </label>
                 <span className="text-[9px] text-slate-400 font-bold font-mono">
                   {filteredLeadExperts.length} qualified
@@ -1055,17 +1162,17 @@ export default function ScheduleForm({
                 onChange={e => setLeadExpertId(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
               >
-                <option value="">
-                  {agendaType === 'Riksa Uji' ? '-- Pilih Lead Expert (Disaring Berdasarkan SKP) --' : '-- Pilih Penanggung Jawab Utama --'}
-                </option>
+                <option value="">-- Pilih Lead Expert (Disaring Berdasarkan SKP) --</option>
                 {filteredLeadExperts.map(expert => {
                   const rangeAbsences = getAbsenceInDateRange(expert.id);
                   const prefix = rangeAbsences.length > 0 
                     ? `[🔴 ABSEN: ${rangeAbsences.map(ra => ra.type).join(',')}] ` 
                     : '';
+                  const displayName = expert.nama_lengkap || expert.name;
+                  const nickname = expert.nama_panggilan ? ` (${expert.nama_panggilan})` : '';
                   return (
                     <option key={expert.id} value={expert.id}>
-                      {prefix}{expert.name} ({expert.role}) - SKP: {expert.skp.join(', ')}
+                      {prefix}{displayName}{nickname} ({expert.jabatan_resmi || expert.role}) - SKP: {expert.skp.join(', ')}
                     </option>
                   );
                 })}
@@ -1076,11 +1183,12 @@ export default function ScheduleForm({
                 if (!leadExpertId) return null;
                 const rangeAbsences = getAbsenceInDateRange(leadExpertId);
                 if (rangeAbsences.length === 0) return null;
+                const expertObj = manpowerList.find(m => m.id === leadExpertId);
                 return (
                   <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs p-2.5 rounded-lg flex items-start gap-2 mt-1 font-medium animate-pulse">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
                     <div>
-                      <span className="font-extrabold">⚠️ Peringatan Manpower Absen/Izin:</span> {manpowerList.find(m => m.id === leadExpertId)?.name} tercatat berhalangan hadir pada tanggal berikut:
+                      <span className="font-extrabold">⚠️ Peringatan Manpower Absen/Izin:</span> {expertObj?.nama_lengkap || expertObj?.name} tercatat berhalangan hadir pada tanggal berikut:
                       <ul className="list-disc list-inside mt-1 font-bold">
                         {rangeAbsences.map((ra, idx) => (
                           <li key={idx}>
@@ -1103,15 +1211,18 @@ export default function ScheduleForm({
                 </div>
               )}
             </div>
-          </>
-        ) : null}
+          </div>
+        )}
 
-        {/* Support Team Selection / Participants Selector - Different Labels depending on Riksa Uji / Meeting-Survey */}
+        {/* ========================================================================= */}
+        {/* TIM SUPPORT SELECTION:                                                    */}
+        {/* HANYA menampilkan personel Internal & Aktif. Label checkbox: nama_panggilan*/}
+        {/* ========================================================================= */}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
               {agendaType === 'Riksa Uji' 
-                ? 'Daftar Tim Support (Rekomendasi 1-3 orang)' 
+                ? 'Daftar Tim Support Internal (Rekomendasi 1-3 orang)' 
                 : 'Daftar Peserta / Personel yang Ditugaskan'}
             </label>
             {availableSupportList.length > 0 && (
@@ -1128,58 +1239,78 @@ export default function ScheduleForm({
               </button>
             )}
           </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50/50 p-3 rounded-xl border border-slate-200">
-            {availableSupportList.map(support => {
-              const isChecked = selectedSupportIds.includes(support.id);
-              const conflict = supportConflictsMap.get(support.id);
-              return (
-                <div
-                  key={support.id}
-                  className={`p-2.5 rounded-lg border flex flex-col justify-between transition-all ${
-                    isChecked
-                      ? 'bg-emerald-50/40 border-emerald-300'
-                      : 'bg-slate-100/40 border-slate-200 hover:bg-slate-100/80'
-                  }`}
-                >
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => {
-                        setSelectedSupportIds(prev =>
-                          isChecked ? prev.filter(id => id !== support.id) : [...prev, support.id]
-                        );
-                      }}
-                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer shrink-0"
-                    />
-                    <div className="text-[11px]">
-                      <span className="font-bold text-slate-800 block leading-tight">{support.name}</span>
-                      <span className="text-[9px] text-slate-500 block mt-1 font-medium">
-                        {support.role} {support.skp.length > 0 ? `- SKP: ${support.skp.join(', ')}` : ''}
-                      </span>
-                    </div>
-                  </label>
+            {availableSupportList.length === 0 ? (
+              <div className="col-span-2 text-center py-4 text-xs text-slate-400">
+                Tidak ada personel internal aktif yang tersedia.
+              </div>
+            ) : (
+              availableSupportList.map(support => {
+                const isChecked = selectedSupportIds.includes(support.id);
+                const conflict = supportConflictsMap.get(support.id);
+                const labelPanggilan = support.nama_panggilan || support.name;
+                const namaResmi = support.nama_lengkap || support.name;
 
-                  {(() => {
-                    const rangeAbsences = getAbsenceInDateRange(support.id);
-                    if (rangeAbsences.length === 0) return null;
-                    return (
-                      <span className="text-[8px] text-rose-750 font-bold bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-1.5 block leading-normal" title="Berhalangan hadir">
-                        🔴 Absen: {rangeAbsences.map(ra => `${ra.type} (${ra.date})`).join(', ')}
-                      </span>
-                    );
-                  })()}
+                return (
+                  <div
+                    key={support.id}
+                    className={`p-2.5 rounded-lg border flex flex-col justify-between transition-all ${
+                      isChecked
+                        ? 'bg-emerald-50/40 border-emerald-300'
+                        : 'bg-slate-100/40 border-slate-200 hover:bg-slate-100/80'
+                    }`}
+                  >
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedSupportIds(prev =>
+                            isChecked ? prev.filter(id => id !== support.id) : [...prev, support.id]
+                          );
+                        }}
+                        className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer shrink-0"
+                      />
+                      <div className="text-[11px] min-w-0">
+                        {/* Checkbox label: nama_panggilan */}
+                        <span className="font-bold text-slate-800 block leading-tight">
+                          {labelPanggilan}
+                        </span>
+                        {/* Subtitle: nama_lengkap & jabatan_resmi untuk Surat Tugas */}
+                        {namaResmi !== labelPanggilan && (
+                          <span className="text-[9px] text-slate-400 block leading-tight truncate">
+                            {namaResmi}
+                          </span>
+                        )}
+                        <span className="text-[9px] text-slate-500 block mt-1 font-medium">
+                          {support.jabatan_resmi || support.role} {support.skp && support.skp.length > 0 ? `- SKP: ${support.skp.join(', ')}` : ''}
+                        </span>
+                      </div>
+                    </label>
 
-                  {conflict && (
-                    <span className="text-[8px] text-amber-700 font-bold bg-amber-50 border border-amber-150 px-1.5 py-0.5 rounded mt-1.5 block truncate" title={`Bentrok di ${conflict.clientName}`}>
-                      ⚠️ Bentrok di {conflict.clientName}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+                    {(() => {
+                      const rangeAbsences = getAbsenceInDateRange(support.id);
+                      if (rangeAbsences.length === 0) return null;
+                      return (
+                        <span className="text-[8px] text-rose-750 font-bold bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-1.5 block leading-normal" title="Berhalangan hadir">
+                          🔴 Absen: {rangeAbsences.map(ra => `${ra.type} (${ra.date})`).join(', ')}
+                        </span>
+                      );
+                    })()}
+
+                    {conflict && (
+                      <span className="text-[8px] text-amber-700 font-bold bg-amber-50 border border-amber-150 px-1.5 py-0.5 rounded mt-1.5 block truncate" title={`Bentrok di ${conflict.clientName}`}>
+                        ⚠️ Bentrok di {conflict.clientName}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
-          {/* Add Vendor Input */}
+
+          {/* Add Vendor Input (Tetap Terpisah Sesuai Arahan) */}
           <div className="mt-2 p-3 bg-slate-50/50 rounded-xl border border-slate-200">
             <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">Tambah Vendor / Tim Eksternal (Opsional)</label>
             <div className="flex gap-2">
@@ -1205,6 +1336,7 @@ export default function ScheduleForm({
             </div>
             <p className="text-[9px] text-slate-400 mt-1.5">Tekan Enter untuk menambah vendor ke dalam daftar support. Bebas diisi vendor apa saja, ini akan otomatis tampil di kalender.</p>
           </div>
+
           {/* Render Selected Vendors */}
           {selectedSupportIds.filter(id => id.startsWith('vendor:')).map(vendorId => (
             <div key={vendorId} className="mt-2 p-2.5 rounded-lg border flex flex-col justify-between transition-all bg-emerald-50/40 border-emerald-300">
@@ -1217,7 +1349,7 @@ export default function ScheduleForm({
                 />
                 <div className="text-[11px]">
                   <span className="font-bold text-slate-800 block leading-tight">{vendorId.replace('vendor:', '')}</span>
-                  <span className="text-[9px] text-slate-500 block mt-1 font-medium">Vendor / Eksternal</span>
+                  <span className="text-[9px] text-slate-500 block mt-1 font-medium">Vendor / Tim Eksternal</span>
                 </div>
               </label>
             </div>

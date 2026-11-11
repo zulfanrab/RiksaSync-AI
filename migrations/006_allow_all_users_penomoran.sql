@@ -235,3 +235,4 @@ CREATE POLICY "pn_log_select_all" ON public.pn_log FOR SELECT TO anon, authentic
 
 DROP POLICY IF EXISTS "pn_sync_log_select_all" ON public.pn_sync_log;
 CREATE POLICY "pn_sync_log_select_all" ON public.pn_sync_log FOR SELECT TO anon, authenticated USING (true);
+

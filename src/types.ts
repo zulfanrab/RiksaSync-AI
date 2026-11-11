@@ -9,6 +9,12 @@ export interface Manpower {
   role: string;
   status: 'internal' | 'external';
   skp: string[]; // List of SKP licenses/skills
+  nama_panggilan?: string;
+  nama_lengkap?: string;
+  nik?: string;
+  jabatan_resmi?: string;
+  kategori_tim?: 'Internal' | 'Eksternal';
+  status_aktif?: boolean;
 }
 
 export interface Unit {
@@ -17,9 +23,22 @@ export interface Unit {
   required_skp: string;
 }
 
+export interface SupportTeamDetail {
+  id: string;
+  name: string;
+  nama_panggilan?: string;
+  nama_lengkap?: string;
+  nik?: string;
+  jabatan_resmi?: string;
+  role?: string;
+  kategori_tim?: 'Internal' | 'Eksternal';
+  status_aktif?: boolean;
+}
+
 export interface Schedule {
   id: string;
   client_name: string;
+  client_address?: string; // Alamat Lokasi Proyek / Klien (wajib untuk Surat Tugas)
   pic_name: string;
   pic_phone?: string; // Contact PIC
   start_date: string; // YYYY-MM-DD
@@ -29,6 +48,7 @@ export interface Schedule {
   unit_ids?: string[]; // Array of Unit IDs (optional for non-technical agendas)
   lead_expert_id?: string; // Optional for non-technical agendas
   support_ids: string[]; // Array of Support Manpower IDs / Participants
+  support_team_details?: SupportTeamDetail[]; // Object detail support team untuk print PDF
   priority: 'P1' | 'P2' | 'P3'; // P1: Critical, P2: High, P3: Medium
   status: 'Draft' | 'Scheduled' | 'Completed' | 'Cancelled';
   unit_descriptions?: string[]; // Optional unit descriptions

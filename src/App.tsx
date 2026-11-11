@@ -219,9 +219,17 @@ ALTER TABLE schedules ADD COLUMN IF NOT EXISTS updated_by TEXT;
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS unit_ids TEXT[] DEFAULT '{}';
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS lead_expert_id TEXT;
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS support_ids TEXT[] DEFAULT '{}';
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS client_address TEXT;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS support_team_details JSONB;
 
 -- 4c. Migration Fallback: Ensure all columns exist on existing manpower table
 ALTER TABLE manpower ADD COLUMN IF NOT EXISTS skp TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS nama_panggilan TEXT;
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS nama_lengkap TEXT;
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS nik TEXT;
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS jabatan_resmi TEXT;
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS kategori_tim TEXT DEFAULT 'Internal';
+ALTER TABLE manpower ADD COLUMN IF NOT EXISTS status_aktif BOOLEAN DEFAULT true;
 
 -- 5. Seed app_users
 INSERT INTO app_users (id, username, role) VALUES

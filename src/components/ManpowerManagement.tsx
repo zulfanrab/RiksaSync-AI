@@ -48,6 +48,12 @@ export default function ManpowerManagement({
   // ==========================================
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [namaPanggilan, setNamaPanggilan] = useState('');
+  const [namaLengkap, setNamaLengkap] = useState('');
+  const [nik, setNik] = useState('');
+  const [jabatanResmi, setJabatanResmi] = useState('');
+  const [kategoriTim, setKategoriTim] = useState<'Internal' | 'Eksternal'>('Internal');
+  const [statusAktif, setStatusAktif] = useState<boolean>(true);
   const [role, setRole] = useState('Ahli Spesialis');
   const [status, setStatus] = useState<'internal' | 'external'>('internal');
   const [selectedSkps, setSelectedSkps] = useState<string[]>([]);
@@ -56,10 +62,23 @@ export default function ManpowerManagement({
 
   const filteredManpower = useMemo(() => {
     return manpowerList.filter(m => {
-      const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            m.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            m.skp.some(s => s.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchesStatus = filterStatus === 'all' || m.status === filterStatus;
+      const searchTarget = [
+        m.name,
+        m.nama_panggilan,
+        m.nama_lengkap,
+        m.nik,
+        m.jabatan_resmi,
+        m.role,
+        ...(m.skp || [])
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const matchesSearch = searchTarget.includes(searchTerm.toLowerCase());
+      const kat = m.kategori_tim || (m.status === 'external' ? 'Eksternal' : 'Internal');
+      const matchesStatus = 
+        filterStatus === 'all' || 
+        (filterStatus === 'internal' && kat === 'Internal') ||
+        (filterStatus === 'external' && kat === 'Eksternal');
+
       return matchesSearch && matchesStatus;
     });
   }, [manpowerList, searchTerm, filterStatus]);
@@ -77,17 +96,31 @@ export default function ManpowerManagement({
   const resetForm = () => {
     setEditingId(null);
     setName('');
-    setRole('Ahli Spesialis');
+    setNamaPanggilan('');
+    setNamaLengkap('');
+    setNik('');
+    setJabatanResmi('');
+    setKategoriTim('Internal');
     setStatus('internal');
+    setStatusAktif(true);
+    setRole('Ahli Spesialis');
     setSelectedSkps([]);
     setError(null);
   };
 
   const handleStartEdit = (person: Manpower) => {
     setEditingId(person.id);
-    setName(person.name);
-    setRole(person.role);
-    setStatus(person.status);
+    const dispName = person.nama_panggilan || person.name || '';
+    setName(dispName);
+    setNamaPanggilan(dispName);
+    setNamaLengkap(person.nama_lengkap || person.name || '');
+    setNik(person.nik || '');
+    setJabatanResmi(person.jabatan_resmi || person.role || '');
+    const kat = person.kategori_tim || (person.status === 'external' ? 'Eksternal' : 'Internal');
+    setKategoriTim(kat);
+    setStatus(person.status || (kat === 'Eksternal' ? 'external' : 'internal'));
+    setStatusAktif(person.status_aktif !== undefined ? person.status_aktif : true);
+    setRole(person.role || person.jabatan_resmi || 'Ahli Spesialis');
     setSelectedSkps(person.skp || []);
     setError(null);
     setSuccessMsg(null);
@@ -95,8 +128,12 @@ export default function ManpowerManagement({
 
   const handleSaveManpower = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setError('Nama manpower tidak boleh kosong.');
+    const displayName = namaPanggilan.trim() || namaLengkap.trim() || name.trim();
+    const fullDisplayName = namaLengkap.trim() || displayName;
+    const officialRole = jabatanResmi.trim() || role.trim() || 'Ahli Spesialis';
+
+    if (!displayName) {
+      setError('Nama atau nama panggilan manpower tidak boleh kosong.');
       return;
     }
 
@@ -109,33 +146,38 @@ export default function ManpowerManagement({
         throw new Error('Koneksi Supabase tidak terkonfigurasi. Perubahan tidak dapat disimpan.');
       }
 
+      const payload = {
+        name: displayName,
+        nama_panggilan: displayName,
+        nama_lengkap: fullDisplayName,
+        nik: nik.trim() || null,
+        jabatan_resmi: officialRole,
+        kategori_tim: kategoriTim,
+        status: (kategoriTim === 'Eksternal' ? 'external' : 'internal') as 'internal' | 'external',
+        status_aktif: statusAktif,
+        role: officialRole,
+        skp: selectedSkps
+      };
+
       if (editingId) {
         const { error: dbErr } = await supabase
           .from('manpower')
-          .update({
-            name: name.trim(),
-            role: role.trim(),
-            status,
-            skp: selectedSkps
-          })
+          .update(payload)
           .eq('id', editingId);
 
         if (dbErr) throw dbErr;
-        setSuccessMsg(`Berhasil memperbarui data ${name}`);
+        setSuccessMsg(`Berhasil memperbarui data ${fullDisplayName}`);
       } else {
         const newId = 'm_' + Math.random().toString(36).substring(2, 9);
         const { error: dbErr } = await supabase
           .from('manpower')
           .insert([{
             id: newId,
-            name: name.trim(),
-            role: role.trim(),
-            status,
-            skp: selectedSkps
+            ...payload
           }]);
 
         if (dbErr) throw dbErr;
-        setSuccessMsg(`Berhasil menambahkan ${name} ke direktori`);
+        setSuccessMsg(`Berhasil menambahkan ${fullDisplayName} ke direktori`);
       }
 
       await onRefreshAll();
@@ -150,7 +192,8 @@ export default function ManpowerManagement({
   };
 
   const handleDeleteManpower = async (person: Manpower) => {
-    if (!confirm(`Apakah Anda yakin ingin menghapus "${person.name}" dari direktori manpower? Tindakan ini dapat memengaruhi jadwal aktif.`)) {
+    const disp = person.nama_lengkap || person.nama_panggilan || person.name;
+    if (!confirm(`Apakah Anda yakin ingin menghapus "${disp}" dari direktori manpower? Tindakan ini dapat memengaruhi jadwal aktif.`)) {
       return;
     }
 
@@ -170,7 +213,7 @@ export default function ManpowerManagement({
 
       if (dbErr) throw dbErr;
 
-      setSuccessMsg(`Berhasil menghapus "${person.name}" dari direktori.`);
+      setSuccessMsg(`Berhasil menghapus "${disp}" dari direktori.`);
       await onRefreshAll();
       
       if (editingId === person.id) {
@@ -262,7 +305,7 @@ export default function ManpowerManagement({
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'record_absence',
-              employee_name: selectedPerson?.name || 'Karyawan',
+              employee_name: selectedPerson?.nama_lengkap || selectedPerson?.name || 'Karyawan',
               manpower_id: absenceManpowerId,
               date: absenceDate,
               absence_type: absenceType,
@@ -288,7 +331,6 @@ export default function ManpowerManagement({
 
     try {
       if (isSupabaseConfigured && supabase) {
-        // try to delete from Supabase by ID or composite key
         const { error: dbErr } = await supabase
           .from('manpower_absences')
           .delete()
@@ -432,7 +474,7 @@ export default function ManpowerManagement({
             </div>
             <h2 className="text-base font-black text-slate-800 tracking-tight">Pusat Administrasi & Pengaturan</h2>
           </div>
-          <p className="text-[11px] text-slate-500 mt-0.5">Kelola direktori manpower ahli, pencatatan status absensi cuti/sakit, serta konfigurasi profil login pengguna.</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">Kelola direktori manpower ahli, persiapan data Surat Tugas PDF, pencatatan status absensi cuti/sakit, serta konfigurasi profil pengguna.</p>
         </div>
         <button
           onClick={onClose}
@@ -512,10 +554,12 @@ export default function ManpowerManagement({
                 {editingId ? 'Edit Data Manpower' : 'Tambah Manpower Baru'}
               </h3>
 
-              <form onSubmit={handleSaveManpower} className="space-y-4">
-                {/* Name Field */}
+              <form onSubmit={handleSaveManpower} className="space-y-3.5">
+                {/* 1. Nama Panggilan (UI Label) */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Nama Lengkap</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Nama Panggilan <span className="text-emerald-600 font-semibold lowercase">(label UI / checklist)</span>
+                  </label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
                       <User className="h-3.5 w-3.5" />
@@ -523,53 +567,95 @@ export default function ManpowerManagement({
                     <input
                       type="text"
                       required
-                      placeholder="Contoh: Pak Habsi, Arya, dll."
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Contoh: Habsi, Angga, Arya"
+                      value={namaPanggilan}
+                      onChange={(e) => {
+                        setNamaPanggilan(e.target.value);
+                        if (!name) setName(e.target.value);
+                      }}
                       className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                     />
                   </div>
                 </div>
 
-                {/* Role Field */}
+                {/* 2. Nama Lengkap (untuk dicetak di PDF) */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Jabatan / Role</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Nama Lengkap <span className="text-slate-400 font-normal lowercase">(untuk dicetak di PDF)</span>
+                  </label>
                   <input
                     type="text"
                     required
-                    placeholder="Contoh: Ahli Spesialis, Support Staff, Helper"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
+                    placeholder="Contoh: Habsi Syauqi, S.T."
+                    value={namaLengkap}
+                    onChange={(e) => setNamaLengkap(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
                   />
                 </div>
 
-                {/* Status Option (Internal vs External) */}
+                {/* 3. NIK (untuk PDF) */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Status Kepegawaian</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setStatus('internal')}
-                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer ${
-                        status === 'internal'
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    NIK / Nomor Karyawan <span className="text-slate-400 font-normal lowercase">(untuk PDF)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: 3201012345670001"
+                    value={nik}
+                    onChange={(e) => setNik(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                  />
+                </div>
+
+                {/* 4. Jabatan Resmi (untuk PDF) */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Jabatan Resmi <span className="text-slate-400 font-normal lowercase">(untuk PDF)</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: Ahli K3 Spesialis Pesawat Angkat & Angkut"
+                    value={jabatanResmi}
+                    onChange={(e) => {
+                      setJabatanResmi(e.target.value);
+                      setRole(e.target.value);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                  />
+                </div>
+
+                {/* 5 & 6. Kategori Tim ('Internal' / 'Eksternal') & Status Aktif (true/false) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Kategori Tim</label>
+                    <select
+                      value={kategoriTim}
+                      onChange={(e) => {
+                        const val = e.target.value as 'Internal' | 'Eksternal';
+                        setKategoriTim(val);
+                        setStatus(val === 'Eksternal' ? 'external' : 'internal');
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
                     >
-                      Internal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatus('external')}
-                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer ${
-                        status === 'external'
-                          ? 'bg-purple-50 border-purple-500 text-purple-700 shadow-sm'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      Eksternal
-                    </button>
+                      <option value="Internal">Internal</option>
+                      <option value="Eksternal">Eksternal</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Status Personel</label>
+                    <label className="flex items-center gap-2 p-2 bg-white border border-slate-200 rounded-xl cursor-pointer select-none h-[38px] hover:bg-slate-50 transition-all">
+                      <input
+                        type="checkbox"
+                        checked={statusAktif}
+                        onChange={(e) => setStatusAktif(e.target.checked)}
+                        className="h-4 w-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <span className={`text-xs font-bold ${statusAktif ? 'text-emerald-700' : 'text-slate-400'}`}>
+                        {statusAktif ? 'Aktif' : 'Nonaktif'}
+                      </span>
+                    </label>
                   </div>
                 </div>
 
@@ -579,7 +665,7 @@ export default function ManpowerManagement({
                     <Award className="h-3.5 w-3.5 text-amber-500" />
                     Sertifikasi Lisensi SKP K3
                   </label>
-                  <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 max-h-40 overflow-y-auto">
+                  <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 max-h-36 overflow-y-auto">
                     {AVAILABLE_SKPS.map((skp) => {
                       const isChecked = selectedSkps.includes(skp.value);
                       return (
@@ -672,7 +758,7 @@ export default function ManpowerManagement({
                 </span>
                 <input
                   type="text"
-                  placeholder="Cari nama, jabatan, atau kode lisensi SKP..."
+                  placeholder="Cari nama, panggilan, NIK, jabatan, atau kode lisensi SKP..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all h-10"
@@ -680,7 +766,7 @@ export default function ManpowerManagement({
               </div>
 
               {/* List of members */}
-              <div className="flex-1 border border-slate-200 rounded-2xl overflow-hidden bg-white max-h-[380px] overflow-y-auto">
+              <div className="flex-1 border border-slate-200 rounded-2xl overflow-hidden bg-white max-h-[460px] overflow-y-auto">
                 {filteredManpower.length === 0 ? (
                   <div className="p-8 text-center text-slate-400">
                     <User className="h-8 w-8 mx-auto stroke-1 mb-2 text-slate-300" />
@@ -688,54 +774,81 @@ export default function ManpowerManagement({
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-100">
-                    {filteredManpower.map((person) => (
-                      <div key={person.id} className="p-3.5 hover:bg-slate-50/50 flex items-center justify-between gap-4 transition-all">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-800 text-xs truncate">{person.name}</span>
-                            <span className={`text-[8px] font-bold px-1.5 py-0.1 border rounded-md uppercase tracking-wider ${
-                              person.status === 'internal'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : 'bg-purple-50 text-purple-700 border-purple-100'
-                            }`}>
-                              {person.status}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-slate-500 block font-medium leading-none">{person.role}</span>
-                          <div className="flex flex-wrap gap-1 items-center pt-1">
-                            {person.skp && person.skp.length > 0 ? (
-                              person.skp.map((skpVal) => (
-                                <span
-                                  key={skpVal}
-                                  className="text-[8px] bg-slate-100 border border-slate-200 font-mono font-bold px-1.5 py-0.2 rounded text-slate-600"
-                                >
-                                  {skpVal}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-[8px] text-slate-400 italic">Tanpa SKP</span>
-                            )}
-                          </div>
-                        </div>
+                    {filteredManpower.map((person) => {
+                      const kat = person.kategori_tim || (person.status === 'external' ? 'Eksternal' : 'Internal');
+                      const isAktif = person.status_aktif !== false;
+                      const displayName = person.nama_lengkap || person.name;
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => handleStartEdit(person)}
-                            title="Edit data personel"
-                            className="p-1.5 hover:bg-amber-50 text-slate-400 hover:text-amber-600 rounded-lg border border-transparent hover:border-amber-200 transition-all cursor-pointer"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteManpower(person)}
-                            title="Hapus dari direktori"
-                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg border border-transparent hover:border-rose-200 transition-all cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                      return (
+                        <div key={person.id} className="p-3.5 hover:bg-slate-50/50 flex items-center justify-between gap-4 transition-all">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-800 text-xs truncate">
+                                {displayName}
+                              </span>
+                              {person.nama_panggilan && person.nama_panggilan !== displayName && (
+                                <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                                  Panggilan: {person.nama_panggilan}
+                                </span>
+                              )}
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 border rounded-md uppercase tracking-wider ${
+                                kat === 'Eksternal'
+                                  ? 'bg-purple-50 text-purple-700 border-purple-100'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              }`}>
+                                {kat}
+                              </span>
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 border rounded-md uppercase tracking-wider ${
+                                isAktif
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-slate-100 text-slate-500 border-slate-200'
+                              }`}>
+                                {isAktif ? '● Aktif' : '○ Nonaktif'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-medium flex-wrap">
+                              <span>{person.jabatan_resmi || person.role}</span>
+                              {person.nik && (
+                                <span className="text-slate-400 font-mono">NIK: {person.nik}</span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap gap-1 items-center pt-1">
+                              {person.skp && person.skp.length > 0 ? (
+                                person.skp.map((skpVal) => (
+                                  <span
+                                    key={skpVal}
+                                    className="text-[8px] bg-slate-100 border border-slate-200 font-mono font-bold px-1.5 py-0.2 rounded text-slate-600"
+                                  >
+                                    {skpVal}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-[8px] text-slate-400 italic">Tanpa SKP</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleStartEdit(person)}
+                              title="Edit data personel"
+                              className="p-1.5 hover:bg-amber-50 text-slate-400 hover:text-amber-600 rounded-lg border border-transparent hover:border-amber-200 transition-all cursor-pointer"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteManpower(person)}
+                              title="Hapus dari direktori"
+                              className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg border border-transparent hover:border-rose-200 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -767,7 +880,9 @@ export default function ManpowerManagement({
                   >
                     <option value="">-- Pilih Anggota Tim --</option>
                     {manpowerList.map(m => (
-                      <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+                      <option key={m.id} value={m.id}>
+                        {m.nama_panggilan || m.nama_lengkap || m.name} ({m.jabatan_resmi || m.role})
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -860,7 +975,9 @@ export default function ManpowerManagement({
                           <div key={abs.id || `${abs.manpower_id}-${abs.date}`} className="p-3.5 hover:bg-slate-50/50 flex items-center justify-between gap-4 transition-all">
                             <div className="space-y-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-slate-800 text-xs">{person?.name || 'Unknown Staff'}</span>
+                                <span className="font-bold text-slate-800 text-xs">
+                                  {person?.nama_lengkap || person?.nama_panggilan || person?.name || 'Unknown Staff'}
+                                </span>
                                 <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded border uppercase tracking-wider ${styleClass}`}>
                                   {abs.absence_type === 'Sakit' ? '🔴 Sakit' : abs.absence_type === 'Cuti' ? '🔵 Cuti' : '🟡 Izin'}
                                 </span>
