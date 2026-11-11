@@ -13,7 +13,8 @@
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { saveAs } from 'file-saver';
-import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { Schedule, Manpower } from '../types';
 
 // ── BAGIAN 1: OFFICIAL PERSONNEL DATABASE ─────────────────────────────────────
@@ -462,10 +463,10 @@ export interface GenerateDocOptions {
  * 1. Ubah kemunculan kedua {{NOMOR_SURAT_AUTO}} menjadi {{NOMOR_SURAT_SPPD}}
  * 2. Patch 1. {{NAMA_PERSONEL_2}} 2. {{NAMA_PERSONEL_3}} menjadi {{DAFTAR_PENGIKUT}}
  * 3. Typo & Format Tanda Tangan:
- *    - Hilangkan gelar pada Pak Habsi (tanpa S.AP.)
- *    - Gunakan huruf kapital pada jabatan DIRECTOR di bagian tanda tangan
+ *    - Di form awal: "Habsi Gufira Pradana" (Kapital pada huruf awal saja, tanpa gelar S.AP.)
+ *    - Di bagian TTD: "HABSI GUFIRA PRADANA" (Kapital semua) & "DIRECTOR" (Kapital semua)
  * 4. Hapus duplikasi kalimat "Mengesahkan, Perwakilan Perusahaan / Instansi Tujuan" pada Lembar Visum
- * 5. Potong Halaman 2 jika includeSppd === false
+ * 5. Potong Halaman 2 jika includeSppd === false (Presisi XML tanpa merusak penutup tag)
  * 6. Normalisasi {{VAR}} -> {VAR}
  */
 export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean } = {}): void {
@@ -487,7 +488,9 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
   xml = xml.replace(/1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*/g, '{{DAFTAR_PENGIKUT}}');
   xml = xml.replace(/1\.\s*\{NAMA_PERSONEL_2\}\s*2\.\s*\{NAMA_PERSONEL_3\}\s*/g, '{DAFTAR_PENGIKUT}');
 
-  // 3. Hilangkan gelar Pak Habsi & Gunakan HURUF KAPITAL "DIRECTOR" di bagian tanda tangan:
+  // 3. Nama Pak Habsi:
+  // - Di form awal: "Habsi Gufira Pradana" (Title case, tanpa S.AP.)
+  // - Di tanda tangan: "HABSI GUFIRA PRADANA" (All caps) & "DIRECTOR" (All caps)
   xml = xml.replace(
     /<w:t xml:space="preserve">HABSI GUFIRA PRADANA<\/w:t><w:br w:type="textWrapping"\/><w:t xml:space="preserve">DIREKTUR<\/w:t>/g,
     '<w:t xml:space="preserve">HABSI GUFIRA PRADANA</w:t><w:br/><w:t xml:space="preserve">DIRECTOR</w:t>'
@@ -510,10 +513,11 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
   }
 
   // 5. Opsi Hanya Halaman 1: Jika includeSppd === false, hapus blok XML halaman 2
+  // PENTING: pStart harus mencocokkan tag pembuka paragraf <w:p dengan spasi agar tidak memotong di tengah <w:pPr>!
   if (options.includeSppd === false) {
     const pb = xml.indexOf('<w:br w:type="page"/>');
     if (pb !== -1) {
-      const pStart = xml.lastIndexOf('<w:p', pb);
+      const pStart = xml.lastIndexOf('<w:p ', pb);
       const sectPrStart = xml.lastIndexOf('<w:sectPr');
       if (pStart !== -1 && sectPrStart !== -1) {
         xml = xml.slice(0, pStart) + xml.slice(sectPrStart);
@@ -603,25 +607,23 @@ function buildPayload(
 
 let cachedKopSuratBase64: string | null = null;
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  const chunkSize = 8192;
-  for (let i = 0; i < len; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
-  }
-  return btoa(binary);
-}
-
 async function extractKopSuratBase64(zip: PizZip): Promise<string> {
   if (cachedKopSuratBase64) return cachedKopSuratBase64;
   const imgFile = zip.file('word/media/image1.png');
   if (imgFile) {
     const ab = imgFile.asArrayBuffer();
-    cachedKopSuratBase64 = `data:image/png;base64,${arrayBufferToBase64(ab)}`;
-    return cachedKopSuratBase64;
+    if (typeof FileReader !== 'undefined') {
+      const blob = new Blob([ab], { type: 'image/png' });
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          cachedKopSuratBase64 = reader.result as string;
+          resolve(cachedKopSuratBase64);
+        };
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      });
+    }
   }
   return '';
 }
@@ -696,9 +698,9 @@ function generateHtmlContent(
   includeSppd: boolean
 ): string {
   return `
-    <div style="width: 794px; background: #ffffff; padding: 20px 30px; box-sizing: border-box; font-family: 'Cambria', 'Times New Roman', serif; font-size: 10pt; color: #000; line-height: 1.35;">
+    <div style="background: #ffffff; color: #000000; box-sizing: border-box; font-family: 'Cambria', 'Times New Roman', serif;">
       <!-- HALAMAN 1: SURAT TUGAS -->
-      <div style="min-height: 1040px; position: relative;">
+      <div id="pdf-page-1" style="width: 794px; min-height: 1123px; background: #ffffff; padding: 30px 42px 20px 42px; box-sizing: border-box; font-size: 10pt; line-height: 1.35; position: relative;">
         ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
 
         <div style="text-align: center; margin-bottom: 12px;">
@@ -710,7 +712,7 @@ function generateHtmlContent(
           <div>Yang bertanda tangan di bawah ini:</div>
           <table style="width: 100%; border-collapse: collapse; margin-top: 3px; font-size: 10pt;">
             <tr><td style="width: 100px; vertical-align: top;">Nama</td><td style="width: 15px; vertical-align: top;">:</td><td style="font-weight: bold;">Habsi Gufira Pradana</td></tr>
-            <tr><td style="vertical-align: top;">Jabatan</td><td style="vertical-align: top;">:</td><td style="font-weight: bold;">DIRECTOR</td></tr>
+            <tr><td style="vertical-align: top;">Jabatan</td><td style="vertical-align: top;">:</td><td>Director</td></tr>
             <tr><td style="vertical-align: top;">Perusahaan</td><td style="vertical-align: top;">:</td><td>PT Aksara Riksa Perdana</td></tr>
           </table>
           <div style="margin-top: 6px;">Dalam hal ini bertindak sah untuk dan atas nama PT Aksara Riksa Perdana, menugaskan kepada:</div>
@@ -776,8 +778,7 @@ function generateHtmlContent(
 
       <!-- HALAMAN 2: SPPD & LEMBAR VISUM -->
       ${includeSppd ? `
-        <div class="html2pdf__page-break" style="page-break-before: always; height: 1px;"></div>
-        <div style="min-height: 1040px; position: relative; padding-top: 10px;">
+        <div id="pdf-page-2" style="width: 794px; min-height: 1123px; background: #ffffff; padding: 30px 42px 20px 42px; box-sizing: border-box; font-size: 10pt; line-height: 1.35; position: relative;">
           ${kopSuratBase64 ? `<img src="${kopSuratBase64}" style="width: 100%; max-height: 95px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
 
           <div style="text-align: center; margin-bottom: 12px;">
@@ -899,15 +900,13 @@ export async function generateSuratTugasPdf(
   const fileName = buildDocFileName(nomorUrut, schedule.client_name, schedule.start_date, 'pdf');
 
   // Buat container HTML
-  // Catatan: Posisikan di top: 0, left: 0 dengan z-index: 30 (di bawah modal dialog z-50),
-  // opacity: 1 agar html2canvas merender piksel dengan sempurna tanpa blank screen.
+  // Gunakan position absolute di top: 0, left: 0 dengan z-index di bawah modal
   const container = document.createElement('div');
   container.id = 'surat-tugas-pdf-render-container';
   container.style.position = 'fixed';
   container.style.top = '0';
   container.style.left = '0';
   container.style.width = '794px';
-  container.style.minHeight = '1123px';
   container.style.backgroundColor = '#ffffff';
   container.style.zIndex = '30';
   container.style.opacity = '1';
@@ -935,24 +934,48 @@ export async function generateSuratTugasPdf(
     // Beri jeda render font dan layout browser
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    const opt = {
-      margin: [8, 10, 8, 10], // mm: top, right, bottom, left
-      filename: fileName,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        letterRendering: true,
-        scrollY: 0,
-        scrollX: 0,
-        windowWidth: 794
-      },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css', 'legacy'] }
-    };
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      compress: true,
+    });
 
-    // Render dan save via html2pdf
-    await html2pdf().set(opt).from(container).save();
+    const page1El = container.querySelector('#pdf-page-1') as HTMLElement;
+    if (!page1El) throw new Error('Elemen Halaman 1 tidak ditemukan.');
+
+    const canvas1 = await html2canvas(page1El, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: 794,
+    });
+
+    const imgData1 = canvas1.toDataURL('image/jpeg', 0.98);
+    pdf.addImage(imgData1, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+
+    if (includeSppd) {
+      const page2El = container.querySelector('#pdf-page-2') as HTMLElement;
+      if (page2El) {
+        const canvas2 = await html2canvas(page2El, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: 794,
+        });
+        const imgData2 = canvas2.toDataURL('image/jpeg', 0.98);
+        pdf.addPage('a4', 'portrait');
+        pdf.addImage(imgData2, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      }
+    }
+
+    pdf.save(fileName);
   } finally {
     if (document.body.contains(container)) {
       document.body.removeChild(container);
