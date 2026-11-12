@@ -525,67 +525,64 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
     }
   }
 
-  // 6. Kerapihan Tabel Personel: Tambahkan w:tblGrid, lebar kolom eksplisit, dan <w:noWrap/> agar 'No' tidak berdiri vertikal
-  const startP = xml.indexOf('{#PERSONNELS}');
+  // 6. Kerapihan Tabel Personel: Berikan margin/padding sel yang seimbang dan cegah teks berdempetan ke garis
+  const startP = xml.indexOf('{{#PERSONNELS}}') !== -1 ? xml.indexOf('{{#PERSONNELS}}') : xml.indexOf('{#PERSONNELS}');
   if (startP !== -1) {
     const tblStart = xml.lastIndexOf('<w:tbl>', startP);
     const tblEnd = xml.indexOf('</w:tbl>', startP) + 8;
     if (tblStart !== -1 && tblEnd > tblStart) {
       let tblXml = xml.slice(tblStart, tblEnd);
 
-      // Sisipkan w:tblGrid jika belum ada
-      if (!tblXml.includes('<w:tblGrid>')) {
-        tblXml = tblXml.replace(
-          /<\/w:tblPr>/,
-          '</w:tblPr><w:tblGrid><w:gridCol w:w="600"/><w:gridCol w:w="4200"/><w:gridCol w:w="2200"/><w:gridCol w:w="2930"/></w:tblGrid>'
-        );
-      }
+      // Pastikan gridCol 420 diubah menjadi 600 (30pt, kecil dan pas agar 'No' tidak wrap vertikal)
+      // dan 4425 diubah menjadi 4245 (menjaga total lebar tabel tetap 9930 dxa)
+      tblXml = tblXml.replace(/<w:gridCol w:w="420"\/>/g, '<w:gridCol w:w="600"/>');
+      tblXml = tblXml.replace(/<w:gridCol w:w="4425"\/>/g, '<w:gridCol w:w="4245"/>');
 
-      // Pastikan kolom 'No' memiliki lebar 600 dxa dan w:noWrap agar tidak terpotong vertikal
+      // Ganti padding 0.0 menjadi padding seimbang:
+      // Untuk kolom No (Col 0): top/bottom/left/right 60 dxa (3pt)
       tblXml = tblXml.replace(
-        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?>No<\/w:t>)/,
-        '<w:tc><w:tcPr><w:tcW w:w="600" w:type="dxa"/><w:noWrap/><w:shd w:fill="d9ead3" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
+        /(<w:tc><w:tcPr>[\s\S]*?<w:tcMar>)<w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/>(<\/w:tcMar>[\s\S]*?<w:t xml:space="preserve">No<\/w:t>)/,
+        '$1<w:top w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/>$2'
       );
       tblXml = tblXml.replace(
-        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?\{#PERSONNELS\})/,
-        '<w:tc><w:tcPr><w:tcW w:w="600" w:type="dxa"/><w:noWrap/><w:shd w:fill="auto" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
+        /(<w:tc><w:tcPr>[\s\S]*?<w:tcMar>)<w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/>(<\/w:tcMar>[\s\S]*?\{\{?#PERSONNELS\}?)/,
+        '$1<w:top w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/>$2'
       );
 
-      // Kolom NIK juga diberikan w:noWrap
-      tblXml = tblXml.replace(
-        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?>NIK<\/w:t>)/,
-        '<w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/><w:noWrap/><w:shd w:fill="d9ead3" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
-      );
-      tblXml = tblXml.replace(
-        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?\{\{NIK\}\})/,
-        '<w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/><w:noWrap/><w:shd w:fill="auto" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
-      );
-
-      // Ganti padding 0.0 menjadi padding seimbang: top/bottom 60 dxa (3pt), left 120 dxa (6pt), right 100 dxa (5pt)
+      // Sisanya (Col 1-3) berikan top/bottom 60 dxa, left 120 dxa, right 100 dxa
       tblXml = tblXml.replace(
         /<w:tcMar><w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/><\/w:tcMar>/g,
         '<w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar>'
       );
+
       // Header vertikal align center
       tblXml = tblXml.replace(/<w:vAlign w:val="bottom"\/>/g, '<w:vAlign w:val="center"/>');
+
       // Ratakan spasi paragraf di dalam baris agar vertikal centering sempurna
       tblXml = tblXml.replace(
         /<w:spacing w:after="100" w:before="0" w:line="276" w:lineRule="auto"\/>/g,
         '<w:spacing w:after="0" w:before="0" w:line="240" w:lineRule="auto"/>'
       );
-      // Sisipkan default tblCellMar di w:tblPr jika belum ada
+
+      // Sisipkan default tblCellMar di w:tblPr sesuai schema ECMA-376 (setelah w:tblLayout, sebelum w:tblLook)
       if (!tblXml.includes('<w:tblCellMar>')) {
         tblXml = tblXml.replace(
-          /<\/w:tblBorders>/,
-          '</w:tblBorders><w:tblCellMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar>'
+          /(<w:tblLayout w:type="fixed"\/>)(<w:tblLook )/,
+          '$1<w:tblCellMar><w:top w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tblCellMar>$2'
         );
       }
+
+      // Pastikan loop tags dinormalisasi ke double braces
+      tblXml = tblXml.replace(/\{#PERSONNELS\}/g, '{{#PERSONNELS}}');
+      tblXml = tblXml.replace(/\{\/PERSONNELS\}/g, '{{/PERSONNELS}}');
+
       xml = xml.slice(0, tblStart) + tblXml + xml.slice(tblEnd);
     }
   }
 
-  // 7. Normalisasi {{VAR}} -> {VAR}
-  xml = xml.replace(/\{\{([A-Z0-9_]+)\}\}/g, '{$1}');
+  // 7. Pastikan semua tag loop konsisten double braces {{#PERSONNELS}} dan {{/PERSONNELS}}
+  xml = xml.replace(/\{#PERSONNELS\}/g, '{{#PERSONNELS}}');
+  xml = xml.replace(/\{\/PERSONNELS\}/g, '{{/PERSONNELS}}');
 
   zip.file('word/document.xml', xml);
 }
@@ -707,6 +704,7 @@ export async function renderSuratTugasDocxBlob(
     paragraphLoop: true,
     linebreaks: true,
     nullGetter: () => '',
+    delimiters: { start: '{{', end: '}}' },
   });
 
   try {
