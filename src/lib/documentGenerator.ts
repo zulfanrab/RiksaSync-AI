@@ -525,7 +525,37 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
     }
   }
 
-  // 6. Normalisasi {{VAR}} -> {VAR}
+  // 6. Kerapihan Tabel Personel: Berikan margin/padding sel yang seimbang dan cegah teks berdempetan ke garis
+  const startP = xml.indexOf('{#PERSONNELS}');
+  if (startP !== -1) {
+    const tblStart = xml.lastIndexOf('<w:tbl>', startP);
+    const tblEnd = xml.indexOf('</w:tbl>', startP) + 8;
+    if (tblStart !== -1 && tblEnd > tblStart) {
+      let tblXml = xml.slice(tblStart, tblEnd);
+      // Ganti padding 0.0 menjadi padding seimbang: top/bottom 60 dxa (3pt), left 120 dxa (6pt), right 100 dxa (5pt)
+      tblXml = tblXml.replace(
+        /<w:tcMar><w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/><\/w:tcMar>/g,
+        '<w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar>'
+      );
+      // Header vertikal align center
+      tblXml = tblXml.replace(/<w:vAlign w:val="bottom"\/>/g, '<w:vAlign w:val="center"/>');
+      // Ratakan spasi paragraf di dalam baris agar vertikal centering sempurna
+      tblXml = tblXml.replace(
+        /<w:spacing w:after="100" w:before="0" w:line="276" w:lineRule="auto"\/>/g,
+        '<w:spacing w:after="0" w:before="0" w:line="240" w:lineRule="auto"/>'
+      );
+      // Sisipkan default tblCellMar di w:tblPr jika belum ada
+      if (!tblXml.includes('<w:tblCellMar>')) {
+        tblXml = tblXml.replace(
+          /<\/w:tblBorders>/,
+          '</w:tblBorders><w:tblCellMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar>'
+        );
+      }
+      xml = xml.slice(0, tblStart) + tblXml + xml.slice(tblEnd);
+    }
+  }
+
+  // 7. Normalisasi {{VAR}} -> {VAR}
   xml = xml.replace(/\{\{([A-Z0-9_]+)\}\}/g, '{$1}');
 
   zip.file('word/document.xml', xml);
