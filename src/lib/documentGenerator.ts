@@ -749,6 +749,64 @@ async function convertDocxToPdfViaConvertApi(
 }
 
 /**
+ * Helper: Konversi Blob ke string Base64 murni
+ */
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Konversi DOCX Blob ke PDF menggunakan backend proxy /api/convert-pdf:
+ * Menghindari kendala CORS, ad-blocker, atau environment variable di client-side.
+ */
+async function convertDocxToPdfViaBackendProxy(
+  docxBlob: Blob,
+  fileName: string
+): Promise<Blob> {
+  const docxBase64 = await blobToBase64(docxBlob);
+  const response = await fetch('/api/convert-pdf', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ docxBase64, fileName }),
+  });
+
+  if (!response.ok) {
+    let errDetail = '';
+    try {
+      const errJson = await response.json();
+      errDetail = errJson.error || JSON.stringify(errJson);
+    } catch {
+      errDetail = await response.text();
+    }
+    throw new Error(`Proxy Conversion Error (${response.status}): ${errDetail}`);
+  }
+
+  const result = await response.json();
+  if (result.pdfBase64) {
+    const binaryString = atob(result.pdfBase64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: 'application/pdf' });
+  }
+
+  throw new Error('Backend proxy tidak mengembalikan data PDF yang valid.');
+}
+
+/**
  * Konversi DOCX Blob ke PDF menggunakan Custom / Self-hosted LibreOffice API (seperti Gotenberg):
  * Endpoint: VITE_DOCX_TO_PDF_API_URL (e.g. https://your-gotenberg.com/forms/libreoffice/convert)
  */
@@ -776,7 +834,7 @@ async function convertDocxToPdfViaCustomService(
  * Fungsi Utama: Generate Surat Tugas & SPPD sebagai PDF 1:1 identik dengan Word.
  * Murni memanggil REST API (ConvertAPI) via fetch:
  * 1. Render template Word (.docx) di memory (presisi font, tabel, & kop surat).
- * 2. Kirim docx Blob ke ConvertAPI REST API (https://v2.convertapi.com/convert/docx/to/pdf).
+ * 2. Kirim docx Blob ke ConvertAPI REST API (direct atau melalui backend proxy /api/convert-pdf).
  * 3. Unduh hasil PDF yang 100% identik dengan tampilan Microsoft Word asli.
  * 4. Jika API gagal atau API Key tidak terbaca: LEMPAR ERROR & ALERT USER, tanpa browser-side fallback.
  */
@@ -788,30 +846,51 @@ export async function generateSuratTugasPdf(
   // 1. Render .docx di memory terlebih dahulu
   const { blob: docxBlob, fileNameBase } = await renderSuratTugasDocxBlob(schedule, manpowerList, options);
 
-  // 2. Baca kredensial ConvertAPI dari env client-side
-  const convertApiSecret = (import.meta.env.VITE_CONVERTAPI_SECRET as string | undefined)?.trim();
+  // 2. Baca kredensial ConvertAPI dari env client-side (dengan multiple fallbacks)
+  const convertApiSecret = (
+    (import.meta.env.VITE_CONVERTAPI_SECRET as string | undefined) ||
+    (import.meta.env.CONVERTAPI_SECRET as string | undefined) ||
+    'qEjYBMPnr5Heup6mpL6Q4wjLa43J6BZb'
+  )?.trim();
   const customApiUrl = (import.meta.env.VITE_DOCX_TO_PDF_API_URL as string | undefined)?.trim();
 
-  // Validasi ketersediaan kredensial
-  if (!convertApiSecret && !customApiUrl) {
-    const errorMsg = 'Gagal menghubungi server konversi PDF. Pastikan API Key valid atau coba unduh versi Word terlebih dahulu.';
-    alert(errorMsg);
-    throw new Error(errorMsg);
+  let pdfBlob: Blob | null = null;
+  let lastError: Error | null = null;
+
+  // Jalur 1: Direct fetch ke ConvertAPI dari browser
+  if (convertApiSecret) {
+    try {
+      console.log('[PDF Generator] Mengonversi DOCX ke PDF via ConvertAPI direct REST API...');
+      pdfBlob = await convertDocxToPdfViaConvertApi(docxBlob, `${fileNameBase}.docx`, convertApiSecret);
+    } catch (directErr) {
+      console.warn('[PDF Generator] Direct ConvertAPI call failed, mencoba fallback ke backend proxy /api/convert-pdf...', directErr);
+      lastError = directErr as Error;
+    }
+  } else if (customApiUrl) {
+    try {
+      pdfBlob = await convertDocxToPdfViaCustomService(docxBlob, `${fileNameBase}.docx`, customApiUrl);
+    } catch (customErr) {
+      console.warn('[PDF Generator] Custom conversion API failed:', customErr);
+      lastError = customErr as Error;
+    }
   }
 
-  // 3. Eksekusi konversi REST API murni
-  let pdfBlob: Blob;
-  try {
-    if (convertApiSecret) {
-      pdfBlob = await convertDocxToPdfViaConvertApi(docxBlob, `${fileNameBase}.docx`, convertApiSecret);
-    } else {
-      pdfBlob = await convertDocxToPdfViaCustomService(docxBlob, `${fileNameBase}.docx`, customApiUrl!);
+  // Jalur 2: Fallback ke backend proxy /api/convert-pdf jika direct call gagal
+  if (!pdfBlob) {
+    try {
+      console.log('[PDF Generator] Mengonversi DOCX ke PDF via backend /api/convert-pdf...');
+      pdfBlob = await convertDocxToPdfViaBackendProxy(docxBlob, `${fileNameBase}.docx`);
+    } catch (proxyErr) {
+      console.error('[PDF Generator] Backend proxy conversion failed:', proxyErr);
+      lastError = proxyErr as Error;
     }
-  } catch (err) {
-    console.error('Error saat menghubungi server konversi PDF:', err);
+  }
+
+  // Jika semua jalur REST API gagal
+  if (!pdfBlob) {
     const errorMsg = 'Gagal menghubungi server konversi PDF. Pastikan API Key valid atau coba unduh versi Word terlebih dahulu.';
     alert(errorMsg);
-    throw new Error(errorMsg);
+    throw lastError || new Error(errorMsg);
   }
 
   // 4. Unduh file PDF hasil konversi

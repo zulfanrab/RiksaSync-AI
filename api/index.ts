@@ -803,6 +803,55 @@ app.post('/api/ai-plotter', async (req, res) => {
   }
 });
 
+// DOCX to PDF Conversion Proxy endpoint (ConvertAPI)
+app.post('/api/convert-pdf', async (req, res) => {
+  try {
+    const { docxBase64, fileName } = req.body;
+    if (!docxBase64) {
+      return res.status(400).json({ error: 'Missing docxBase64 payload' });
+    }
+
+    const secret = 
+      process.env.CONVERTAPI_SECRET || 
+      process.env.VITE_CONVERTAPI_SECRET || 
+      'qEjYBMPnr5Heup6mpL6Q4wjLa43J6BZb';
+
+    const docxBuffer = Buffer.from(docxBase64, 'base64');
+    const formData = new FormData();
+    const blob = new Blob([docxBuffer]);
+    formData.append('File', blob, fileName || 'document.docx');
+    formData.append('StoreFile', 'false');
+
+    const convertRes = await fetch(`https://v2.convertapi.com/convert/docx/to/pdf?Secret=${encodeURIComponent(secret)}`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!convertRes.ok) {
+      const errText = await convertRes.text();
+      return res.status(convertRes.status).json({ error: `ConvertAPI error: ${errText}` });
+    }
+
+    const result = await convertRes.json();
+    if (result.Files && result.Files.length > 0) {
+      const fileItem = result.Files[0];
+      if (fileItem.FileData) {
+        return res.json({ pdfBase64: fileItem.FileData });
+      } else if (fileItem.Url) {
+        const fileRes = await fetch(fileItem.Url);
+        const arrayBuf = await fileRes.arrayBuffer();
+        const base64 = Buffer.from(arrayBuf).toString('base64');
+        return res.json({ pdfBase64: base64 });
+      }
+    }
+
+    res.status(500).json({ error: 'ConvertAPI returned invalid response' });
+  } catch (err: any) {
+    console.error('[API convert-pdf error]:', err);
+    res.status(500).json({ error: err.message || 'Internal conversion error' });
+  }
+});
+
 // AI Daily/Weekly Summary endpoint (maintained for compatibility, upgraded to utilize full analytical power)
 app.get('/api/ai-summary', async (req, res) => {
   try {
