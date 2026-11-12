@@ -597,6 +597,8 @@ function buildPayload(
       DAFTAR_PENGIKUT: daftarPengikut,
       LOKASI_KOTA_TUJUAN: kotaTujuan,
       LAMA_HARI: lamaHariFormatted,
+      NAMA_PERSONEL_2: personnelsList[1]?.NAMA || '-',
+      NAMA_PERSONEL_3: personnelsList[2]?.NAMA || '-',
     },
     nomorUrut,
     includeSppd: options.includeSppd !== false
@@ -677,6 +679,11 @@ export async function renderSuratTugasDocxBlob(
 
   return { blob, nomorUrut, fileNameBase };
 }
+
+/**
+ * Alias untuk renderSuratTugasDocxBlob
+ */
+export const generateSuratTugasDocxBlob = renderSuratTugasDocxBlob;
 
 // ── GENERATE DOCX DOWNLOAD ────────────────────────────────────────────────────
 
@@ -767,10 +774,11 @@ async function convertDocxToPdfViaCustomService(
 
 /**
  * Fungsi Utama: Generate Surat Tugas & SPPD sebagai PDF 1:1 identik dengan Word.
- * Mengalirkan:
- * 1. Render template Word (.docx) di memory (100% presisi font Cambria, tabel, & kop surat).
- * 2. Kirim docx Blob ke Conversion API (ConvertAPI / Gotenberg).
+ * Murni memanggil REST API (ConvertAPI) via fetch:
+ * 1. Render template Word (.docx) di memory (presisi font, tabel, & kop surat).
+ * 2. Kirim docx Blob ke ConvertAPI REST API (https://v2.convertapi.com/convert/docx/to/pdf).
  * 3. Unduh hasil PDF yang 100% identik dengan tampilan Microsoft Word asli.
+ * 4. Jika API gagal atau API Key tidak terbaca: LEMPAR ERROR & ALERT USER, tanpa browser-side fallback.
  */
 export async function generateSuratTugasPdf(
   schedule: Schedule,
@@ -780,34 +788,32 @@ export async function generateSuratTugasPdf(
   // 1. Render .docx di memory terlebih dahulu
   const { blob: docxBlob, fileNameBase } = await renderSuratTugasDocxBlob(schedule, manpowerList, options);
 
-  const convertApiSecret = (import.meta.env.VITE_CONVERTAPI_SECRET as string)?.trim();
-  const customApiUrl = (import.meta.env.VITE_DOCX_TO_PDF_API_URL as string)?.trim();
+  // 2. Baca kredensial ConvertAPI dari env client-side
+  const convertApiSecret = (import.meta.env.VITE_CONVERTAPI_SECRET as string | undefined)?.trim();
+  const customApiUrl = (import.meta.env.VITE_DOCX_TO_PDF_API_URL as string | undefined)?.trim();
 
-  let pdfBlob: Blob;
-
-  if (convertApiSecret) {
-    // Jalur ConvertAPI
-    pdfBlob = await convertDocxToPdfViaConvertApi(docxBlob, `${fileNameBase}.docx`, convertApiSecret);
-  } else if (customApiUrl) {
-    // Jalur Custom Gotenberg / LibreOffice endpoint
-    pdfBlob = await convertDocxToPdfViaCustomService(docxBlob, `${fileNameBase}.docx`, customApiUrl);
-  } else {
-    // Skeleton fallback / Panduan user jika API Key belum diset
-    const message = 
-      `Fitur ekspor PDF berkualitas 1:1 identik dengan Microsoft Word memerlukan Conversion API Key.\n\n` +
-      `Cara Aktivasi Gratis (ConvertAPI - 250 konversi gratis):\n` +
-      `1. Daftar gratis di https://www.convertapi.com\n` +
-      `2. Salin "API Secret" Anda dari dashboard.\n` +
-      `3. Pasang di file .env atau Vercel Environment Variables:\n` +
-      `   VITE_CONVERTAPI_SECRET=your_secret_here\n\n` +
-      `Apakah Anda ingin mengunduh dokumen Word (.docx) yang sudah ter-render sempurna sekarang?`;
-
-    if (window.confirm(message)) {
-      saveAs(docxBlob, `${fileNameBase}.docx`);
-    }
-    return;
+  // Validasi ketersediaan kredensial
+  if (!convertApiSecret && !customApiUrl) {
+    const errorMsg = 'Gagal menghubungi server konversi PDF. Pastikan API Key valid atau coba unduh versi Word terlebih dahulu.';
+    alert(errorMsg);
+    throw new Error(errorMsg);
   }
 
-  // 3. Simpan file PDF hasil konversi
+  // 3. Eksekusi konversi REST API murni
+  let pdfBlob: Blob;
+  try {
+    if (convertApiSecret) {
+      pdfBlob = await convertDocxToPdfViaConvertApi(docxBlob, `${fileNameBase}.docx`, convertApiSecret);
+    } else {
+      pdfBlob = await convertDocxToPdfViaCustomService(docxBlob, `${fileNameBase}.docx`, customApiUrl!);
+    }
+  } catch (err) {
+    console.error('Error saat menghubungi server konversi PDF:', err);
+    const errorMsg = 'Gagal menghubungi server konversi PDF. Pastikan API Key valid atau coba unduh versi Word terlebih dahulu.';
+    alert(errorMsg);
+    throw new Error(errorMsg);
+  }
+
+  // 4. Unduh file PDF hasil konversi
   saveAs(pdfBlob, `${fileNameBase}.pdf`);
 }
