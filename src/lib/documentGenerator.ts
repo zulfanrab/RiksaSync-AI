@@ -526,7 +526,7 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
   }
 
   // 6. Kerapihan Tabel Personel: Berikan margin/padding sel yang seimbang dan cegah teks berdempetan ke garis
-  const startP = xml.indexOf('{{#PERSONNELS}}') !== -1 ? xml.indexOf('{{#PERSONNELS}}') : xml.indexOf('{#PERSONNELS}');
+  const startP = xml.indexOf('PERSONNELS');
   if (startP !== -1) {
     const tblStart = xml.lastIndexOf('<w:tbl>', startP);
     const tblEnd = xml.indexOf('</w:tbl>', startP) + 8;
@@ -545,7 +545,7 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
         '$1<w:top w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/>$2'
       );
       tblXml = tblXml.replace(
-        /(<w:tc><w:tcPr>[\s\S]*?<w:tcMar>)<w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/>(<\/w:tcMar>[\s\S]*?\{\{?#PERSONNELS\}?)/,
+        /(<w:tc><w:tcPr>[\s\S]*?<w:tcMar>)<w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/>(<\/w:tcMar>[\s\S]*?\{+#[A-Z]+\}+)/,
         '$1<w:top w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/>$2'
       );
 
@@ -572,17 +572,13 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
         );
       }
 
-      // Pastikan loop tags dinormalisasi ke double braces
-      tblXml = tblXml.replace(/\{#PERSONNELS\}/g, '{{#PERSONNELS}}');
-      tblXml = tblXml.replace(/\{\/PERSONNELS\}/g, '{{/PERSONNELS}}');
-
       xml = xml.slice(0, tblStart) + tblXml + xml.slice(tblEnd);
     }
   }
 
-  // 7. Pastikan semua tag loop konsisten double braces {{#PERSONNELS}} dan {{/PERSONNELS}}
-  xml = xml.replace(/\{#PERSONNELS\}/g, '{{#PERSONNELS}}');
-  xml = xml.replace(/\{\/PERSONNELS\}/g, '{{/PERSONNELS}}');
+  // 7. Normalisasi SEMUA tag placeholder di dokumen agar selalu seragam tepat 2 kurung kurawal {{TAG}}
+  // Menggunakan regex {+([#\/]?[A-Z0-9_]+)}+ sehingga berapa pun kurung awalnya (1, 2, atau 3) selalu dinormalisasi menjadi tepat 2 kurung
+  xml = xml.replace(/\{+([#\/]?[A-Z0-9_]+)\}+/g, '{{$1}}');
 
   zip.file('word/document.xml', xml);
 }
