@@ -525,13 +525,42 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
     }
   }
 
-  // 6. Kerapihan Tabel Personel: Berikan margin/padding sel yang seimbang dan cegah teks berdempetan ke garis
+  // 6. Kerapihan Tabel Personel: Tambahkan w:tblGrid, lebar kolom eksplisit, dan <w:noWrap/> agar 'No' tidak berdiri vertikal
   const startP = xml.indexOf('{#PERSONNELS}');
   if (startP !== -1) {
     const tblStart = xml.lastIndexOf('<w:tbl>', startP);
     const tblEnd = xml.indexOf('</w:tbl>', startP) + 8;
     if (tblStart !== -1 && tblEnd > tblStart) {
       let tblXml = xml.slice(tblStart, tblEnd);
+
+      // Sisipkan w:tblGrid jika belum ada
+      if (!tblXml.includes('<w:tblGrid>')) {
+        tblXml = tblXml.replace(
+          /<\/w:tblPr>/,
+          '</w:tblPr><w:tblGrid><w:gridCol w:w="600"/><w:gridCol w:w="4200"/><w:gridCol w:w="2200"/><w:gridCol w:w="2930"/></w:tblGrid>'
+        );
+      }
+
+      // Pastikan kolom 'No' memiliki lebar 600 dxa dan w:noWrap agar tidak terpotong vertikal
+      tblXml = tblXml.replace(
+        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?>No<\/w:t>)/,
+        '<w:tc><w:tcPr><w:tcW w:w="600" w:type="dxa"/><w:noWrap/><w:shd w:fill="d9ead3" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
+      );
+      tblXml = tblXml.replace(
+        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?\{#PERSONNELS\})/,
+        '<w:tc><w:tcPr><w:tcW w:w="600" w:type="dxa"/><w:noWrap/><w:shd w:fill="auto" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
+      );
+
+      // Kolom NIK juga diberikan w:noWrap
+      tblXml = tblXml.replace(
+        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?>NIK<\/w:t>)/,
+        '<w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/><w:noWrap/><w:shd w:fill="d9ead3" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
+      );
+      tblXml = tblXml.replace(
+        /<w:tc><w:tcPr>[\s\S]*?<\/w:tcPr>(\s*<w:p[\s\S]*?\{\{NIK\}\})/,
+        '<w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/><w:noWrap/><w:shd w:fill="auto" w:val="clear"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>$1'
+      );
+
       // Ganti padding 0.0 menjadi padding seimbang: top/bottom 60 dxa (3pt), left 120 dxa (6pt), right 100 dxa (5pt)
       tblXml = tblXml.replace(
         /<w:tcMar><w:top w:w="0\.0" w:type="dxa"\/><w:left w:w="0\.0" w:type="dxa"\/><w:bottom w:w="0\.0" w:type="dxa"\/><w:right w:w="0\.0" w:type="dxa"\/><\/w:tcMar>/g,
