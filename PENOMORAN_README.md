@@ -25,7 +25,7 @@ Modul **Penomoran Surat** PT Aksara Riksa Perdana dirancang untuk memastikan set
 
 ## 2. Cara Admin Membatalkan Nomor Surat
 
-Hanya akun berwenang (**Zulfan & Marsya / Admin**) yang memiliki hak untuk membatalkan nomor:
+Hanya akun berwenang (**Zulfan, Marsya & Aulia / Admin**) yang memiliki hak untuk membatalkan nomor:
 1. Buka nomor surat yang ingin dibatalkan di daftar dokumen.
 2. Klik tombol **"Detail"**.
 3. Di bagian bawah modal, klik tombol merah **"Batalkan (Admin)"**.

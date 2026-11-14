@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, ClipboardList, Database, Code, Copy, X, BookOpen, MapPin, Link2, FileText } from 'lucide-react';
+import { Plus, Users, CalendarDays, Award, CheckCircle2, Shield, Settings, Info, Sparkles, AlertTriangle, ClipboardList, Database, Code, Copy, X, BookOpen, MapPin, Link2, FileText, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import SummaryWidget from './components/SummaryWidget';
@@ -1267,6 +1267,7 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
                 units={units}
                 manpowerList={manpowerList}
                 absences={absences}
+                tasks={tasks || []}
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 onEditSchedule={handleEditTrigger}

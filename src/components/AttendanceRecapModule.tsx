@@ -50,11 +50,26 @@ import {
 } from 'lucide-react';
 
 // ─── AKSES KETAT REKAP ──────────────────────────────────────────────────────────
-export const ALLOWED_ATTENDANCE_ADMINS = ['zulfan', 'marsya'];
+export const ALLOWED_ATTENDANCE_ADMINS = ['zulfan', 'marsya', 'aulia'];
 
-export function isAllowedAttendanceAdmin(username: string | null | undefined): boolean {
-  if (!username) return false;
-  return ALLOWED_ATTENDANCE_ADMINS.includes(username.trim().toLowerCase());
+export function isAllowedAttendanceAdmin(identifier: string | null | undefined): boolean {
+  if (!identifier) return false;
+  const clean = identifier.trim().toLowerCase();
+  return (
+    ALLOWED_ATTENDANCE_ADMINS.includes(clean) ||
+    clean === 'aulia zahra dikrika' ||
+    clean === 'aulia zahra' ||
+    clean === 'marsya aulia rohman' ||
+    clean === 'marsya aulia' ||
+    clean === 'zulfan rafly baihaqi' ||
+    clean === 'zulfan rafly' ||
+    clean.startsWith('aulia') ||
+    clean.startsWith('marsya') ||
+    clean.startsWith('zulfan') ||
+    clean === 'zulfan@aksarariksapjk3.com' ||
+    clean === 'marsya@aksarariksapjk3.com' ||
+    clean === 'aulia@aksarariksapjk3.com'
+  );
 }
 
 // ─── MASTER KARYAWAN RESMI PT AKSARA RIKSA PERDANA ─────────────────────────────
@@ -163,7 +178,7 @@ export default function AttendanceRecapModule({
 }: AttendanceRecapModuleProps) {
   const { activeUser, currentUser, activeUserEmail } = useUser();
 
-  // Akses admin rekap (Zulfan, Marsya, atau IT role)
+  // Akses admin rekap (Zulfan, Marsya, Aulia, atau IT/Admin role)
   const hasAccess = useMemo(() => {
     const email = (activeUserEmail || currentUser?.email || '').toLowerCase();
     const uname = (activeUser || currentUser?.username || '').toLowerCase();
@@ -172,7 +187,9 @@ export default function AttendanceRecapModule({
       ALLOWED_ATTENDANCE_ADMINS.includes(uname) ||
       email === 'zulfan@aksarariksapjk3.com' ||
       email === 'marsya@aksarariksapjk3.com' ||
-      role.includes('it')
+      email === 'aulia@aksarariksapjk3.com' ||
+      role.includes('it') ||
+      role.includes('admin')
     );
   }, [activeUser, currentUser, activeUserEmail]);
 
@@ -967,7 +984,7 @@ export default function AttendanceRecapModule({
             Akses Ditolak
           </h2>
           <p className="text-sm text-slate-500 leading-relaxed">
-            Fitur <strong>Rekapitulasi Presensi & Durasi Bekerja</strong> hanya dapat diakses oleh akun yang berwenang (Zulfan & Marsya / IT Admin).
+            Fitur <strong>Rekapitulasi Presensi & Durasi Bekerja</strong> hanya dapat diakses oleh akun yang berwenang (Zulfan, Marsya & Aulia / IT Admin).
           </p>
           <div className="flex items-center justify-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-400 font-mono">
             <ShieldCheck className="h-3.5 w-3.5 text-slate-400" />

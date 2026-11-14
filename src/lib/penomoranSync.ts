@@ -109,13 +109,22 @@ export async function syncSingleNomorToSheets(
   }
 }
 
+export interface SyncProgressInfo {
+  current: number;
+  total: number;
+  percent: number;
+  message: string;
+}
+
 /**
- * Sinkronisasi Seluruh Nomor ke Google Sheets (Rebuild All)
- * Mengirim seluruh records dari memori frontend ke backend/GAS untuk ditulis ulang.
+ * Sinkronisasi Seluruh Nomor ke Google Sheets (Batch Chunking Anti-Timeout)
+ * Memecah data menjadi batch 35 baris per request sehingga aman dari batas waktu timeout HTTP GAS (30-50s)
+ * dan menampilkan live progress ke pengguna.
  */
 export async function syncAllNomorToSheets(
   allNomor: PnNomor[],
-  allJenis: PnJenis[]
+  allJenis: PnJenis[],
+  onProgress?: (info: SyncProgressInfo) => void
 ): Promise<SyncResult> {
   const gasUrl = getGasPenomoranUrl();
   const jenisMap = new Map(allJenis.map(j => [j.id, j]));
@@ -140,59 +149,104 @@ export async function syncAllNomorToSheets(
     };
   });
 
-  // 1. Coba melalui backend server proxy (paling stabil untuk payload besar)
-  try {
-    const proxyRes = await fetch('/api/penomoran/sync-sheets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'rebuild_all',
-        gas_url: gasUrl,
-        records: formattedRecords
-      })
-    });
-
-    if (proxyRes.ok) {
-      const data = await proxyRes.json();
-      return {
-        success: true,
-        message: data.message || `Berhasil menyinkronkan ${formattedRecords.length} nomor ke Google Sheets!`,
-        count: formattedRecords.length
-      };
-    }
-  } catch (proxyErr) {
-    console.warn('[Proxy Rebuild Warning, mencoba langsung ke GAS]:', proxyErr);
-  }
-
-  // 2. Direct ke Google Apps Script jika proxy sedang tidak merespons
-  try {
-    const directRes = await fetch(gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        action: 'rebuild_all',
-        records: formattedRecords
-      })
-    });
-
-    if (directRes.ok) {
-      const data = await directRes.json().catch(() => ({ success: true, count: formattedRecords.length }));
-      return {
-        success: true,
-        message: `Berhasil menyinkronkan ${formattedRecords.length} nomor langsung ke Google Sheets!`,
-        count: formattedRecords.length
-      };
-    }
-  } catch (directErr: any) {
+  const total = formattedRecords.length;
+  if (total === 0) {
     return {
-      success: false,
-      message: directErr.message || 'Gagal sinkronisasi data ke Google Sheets.'
+      success: true,
+      message: 'Tidak ada data nomor yang perlu disinkronkan.',
+      count: 0
     };
   }
 
+  // Pecah menjadi kelompok (chunks) 35 baris per batch agar anti-timeout
+  const CHUNK_SIZE = 35;
+  const chunks: typeof formattedRecords[] = [];
+  for (let i = 0; i < total; i += CHUNK_SIZE) {
+    chunks.push(formattedRecords.slice(i, i + CHUNK_SIZE));
+  }
+
+  let processed = 0;
+  let hasFailure = false;
+
+  for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+    const chunk = chunks[cIdx];
+    const chunkNum = cIdx + 1;
+    const totalChunks = chunks.length;
+
+    onProgress?.({
+      current: processed,
+      total,
+      percent: Math.round((processed / total) * 100),
+      message: `Menyinkronkan batch ${chunkNum}/${totalChunks} (${processed}/${total} data)...`
+    });
+
+    let chunkSuccess = false;
+    let lastError = '';
+
+    // 1. Coba direct fetch ke Google Apps Script terlebih dahulu
+    try {
+      const directRes = await fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'batch_upsert',
+          records: chunk
+        })
+      });
+
+      if (directRes.ok) {
+        chunkSuccess = true;
+      }
+    } catch (directErr: any) {
+      lastError = directErr.message || 'Direct GAS sync failed';
+    }
+
+    // 2. Fallback melalui server proxy jika direct fetch ditolak/error
+    if (!chunkSuccess) {
+      try {
+        const proxyRes = await fetch('/api/penomoran/sync-sheets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'batch_upsert',
+            gas_url: gasUrl,
+            records: chunk
+          })
+        });
+
+        if (proxyRes.ok) {
+          chunkSuccess = true;
+        }
+      } catch (proxyErr: any) {
+        lastError = proxyErr.message || 'Proxy sync failed';
+      }
+    }
+
+    if (!chunkSuccess) {
+      console.warn(`[Sync Batch Warning]: Batch ${chunkNum} mengalami kendala: ${lastError}`);
+      hasFailure = true;
+    }
+
+    processed += chunk.length;
+    onProgress?.({
+      current: Math.min(processed, total),
+      total,
+      percent: Math.round((Math.min(processed, total) / total) * 100),
+      message: `Tersinkron ${Math.min(processed, total)} dari ${total} data...`
+    });
+
+    // Istirahat singkat 120ms antar batch agar browser dan Google Sheets responsif
+    if (cIdx < chunks.length - 1) {
+      await new Promise(r => setTimeout(r, 120));
+    }
+  }
+
   return {
-    success: false,
-    message: 'Gagal memperbarui Google Sheets. Periksa URL koneksi Google Apps Script.'
+    success: !hasFailure,
+    message: hasFailure
+      ? `Sinkronisasi selesai sebagian (${total} nomor diproses). Jika ada data terlewat, periksa koneksi Google Apps Script.`
+      : `Berhasil menyinkronkan seluruh ${total} nomor ke Google Sheets tanpa ada yang terlewat!`,
+    count: total
   };
 }
 

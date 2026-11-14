@@ -34,7 +34,7 @@ interface CalendarViewProps {
   units: Unit[];
   manpowerList: Manpower[];
   absences: ManpowerAbsence[];
-  tasks: TeamTask[];
+  tasks?: TeamTask[];
   selectedDate: string; // YYYY-MM-DD
   onSelectDate: (dateStr: string) => void;
   onEditSchedule: (schedule: Schedule) => void;

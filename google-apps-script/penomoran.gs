@@ -174,22 +174,48 @@ function setupDanImportSemua() {
   setupSemuaTabPenomoran();
 }
 
-// ── 5. WEBHOOK UPSERT LIVE DARI APLIKASI WEB ──────────────────────────────────
-function upsertNomorKeSheet(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var kode = (data.jenis_kode || "").toLowerCase();
+// ── 5. HELPER PENCARIAN & RESOLVER TAB RESMI ────────────────────────────────
+function cariTargetItem(kode, nama) {
+  var k = (kode || "").toLowerCase().trim();
+  var n = (nama || "").toLowerCase().trim();
 
-  var targetItem = null;
   for (var i = 0; i < DAFTAR_JENIS_DOKUMEN.length; i++) {
-    if (DAFTAR_JENIS_DOKUMEN[i].kode === kode) {
-      targetItem = DAFTAR_JENIS_DOKUMEN[i];
-      break;
+    var item = DAFTAR_JENIS_DOKUMEN[i];
+    if (item.kode === k || item.namaTab.toLowerCase() === k || item.namaTab.toLowerCase() === n) {
+      return item;
     }
   }
 
-  if (!targetItem) {
-    targetItem = { namaTab: data.jenis_nama || "Lainnya", pad: null };
+  // Alias mapping untuk variasi nama dari database Supabase
+  if (k === "bap-elev-esc" || n.includes("elev") || n.includes("eskalator")) {
+    return { kode: "bap-elev-esc", namaTab: "BAP ELEV-ESC", pad: null };
   }
+  if (k === "bap-il-ipp" || n.includes("il-ipp") || n.includes("il / ipp")) {
+    return { kode: "bap-il-ipp", namaTab: "BAP IL-IPP", pad: null };
+  }
+  if (k === "surat-permohonan-skp" || n.includes("permohonan skp")) {
+    return { kode: "surat-permohonan-skp", namaTab: "Permohonan SKP", pad: null };
+  }
+  if (k === "surat-permohonan-random" || n.includes("permohonan random") || n.includes("permohonan (random)")) {
+    return { kode: "surat-permohonan-random", namaTab: "Permohonan Random", pad: null };
+  }
+  if (k === "list-pengajuan-admin" || n.includes("list pengajuan")) {
+    return { kode: "list-pengajuan-admin", namaTab: "List Pengajuan Admin", pad: null };
+  }
+  if (k === "surat-tugas-admin" || n.includes("tugas admin") || n.includes("tugas tim admin")) {
+    return { kode: "surat-tugas-admin", namaTab: "Surat Tugas Admin", pad: 3 };
+  }
+  if (k === "surat-tugas-ahli" || n.includes("tugas ahli") || n.includes("tugas tim ahli")) {
+    return { kode: "surat-tugas-ahli", namaTab: "Surat Tugas Ahli", pad: 3 };
+  }
+
+  return { kode: k || "lainnya", namaTab: nama || "Lainnya", pad: null };
+}
+
+// ── 6. WEBHOOK UPSERT LIVE SINGLE RECORD DARI APLIKASI WEB ────────────────────
+function upsertNomorKeSheet(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var targetItem = cariTargetItem(data.jenis_kode, data.jenis_nama);
 
   var sheet = ss.getSheetByName(targetItem.namaTab);
   if (!sheet) {
@@ -244,6 +270,89 @@ function upsertNomorKeSheet(data) {
   return { success: true, tab: targetItem.namaTab, no: noFormatted };
 }
 
+// ── 7. BATCH UPSERT ULTRA CEPAT UNTUK SINKRONISASI BANYAK DATA (ANTI TIMEOUT) ─
+function batchUpsertNomorKeSheet(records) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss || !records || records.length === 0) return { success: true, count: 0 };
+
+  // Kelompokkan data per Tab resmi
+  var byTab = {};
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    var meta = cariTargetItem(r.jenis_kode, r.jenis_nama);
+    var tabName = meta.namaTab;
+    if (!byTab[tabName]) {
+      byTab[tabName] = { meta: meta, items: [] };
+    }
+    byTab[tabName].items.push(r);
+  }
+
+  var updatedCount = 0;
+  var nowStr = Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss");
+
+  for (var tName in byTab) {
+    var group = byTab[tName];
+    var sheet = ss.getSheetByName(tName);
+    if (!sheet) {
+      sheet = ss.insertSheet(tName);
+    }
+
+    var lastRow = sheet.getLastRow();
+    var existingRowMap = {};
+    if (lastRow >= 5) {
+      var colA = sheet.getRange(5, 1, lastRow - 4, 1).getValues();
+      for (var rIdx = 0; rIdx < colA.length; rIdx++) {
+        var cellVal = String(colA[rIdx][0]).trim();
+        if (cellVal) {
+          existingRowMap[cellVal] = 5 + rIdx;
+        }
+      }
+    }
+
+    var rowsToAppend = [];
+    for (var k = 0; k < group.items.length; k++) {
+      var item = group.items[k];
+      var noRaw = item.no_urut;
+      var noFormatted = String(noRaw);
+      if (group.meta.pad && group.meta.pad > 1) {
+        noFormatted = ("000" + noRaw).slice(-group.meta.pad);
+      }
+
+      var rowValues = [
+        noFormatted,
+        item.tanggal || "",
+        item.dibuat_oleh_nama || item.dibuat_oleh || "",
+        item.klien || "",
+        item.perihal || "",
+        item.ref || "",
+        item.revisi_dari_no ? "Rev No. " + item.revisi_dari_no : "",
+        item.status === "batal" ? "BATAL: " + (item.alasan_batal || "") : "Aktif"
+      ];
+
+      var foundRow = existingRowMap[noFormatted] || existingRowMap[String(noRaw)];
+      if (foundRow) {
+        sheet.getRange(foundRow, 1, 1, 8).setValues([rowValues]);
+      } else {
+        rowsToAppend.push(rowValues);
+      }
+      updatedCount++;
+    }
+
+    if (rowsToAppend.length > 0) {
+      var nextRow = Math.max(5, sheet.getLastRow() + 1);
+      sheet.getRange(nextRow, 1, rowsToAppend.length, 8).setValues(rowsToAppend);
+      sheet.getRange(nextRow, 1, rowsToAppend.length, 1).setHorizontalAlignment("center").setFontWeight("bold");
+      sheet.getRange(nextRow, 2, rowsToAppend.length, 1).setHorizontalAlignment("center");
+      sheet.getRange(nextRow, 8, rowsToAppend.length, 1).setHorizontalAlignment("center");
+    }
+
+    sheet.getRange("H2").setValue("Terakhir disinkron: " + nowStr + " WIB");
+  }
+
+  SpreadsheetApp.flush();
+  return { success: true, count: updatedCount };
+}
+
 function doPost(e) {
   try {
     var body = {};
@@ -251,11 +360,9 @@ function doPost(e) {
       body = JSON.parse(e.postData.contents);
     }
 
-    if (body.action === "rebuild_all" && body.records) {
-      for (var i = 0; i < body.records.length; i++) {
-        upsertNomorKeSheet(body.records[i]);
-      }
-      return ContentService.createTextOutput(JSON.stringify({ success: true, count: body.records.length }))
+    if ((body.action === "rebuild_all" || body.action === "batch_upsert") && body.records) {
+      var res = batchUpsertNomorKeSheet(body.records);
+      return ContentService.createTextOutput(JSON.stringify(res))
         .setMimeType(ContentService.MimeType.JSON);
     }
 

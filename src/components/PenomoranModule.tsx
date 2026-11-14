@@ -87,6 +87,7 @@ export default function PenomoranModule() {
 
   // Google Sheets sync state
   const [syncingSheets, setSyncingSheets] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; percent: number; message: string } | null>(null);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [copiedNoId, setCopiedNoId] = useState<string | null>(null);
   const [copyTableFeedback, setCopyTableFeedback] = useState(false);
@@ -450,20 +451,24 @@ export default function PenomoranModule() {
 
     setSyncingSheets(true);
     setSyncResult(null);
+    setSyncProgress(null);
 
     try {
-      const res = await syncAllNomorToSheets(allNomor, allJenis);
+      const res = await syncAllNomorToSheets(allNomor, allJenis, (info) => {
+        setSyncProgress(info);
+      });
       if (res.success) {
         setSyncResult(`✅ ${res.message}`);
       } else {
         setSyncResult(`⚠️ Info Sinkronisasi: ${res.message}`);
       }
-      setTimeout(() => setSyncResult(null), 6000);
+      setTimeout(() => setSyncResult(null), 8000);
     } catch (e: any) {
       console.error('[Sync Error]:', e);
       setSyncResult(`⚠️ Info: Sinkronisasi Google Sheets: ${e.message}`);
     } finally {
       setSyncingSheets(false);
+      setSyncProgress(null);
     }
   };
 
@@ -529,6 +534,25 @@ export default function PenomoranModule() {
             </button>
           </div>
         </div>
+
+        {/* Progress Sinkronisasi Google Sheets */}
+        {syncingSheets && syncProgress && (
+          <div className="mt-3 p-3.5 bg-indigo-50/90 border border-indigo-200 rounded-2xl text-xs text-indigo-900 font-medium space-y-2 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between font-semibold">
+              <span className="flex items-center gap-2">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                {syncProgress.message}
+              </span>
+              <span className="font-mono text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md font-bold">{syncProgress.percent}%</span>
+            </div>
+            <div className="w-full bg-indigo-200/70 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${syncProgress.percent}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Feedback Sync Notif */}
         {syncResult && (

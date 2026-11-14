@@ -168,10 +168,12 @@ export default function AttendanceModule({
     activeUser?.toLowerCase() === 'angga'
   );
 
-  // Akses Khusus Zulfan & Marsya (Rekapitulasi Tim & Input Keterangan Manual)
+  // Akses Khusus Zulfan, Marsya & Aulia (Rekapitulasi Tim & Input Keterangan Manual)
   const isAllowedRecapAdmin = Boolean(
     isAllowedAttendanceAdmin(activeUser) ||
-    isAllowedAttendanceAdmin(currentUser?.username)
+    isAllowedAttendanceAdmin(currentUser?.username) ||
+    isAllowedAttendanceAdmin(activeUserEmail) ||
+    isAllowedAttendanceAdmin(currentUser?.email)
   );
   const [showRecapModal, setShowRecapModal] = useState<boolean>(false);
 
@@ -204,6 +206,7 @@ export default function AttendanceModule({
     setSavingNote(true);
     const newNote: ManualAttendanceNote = {
       id: 'note_' + Date.now(),
+      employee_email: '',
       employee_name: targetNoteEmp || activeUser || 'Karyawan',
       date: targetNoteDate || todayStr,
       source: noteSource,
@@ -1459,7 +1462,7 @@ export default function AttendanceModule({
 
         {/* Realtime clock display + Admin-only sync dot + Rekap Tim Button */}
         <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
-          {/* Tombol Rekap Presensi Tim — KHUSUS ZULFAN & MARSYA */}
+          {/* Tombol Rekap Presensi Tim — KHUSUS ZULFAN, MARSYA & AULIA */}
           {isAllowedRecapAdmin && (
             <button
               type="button"
@@ -1469,7 +1472,7 @@ export default function AttendanceModule({
               <TrendingUp className="h-4 w-4" />
               <span>📊 Rekap Absensi Tim</span>
               <span className="text-[9px] bg-white/20 text-white px-1.5 py-0.5 rounded font-mono">
-                Zulfan & Marsya
+                Zulfan, Marsya & Aulia
               </span>
             </button>
           )}
@@ -2408,7 +2411,7 @@ export default function AttendanceModule({
                           </span>
                         )}
 
-                        {/* Tombol Input Keterangan Manual (Zulfan & Marsya) */}
+                        {/* Tombol Input Keterangan Manual (Zulfan, Marsya & Aulia) */}
                         {isAllowedRecapAdmin && (
                           <button
                             type="button"
@@ -2757,7 +2760,7 @@ export default function AttendanceModule({
         </div>
       )}
 
-      {/* Modal Rekapitulasi Presensi Tim (Strictly Zulfan & Marsya Only) */}
+      {/* Modal Rekapitulasi Presensi Tim (Strictly Zulfan, Marsya & Aulia) */}
       {showRecapModal && isAllowedRecapAdmin && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
           <div className="w-full max-w-6xl max-h-[95vh] overflow-y-auto rounded-3xl animate-in zoom-in-95">

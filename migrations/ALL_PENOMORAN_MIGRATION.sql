@@ -601,7 +601,7 @@ BEGIN
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
     CASE 
-      WHEN LOWER(NEW.email) LIKE 'zulfan@%' OR LOWER(NEW.email) LIKE 'marsya@%' THEN 'admin'
+      WHEN LOWER(NEW.email) LIKE 'zulfan@%' OR LOWER(NEW.email) LIKE 'marsya@%' OR LOWER(NEW.email) LIKE 'aulia@%' THEN 'admin'
       ELSE 'staf'
     END
   )
