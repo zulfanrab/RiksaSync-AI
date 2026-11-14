@@ -168,7 +168,7 @@ export default function AttendanceModule({
     activeUser?.toLowerCase() === 'angga'
   );
 
-  // Akses Khusus Zulfan, Marsya & Aulia (Rekapitulasi Tim & Input Keterangan Manual)
+  // Akses Otoritas Admin (Zulfan, Marsya, Aulia, IT Staff & Leader)
   const isAllowedRecapAdmin = Boolean(
     isAllowedAttendanceAdmin(activeUser) ||
     isAllowedAttendanceAdmin(currentUser?.username) ||
@@ -176,6 +176,28 @@ export default function AttendanceModule({
     isAllowedAttendanceAdmin(currentUser?.email)
   );
   const [showRecapModal, setShowRecapModal] = useState<boolean>(false);
+
+  // Daftar lengkap seluruh personel tim PT Aksara Riksa Perdana
+  const allEmployeesList = useMemo(() => {
+    if (manpowerList && manpowerList.length > 0) {
+      return manpowerList;
+    }
+    return [
+      { id: 'm1',  name: 'Angga',    role: 'Leader & Ahli Utama' },
+      { id: 'm2',  name: 'Imam',     role: 'Ahli Spesialis' },
+      { id: 'm3',  name: 'Fauzan',   role: 'Ahli Spesialis' },
+      { id: 'm4',  name: 'Fakhziar', role: 'Ahli Spesialis' },
+      { id: 'm5',  name: 'Fazar',    role: 'Ahli Spesialis' },
+      { id: 'm6',  name: 'Arya',     role: 'Support Staff' },
+      { id: 'm7',  name: 'Rio',      role: 'Support Staff' },
+      { id: 'm8',  name: 'Aulia',    role: 'Support Staff' },
+      { id: 'm9',  name: 'Disa',     role: 'Support Staff' },
+      { id: 'm10', name: 'Marsya',   role: 'Support Staff' },
+      { id: 'm11', name: 'Zulfan',   role: 'IT Staff' },
+      { id: 'm12', name: 'Katez',    role: 'Ahli Eksternal' },
+      { id: 'm13', name: 'Riyan',    role: 'Helper & Teknisi' }
+    ];
+  }, [manpowerList]);
 
   // Manual Notes State (Konfirmasi via WhatsApp / Surat)
   const [manualNotes, setManualNotes] = useState<ManualAttendanceNote[]>([]);
@@ -212,7 +234,7 @@ export default function AttendanceModule({
       source: noteSource,
       category: noteCategory,
       note: noteText.trim(),
-      created_by: activeUser || 'Zulfan',
+      created_by: activeUser || currentUser?.full_name || currentUser?.username || 'Admin ARP',
       created_at: new Date().toISOString()
     };
     try {
@@ -905,8 +927,6 @@ export default function AttendanceModule({
             if (searchTerms.length > 0) {
               query = query.or(searchTerms.join(','));
             }
-          } else if (filter === 'marsya') {
-            query = query.or(`employee_email.ilike.%marsya%,employee_name.ilike.%marsya%`);
           } else if (filter !== 'all') {
             query = query.or(`employee_email.ilike.%${filter}%,employee_name.ilike.%${filter}%`);
           }
@@ -926,8 +946,7 @@ export default function AttendanceModule({
         try {
           let param = '';
           if (filter === 'me') param = `?email=${encodeURIComponent(activeEmail)}`;
-          else if (filter === 'marsya') param = `?email=marsya@aksarariksapjk3.com`;
-          else if (filter !== 'all') param = `?email=${encodeURIComponent(filter)}@aksarariksapjk3.com`;
+          else if (filter !== 'all') param = `?email=${encodeURIComponent(filter)}`;
 
           const res = await fetch(`${effectiveGasUrl}${param}`, { method: 'GET' });
           if (res.ok) {
@@ -966,10 +985,9 @@ export default function AttendanceModule({
             let isMatch = true;
             if (filter === 'me') {
               isMatch = Boolean((activeEmail && lrEmail.includes(activeEmail.toLowerCase())) || (activeName && lrName.includes(activeName.toLowerCase())));
-            } else if (filter === 'marsya') {
-              isMatch = Boolean(lrName.includes('marsya') || lrEmail.includes('marsya'));
             } else if (filter !== 'all') {
-              isMatch = Boolean(lrName.includes(filter) || lrEmail.includes(filter));
+              const q = filter.toLowerCase();
+              isMatch = Boolean(lrName.includes(q) || lrEmail.includes(q));
             }
             if (isMatch) {
               const lrDate = (lr as any).date || safeIsoDate(lr.timestamp);
@@ -983,7 +1001,7 @@ export default function AttendanceModule({
         } catch (e) {}
       }
 
-      // 4. Terapkan koreksi waktu Zulfan
+      // 4. Terapkan koreksi waktu admin
       try {
         const correctionsRaw = localStorage.getItem('attendance_corrections_map');
         if (correctionsRaw) {
@@ -1462,17 +1480,17 @@ export default function AttendanceModule({
 
         {/* Realtime clock display + Admin-only sync dot + Rekap Tim Button */}
         <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
-          {/* Tombol Rekap Presensi Tim — KHUSUS ZULFAN, MARSYA & AULIA */}
+          {/* Tombol Rekap Presensi Tim — Khusus Otoritas Admin */}
           {isAllowedRecapAdmin && (
             <button
               type="button"
               onClick={() => setShowRecapModal(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
             >
               <TrendingUp className="h-4 w-4" />
               <span>📊 Rekap Absensi Tim</span>
-              <span className="text-[9px] bg-white/20 text-white px-1.5 py-0.5 rounded font-mono">
-                Zulfan, Marsya & Aulia
+              <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider">
+                Otoritas Admin
               </span>
             </button>
           )}
@@ -2167,64 +2185,74 @@ export default function AttendanceModule({
 
           {/* Riwayat Absensi Terkini - PRIVASI KETAT & FILTER PENGAWAS */}
           <div className="bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl shadow-sm space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2 flex-wrap">
                 <Calendar className="h-4 w-4 text-slate-600" />
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
                   {historyFilter === 'me'
                     ? 'Riwayat Presensi Saya'
-                    : historyFilter === 'marsya'
-                    ? 'Riwayat Presensi Marsya'
-                    : 'Riwayat Presensi Seluruh Tim'}
+                    : historyFilter === 'all'
+                    ? 'Riwayat Presensi Seluruh Tim'
+                    : `Riwayat: ${allEmployeesList.find(e => e.name.toLowerCase() === historyFilter)?.name || historyFilter.toUpperCase()}`}
                 </h3>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Filter Karyawan untuk Zulfan & Marsya / Pengawas */}
+                {/* Filter Karyawan untuk Pengawas & Admin */}
                 {isPrivilegedManager && (
-                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl p-0.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHistoryFilter('me');
-                        loadHistory('me');
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistoryFilter('me');
+                          loadHistory('me');
+                        }}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                          historyFilter === 'me'
+                            ? 'bg-white text-emerald-700 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        👤 Saya
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistoryFilter('all');
+                          loadHistory('all');
+                        }}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                          historyFilter === 'all'
+                            ? 'bg-white text-slate-800 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        👥 Semua Tim
+                      </button>
+                    </div>
+
+                    <select
+                      value={['me', 'all'].includes(historyFilter) ? '' : historyFilter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          setHistoryFilter(val);
+                          loadHistory(val);
+                        } else {
+                          setHistoryFilter('all');
+                          loadHistory('all');
+                        }
                       }}
-                      className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-colors cursor-pointer ${
-                        historyFilter === 'me'
-                          ? 'bg-white text-emerald-700 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
+                      className="text-[11px] font-semibold bg-slate-50 hover:bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-2xs"
                     >
-                      👤 Saya
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHistoryFilter('marsya');
-                        loadHistory('marsya');
-                      }}
-                      className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-colors cursor-pointer ${
-                        historyFilter === 'marsya'
-                          ? 'bg-indigo-100 text-indigo-800 shadow-xs border border-indigo-200'
-                          : 'text-slate-500 hover:text-indigo-700'
-                      }`}
-                    >
-                      👩 Marsya
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHistoryFilter('all');
-                        loadHistory('all');
-                      }}
-                      className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-colors cursor-pointer ${
-                        historyFilter === 'all'
-                          ? 'bg-white text-slate-800 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      👥 Semua Tim
-                    </button>
+                      <option value="">Pilih Karyawan...</option>
+                      {allEmployeesList.map(emp => (
+                        <option key={emp.id} value={emp.name.toLowerCase()}>
+                          {emp.name} ({emp.role})
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 
@@ -2232,7 +2260,7 @@ export default function AttendanceModule({
                   type="button"
                   onClick={() => loadHistory()}
                   disabled={historyLoading}
-                  className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                   title="Refresh Riwayat"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
@@ -2277,7 +2305,7 @@ export default function AttendanceModule({
               <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
               <span>
                 {isPrivilegedManager
-                  ? 'Akses Pengawas (IT/Admin): Anda dapat memantau presensi Marsya dan seluruh karyawan secara real-time.'
+                  ? 'Akses Pengawas (IT/Admin): Anda dapat memantau presensi seluruh karyawan secara real-time.'
                   : 'Privasi Terjaga: Karyawan hanya dapat melihat data & foto presensi miliknya sendiri.'}
               </span>
             </div>
@@ -2303,11 +2331,11 @@ export default function AttendanceModule({
                   return (
                     <div
                       key={rec.id || idx}
-                      className={`p-3 border-l-4 rounded-xl flex items-center justify-between gap-2 transition-colors text-xs ${
+                      className={`p-3.5 border-l-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all text-xs shadow-2xs ${
                         punctuality ? `${punctuality.border} ${punctuality.bg}` : 'border-slate-300 bg-slate-50'
                       }`}
                     >
-                      <div className="space-y-1 min-w-0">
+                      <div className="space-y-1.5 min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                             isMasuk ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
@@ -2323,7 +2351,7 @@ export default function AttendanceModule({
                           }`}>
                             {rec.work_location_type === 'On Site' ? '🏭 On Site' : rec.work_location_type === 'WFH' ? '🏠 WFH' : '🏢 Kantor'}
                           </span>
-                          <span className="font-bold text-slate-800 truncate">
+                          <span className="font-bold text-slate-800">
                             {rec.employee_name || 'Presensi Karyawan'}
                             {activeUser && (rec.employee_name || '').toLowerCase().includes(activeUser.toLowerCase()) && (
                               <span className="ml-1 text-[9px] text-emerald-600 font-semibold">(Saya)</span>
@@ -2331,10 +2359,10 @@ export default function AttendanceModule({
                           </span>
                           {/* Indikator Warna Keterlambatan Jelas */}
                           {isMasuk && punctuality && (
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
                               punctuality.isGood
                                 ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                : 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                                : 'bg-rose-100 text-rose-800 border-rose-300'
                             }`}>
                               {punctuality.badgeText}
                             </span>
@@ -2344,7 +2372,7 @@ export default function AttendanceModule({
                         {/* Location / Building name */}
                         {(rec.building_name || rec.location_name) && (
                           <div
-                            className="text-[10px] text-slate-600 font-medium flex items-center gap-1 truncate max-w-[240px]"
+                            className="text-[10px] text-slate-600 font-medium flex items-center gap-1 truncate max-w-sm"
                             title={rec.address || rec.building_name || rec.location_name}
                           >
                             <Building2 className="h-3 w-3 text-emerald-600 shrink-0" />
@@ -2353,7 +2381,7 @@ export default function AttendanceModule({
                         )}
 
                         <div className="text-[10px] text-slate-400 font-mono">
-                          {dateLabel} • {timeLabel}
+                          {dateLabel} • {timeLabel} WIB
                         </div>
 
                         {/* Catatan Konfirmasi Manual (WhatsApp / Surat) */}
@@ -2362,19 +2390,19 @@ export default function AttendanceModule({
                           .map((n) => (
                             <div
                               key={n.id}
-                              className="mt-1 p-1.5 bg-indigo-50/90 border border-indigo-200 rounded-lg text-[10px] text-indigo-900 flex items-center justify-between gap-1.5"
+                              className="mt-1 p-2 bg-indigo-50/90 border border-indigo-200 rounded-xl text-[10px] text-indigo-900 flex items-center justify-between gap-1.5"
                             >
                               <span>
                                 💬 <strong className="uppercase">[{n.source}]</strong> {n.note}
                               </span>
-                              <span className="text-[8px] text-indigo-500 font-mono shrink-0">
+                              <span className="text-[9px] text-indigo-500 font-mono shrink-0">
                                 by {n.created_by}
                               </span>
                             </div>
                           ))}
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap self-end sm:self-center">
                         {/* Tombol Preview Bukti Foto Selfie */}
                         {rec.photo_drive_url && rec.photo_drive_url !== '-' ? (
                           <div className="flex items-center gap-1">
@@ -2389,29 +2417,29 @@ export default function AttendanceModule({
                                   location: rec.location_name || rec.building_name || rec.address || ''
                                 })
                               }
-                              className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                              className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold px-2.5 py-1.5 rounded-xl border border-emerald-200 transition-all cursor-pointer shadow-2xs"
                               title="Buka bukti foto selfie presensi"
                             >
-                              <Camera className="h-3 w-3 text-emerald-600" />
+                              <Camera className="h-3.5 w-3.5 text-emerald-600" />
                               <span>Lihat Foto</span>
                             </button>
                             <a
                               href={rec.photo_drive_url}
                               target="_blank"
                               rel="noreferrer"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition-colors"
+                              className="p-1.5 rounded-xl text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition-colors"
                               title="Buka langsung di tab Google Drive baru"
                             >
-                              <ExternalLink className="h-3 w-3" />
+                              <ExternalLink className="h-3.5 w-3.5" />
                             </a>
                           </div>
                         ) : (
                           <span className="text-[10px] text-slate-400 font-mono px-2 py-1">
-                            {rec.latitude ? `📍 ${safeToFixed(rec.latitude, 2)}` : '✅ Tercatat'}
+                            {rec.latitude ? `📍 ${safeToFixed(rec.latitude, 2)}` : '✅'}
                           </span>
                         )}
 
-                        {/* Tombol Input Keterangan Manual (Zulfan, Marsya & Aulia) */}
+                        {/* Tombol Input Keterangan Manual */}
                         {isAllowedRecapAdmin && (
                           <button
                             type="button"
@@ -2422,9 +2450,9 @@ export default function AttendanceModule({
                               setShowNoteModal(true);
                             }}
                             title="Beri Keterangan / Konfirmasi Surat/WA"
-                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors cursor-pointer"
+                            className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors cursor-pointer shadow-2xs"
                           >
-                            <MessageSquare className="h-3 w-3 text-indigo-600" />
+                            <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
                             <span className="hidden sm:inline">Keterangan</span>
                           </button>
                         )}
@@ -2435,20 +2463,19 @@ export default function AttendanceModule({
                             <button
                               type="button"
                               onClick={() => handleOpenEditRecord(rec)}
-                              title="Edit Waktu, Tipe, & Lokasi Presensi (Khusus IT Admin)"
-                              className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer"
+                              title="Edit Waktu Presensi (Khusus IT Admin)"
+                              className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer shadow-2xs"
                             >
-                              <Edit3 className="h-3 w-3 text-amber-600" />
-                              <span className="hidden sm:inline">Edit Waktu</span>
+                              <Edit3 className="h-3.5 w-3.5 text-amber-600" />
+                              <span className="hidden sm:inline">Edit</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleOpenDeleteRecord(rec)}
                               title="Hapus Log Presensi dari Database (Khusus IT Admin)"
-                              className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 transition-colors cursor-pointer shadow-2xs"
                             >
-                              <Trash2 className="h-3 w-3 text-rose-600" />
-                              <span className="hidden sm:inline">Hapus</span>
+                              <Trash2 className="h-3.5 w-3.5 text-rose-600" />
                             </button>
                           </div>
                         )}
@@ -2855,7 +2882,7 @@ export default function AttendanceModule({
               </div>
 
               <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[10px] text-slate-500">
-                🔒 Dicatat oleh: <strong>{activeUser || 'Zulfan'}</strong>. Catatan ini otomatis tersimpan dan terlampir pada log kehadiran karyawan yang bersangkutan.
+                🔒 Dicatat oleh: <strong>{activeUser || currentUser?.full_name || currentUser?.username || 'Admin ARP'}</strong>. Catatan ini otomatis tersimpan dan terlampir pada log kehadiran karyawan yang bersangkutan.
               </div>
             </div>
 

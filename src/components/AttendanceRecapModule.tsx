@@ -984,7 +984,7 @@ export default function AttendanceRecapModule({
             Akses Ditolak
           </h2>
           <p className="text-sm text-slate-500 leading-relaxed">
-            Fitur <strong>Rekapitulasi Presensi & Durasi Bekerja</strong> hanya dapat diakses oleh akun yang berwenang (Zulfan, Marsya & Aulia / IT Admin).
+            Fitur <strong>Rekapitulasi Presensi & Durasi Bekerja</strong> hanya dapat diakses oleh Administrator & Manajemen (Zulfan, Marsya, Aulia & IT Admin).
           </p>
           <div className="flex items-center justify-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-400 font-mono">
             <ShieldCheck className="h-3.5 w-3.5 text-slate-400" />
