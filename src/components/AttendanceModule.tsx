@@ -266,7 +266,15 @@ export default function AttendanceModule({
     try {
       const recDate = safeIsoDate(r.timestamp);
       const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase() === activeUserEmail.toLowerCase());
-      const matchName = Boolean(r.employee_name && activeUser && r.employee_name.toLowerCase() === activeUser.toLowerCase());
+      const lowerEmpName = (r.employee_name || '').toLowerCase();
+      const lowerActive = (activeUser || '').toLowerCase();
+      const lowerFullName = (currentUser?.full_name || '').toLowerCase();
+      const matchName = Boolean(
+        lowerEmpName && (
+          (lowerActive && (lowerEmpName === lowerActive || lowerEmpName.startsWith(lowerActive + ' '))) ||
+          (lowerFullName && lowerEmpName === lowerFullName)
+        )
+      );
       return recDate === todayStr && (matchEmail || matchName);
     } catch (e) {
       return false;
@@ -282,7 +290,15 @@ export default function AttendanceModule({
     // Cari record terakhir jika semalam shift malam (masuk dalam 24 jam terakhir dan belum ada pulang)
     const userAll = history.filter((r) => {
       const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase() === activeUserEmail.toLowerCase());
-      const matchName = Boolean(r.employee_name && activeUser && r.employee_name.toLowerCase() === activeUser.toLowerCase());
+      const lowerEmpName = (r.employee_name || '').toLowerCase();
+      const lowerActive = (activeUser || '').toLowerCase();
+      const lowerFullName = (currentUser?.full_name || '').toLowerCase();
+      const matchName = Boolean(
+        lowerEmpName && (
+          (lowerActive && (lowerEmpName === lowerActive || lowerEmpName.startsWith(lowerActive + ' '))) ||
+          (lowerFullName && lowerEmpName === lowerFullName)
+        )
+      );
       return matchEmail || matchName;
     });
     if (userAll.length > 0 && userAll[0].type === 'Masuk') {
@@ -796,12 +812,15 @@ export default function AttendanceModule({
             .order('timestamp', { ascending: false });
 
           if (filter === 'me') {
-            if (activeEmail && activeName) {
-              query = query.or(`employee_email.ilike.${activeEmail},employee_name.ilike.${activeName}`);
-            } else if (activeEmail) {
-              query = query.ilike('employee_email', activeEmail);
-            } else if (activeName) {
-              query = query.ilike('employee_name', activeName);
+            const fullName = currentUser?.full_name || '';
+            const searchTerms = [
+              activeEmail ? `employee_email.ilike.${activeEmail}` : '',
+              activeName ? `employee_name.ilike.%${activeName}%` : '',
+              fullName ? `employee_name.ilike.%${fullName}%` : ''
+            ].filter(Boolean);
+
+            if (searchTerms.length > 0) {
+              query = query.or(searchTerms.join(','));
             }
           } else if (filter === 'marsya') {
             query = query.or(`employee_email.ilike.%marsya%,employee_name.ilike.%marsya%`);

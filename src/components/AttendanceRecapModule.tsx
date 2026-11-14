@@ -12,6 +12,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useUser } from '../context/UserContext';
 import { AttendanceRecord, ManpowerAbsence, Manpower } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -40,7 +42,8 @@ import {
   Trash2,
   Eye,
   Timer,
-  AlertCircle
+  AlertCircle,
+  FileDown
 } from 'lucide-react';
 
 // ─── HARDCODED ACCESS LIST (JANGAN DIUBAH!) ────────────────────────────────────
@@ -54,17 +57,17 @@ export function isAllowedAttendanceAdmin(username: string | null | undefined): b
 
 // ─── MASTER KARYAWAN RESMI ─────────────────────────────────────────────────────
 export const MASTER_EMPLOYEES = [
-  { id: 'u1',  username: 'Angga',    fullName: 'Rama Regawa Sri Anggayana',       role: 'Leader & Ahli Utama', division: 'Ahli' },
-  { id: 'u2',  username: 'Imam',     fullName: 'Lalu Imam Taufik Rahman Hidayat', role: 'Ahli Spesialis',      division: 'Ahli' },
-  { id: 'u3',  username: 'Fauzan',   fullName: 'Fauzan Akmaluddin',               role: 'Ahli Spesialis',      division: 'Ahli' },
-  { id: 'u4',  username: 'Fakhziar', fullName: 'Fakhziar Wildan Hidayat',         role: 'Ahli Spesialis',      division: 'Ahli' },
-  { id: 'u5',  username: 'Fazar',    fullName: 'Muhammad Fazar Maulana',          role: 'Ahli Spesialis',      division: 'Ahli' },
-  { id: 'u6',  username: 'Arya',     fullName: 'Arya Rizki Pratama',              role: 'Support Staff',       division: 'Admin' },
-  { id: 'u7',  username: 'Rio',      fullName: 'Rio Andrian',                     role: 'Support Staff',       division: 'Admin' },
-  { id: 'u8',  username: 'Aulia',    fullName: 'Aulia Zahra Dikrika',             role: 'Support Staff',       division: 'Admin' },
-  { id: 'u9',  username: 'Disa',     fullName: 'Disa Liestianie Putri',           role: 'Support Staff',       division: 'Admin' },
-  { id: 'u10', username: 'Marsya',   fullName: 'Marsya Aulia Rohman',             role: 'Support Staff',       division: 'Admin' },
-  { id: 'u11', username: 'Zulfan',   fullName: 'Zulfan Rafly Baihaqi',            role: 'IT Staff',            division: 'IT' }
+  { id: 'u1',  username: 'Angga',    fullName: 'Rama Regawa Sri Anggayana',       email: 'angga@aksarariksapjk3.com',    role: 'Leader & Ahli Utama', division: 'Ahli' },
+  { id: 'u2',  username: 'Imam',     fullName: 'Lalu Imam Taufik Rahman Hidayat', email: 'imam@aksarariksapjk3.com',     role: 'Ahli Spesialis',      division: 'Ahli' },
+  { id: 'u3',  username: 'Fauzan',   fullName: 'Fauzan Akmaluddin',               email: 'fauzan@aksarariksapjk3.com',   role: 'Ahli Spesialis',      division: 'Ahli' },
+  { id: 'u4',  username: 'Fakhziar', fullName: 'Fakhziar Wildan Hidayat',         email: 'fakhziar@aksarariksapjk3.com', role: 'Ahli Spesialis',      division: 'Ahli' },
+  { id: 'u5',  username: 'Fazar',    fullName: 'Muhammad Fazar Maulana',          email: 'fazar@aksarariksapjk3.com',    role: 'Ahli Spesialis',      division: 'Ahli' },
+  { id: 'u6',  username: 'Arya',     fullName: 'Arya Rizki Pratama',              email: 'arya@aksarariksapjk3.com',     role: 'Support Staff',       division: 'Admin' },
+  { id: 'u7',  username: 'Rio',      fullName: 'Rio Andrian',                     email: 'rio@aksarariksapjk3.com',      role: 'Support Staff',       division: 'Admin' },
+  { id: 'u8',  username: 'Aulia',    fullName: 'Aulia Zahra Dikrika',             email: 'aulia@aksarariksapjk3.com',    role: 'Support Staff',       division: 'Admin' },
+  { id: 'u9',  username: 'Disa',     fullName: 'Disa Liestianie Putri',           email: 'disa@aksarariksapjk3.com',     role: 'Support Staff',       division: 'Admin' },
+  { id: 'u10', username: 'Marsya',   fullName: 'Marsya Aulia Rohman',             email: 'marsya@aksarariksapjk3.com',   role: 'Support Staff',       division: 'Admin' },
+  { id: 'u11', username: 'Zulfan',   fullName: 'Zulfan Rafly Baihaqi',            email: 'zulfan@aksarariksapjk3.com',   role: 'IT Staff',            division: 'IT' }
 ];
 
 export interface ManualAttendanceNote {
@@ -405,26 +408,76 @@ export default function AttendanceRecapModule({
       };
     });
 
-    // Helper match username (Akurat untuk nama lengkap, username & email)
+    // Helper match username dengan sistem prioritas bertingkat (Mencegah salah cocok nama seperti Marsya vs Aulia)
     const findMatchUser = (nameStr?: string, emailStr?: string): string | null => {
       const lower = (nameStr || '').trim().toLowerCase();
       const lowerEmail = (emailStr || '').trim().toLowerCase();
       const emailUser = lowerEmail.includes('@') ? lowerEmail.split('@')[0] : lowerEmail;
 
-      for (const emp of MASTER_EMPLOYEES) {
-        const full = emp.fullName.toLowerCase();
-        const user = emp.username.toLowerCase();
-        
-        // 1. Direct match username atau email username
-        if (lower === user || emailUser === user) return user;
-        // 2. Full name match
-        if (lower === full || lower.includes(full) || full.includes(lower)) return user;
-        // 3. Substring / Token match (e.g. "Marsya Aulia" matches "Marsya")
-        if (lower.split(/\s+/).some(part => part && part === user)) return user;
-        if (lower.includes(user) || user.includes(lower)) return user;
-        // 4. Email check
-        if (lowerEmail && (lowerEmail.startsWith(user + '@') || lowerEmail.includes(user))) return user;
+      // Tier 1: Pencocokan Akurat via Email / Email Username (Prioritas Tertinggi)
+      if (lowerEmail) {
+        for (const emp of MASTER_EMPLOYEES) {
+          const empUser = emp.username.toLowerCase();
+          const empEmail = (emp.email || `${empUser}@aksarariksapjk3.com`).toLowerCase();
+          if (lowerEmail === empEmail || emailUser === empUser) {
+            return empUser;
+          }
+        }
       }
+
+      // Tier 2: Pencocokan Akurat Username (Misal "marsya" === "marsya")
+      if (lower) {
+        for (const emp of MASTER_EMPLOYEES) {
+          const empUser = emp.username.toLowerCase();
+          if (lower === empUser) {
+            return empUser;
+          }
+        }
+      }
+
+      // Tier 3: Pencocokan Akurat Full Name (Misal "marsya aulia rohman" === "marsya aulia rohman")
+      if (lower) {
+        for (const emp of MASTER_EMPLOYEES) {
+          const empFull = emp.fullName.toLowerCase();
+          if (lower === empFull) {
+            return emp.username.toLowerCase();
+          }
+        }
+      }
+
+      // Tier 4: Pencocokan Kata Pertama / Nama Panggilan di Depan (Misal "Marsya Aulia" -> kata pertama "marsya")
+      if (lower) {
+        const firstWord = lower.split(/\s+/)[0];
+        for (const emp of MASTER_EMPLOYEES) {
+          const empUser = emp.username.toLowerCase();
+          if (firstWord === empUser) {
+            return empUser;
+          }
+        }
+      }
+
+      // Tier 5: Prefix / Substring Nama Lengkap Utuh (Minimal 4 karakter unik)
+      if (lower && lower.length >= 4) {
+        for (const emp of MASTER_EMPLOYEES) {
+          const empFull = emp.fullName.toLowerCase();
+          const empUser = emp.username.toLowerCase();
+          if (empFull === lower || empFull.startsWith(lower) || lower.startsWith(empFull)) {
+            return empUser;
+          }
+        }
+      }
+
+      // Tier 6: Token Fallback (Hanya jika token sama persis dengan username)
+      if (lower) {
+        const tokens = lower.split(/\s+/);
+        for (const emp of MASTER_EMPLOYEES) {
+          const empUser = emp.username.toLowerCase();
+          if (tokens.includes(empUser)) {
+            return empUser;
+          }
+        }
+      }
+
       return null;
     };
 
@@ -663,6 +716,341 @@ export default function AttendanceRecapModule({
     setSelectedMonth(new Date().getMonth());
   };
 
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  // ─── EXPORT REKAP BULANAN TIM KE PDF ─────────────────────────────────────────
+  const handleExportTeamPdf = () => {
+    try {
+      setExportingPdf(true);
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const periodTitle = `${BULAN_INDO[selectedMonth]} ${selectedYear}`;
+
+      // 1. Kop Resmi PT AKSARA RIKSA PERDANA (Landscape Width 297mm)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.text('PT AKSARA RIKSA PERDANA', 14, 15);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105); // slate-600
+      doc.text('PJK3 Bidang Pemeriksaan dan Pengujian Teknik K3', 14, 20);
+
+      // Sisi Kanan: Judul Dokumen & Periode
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      const titleText = 'REKAPITULASI PRESENSI & JAM KERJA';
+      doc.text(titleText, 283 - doc.getTextWidth(titleText), 15);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      const subTitleText = `Periode: ${periodTitle} (${workingDays} Hari Kerja)`;
+      doc.text(subTitleText, 283 - doc.getTextWidth(subTitleText), 20);
+
+      // Garis Pembatas Kop
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.setLineWidth(0.4);
+      doc.line(14, 24, 283, 24);
+
+      // 2. Bar Ringkasan Metrik
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(14, 28, 269, 11, 1.5, 1.5, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text('RINGKASAN TIM:', 18, 35.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text('Total Personel:', 48, 35.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${MASTER_EMPLOYEES.length} Orang`, 68, 35.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Total Kehadiran:', 90, 35.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(5, 150, 105);
+      doc.text(`${totals.masuk} Masuk / ${totals.pulang} Pulang`, 112, 35.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Keterlambatan:', 160, 35.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(220, 38, 38);
+      doc.text(`${totals.late} Kali`, 183, 35.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Total Durasi Kerja:', 202, 35.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(2, 132, 199);
+      doc.text(`${totals.totalWorkingDuration}`, 230, 35.5);
+
+      // 3. AutoTable Data
+      const headers = [
+        ['NO', 'NAMA KARYAWAN', 'JABATAN & DIVISI', 'MSK', 'PLG', 'TELAT', 'DURASI KERJA', 'S', 'C', 'I', 'KTR', 'SITE', '% HDR', 'STATUS / CATATAN']
+      ];
+
+      const rows = recapData.map((emp, idx) => {
+        const pctStr = emp.percentHadir > 0 ? `${(emp.percentHadir * 100).toFixed(1)}%` : '0%';
+        const durStr = formatDurationHours(emp.totalWorkingMs);
+        const lateStr = emp.lateCount > 0 ? `${emp.lateCount}x` : '0';
+        const noteStr = emp.manualNotesCount > 0 ? `${emp.status} (${emp.manualNotesCount} catatan WA/Surat)` : emp.status;
+
+        return [
+          String(idx + 1),
+          `${emp.fullName}\n(@${emp.username})`,
+          `${emp.role}\n[${emp.division}]`,
+          String(emp.masuk),
+          String(emp.pulang),
+          lateStr,
+          durStr,
+          String(emp.sakit || '-'),
+          String(emp.cuti || '-'),
+          String(emp.izin || '-'),
+          String(emp.kantor || '-'),
+          String(emp.onSite || '-'),
+          pctStr,
+          noteStr
+        ];
+      });
+
+      const footerRow = [
+        '',
+        'TOTAL KESELURUHAN',
+        '',
+        String(totals.masuk),
+        String(totals.pulang),
+        `${totals.late}x`,
+        totals.totalWorkingDuration,
+        String(totals.sakit),
+        String(totals.cuti),
+        String(totals.izin),
+        String(totals.kantor),
+        String(totals.onSite),
+        `${(totals.avgPercent * 100).toFixed(1)}%`,
+        '-'
+      ];
+
+      autoTable(doc, {
+        startY: 42,
+        head: headers,
+        body: rows,
+        foot: [footerRow],
+        theme: 'grid',
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 2,
+          overflow: 'linebreak',
+          valign: 'middle',
+          font: 'helvetica'
+        },
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          halign: 'center'
+        },
+        footStyles: {
+          fillColor: [241, 245, 249],
+          textColor: [15, 23, 42],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          halign: 'center'
+        },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 50, halign: 'left', fontStyle: 'bold' },
+          2: { cellWidth: 38, halign: 'left' },
+          3: { cellWidth: 13, halign: 'center' },
+          4: { cellWidth: 13, halign: 'center' },
+          5: { cellWidth: 14, halign: 'center' },
+          6: { cellWidth: 23, halign: 'center' },
+          7: { cellWidth: 10, halign: 'center' },
+          8: { cellWidth: 10, halign: 'center' },
+          9: { cellWidth: 10, halign: 'center' },
+          10: { cellWidth: 12, halign: 'center' },
+          11: { cellWidth: 12, halign: 'center' },
+          12: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+          13: { cellWidth: 38, halign: 'left' }
+        },
+        alternateRowStyles: {
+          fillColor: [250, 250, 250]
+        },
+        didDrawPage: (data) => {
+          const totalPages = (doc.internal as any).getNumberOfPages?.() || (doc as any).getNumberOfPages?.() || 1;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(148, 163, 184);
+
+          const footerLeft = `Halaman ${data.pageNumber} dari ${totalPages} • Dokumen Resmi Internal PT Aksara Riksa Perdana`;
+          doc.text(footerLeft, 14, 201);
+
+          const today = new Date();
+          const todayStr = `${today.getDate()} ${BULAN_INDO[today.getMonth()]} ${today.getFullYear()} ${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')} WIB`;
+          const footerRight = `Diekspor oleh ${activeUser || 'Admin'} pada: ${todayStr}`;
+          doc.text(footerRight, 283 - doc.getTextWidth(footerRight), 201);
+        }
+      });
+
+      const safePeriodName = periodTitle.replace(/\s+/g, '_');
+      doc.save(`Rekap_Presensi_Tim_${safePeriodName}.pdf`);
+    } catch (err: any) {
+      alert('Gagal mengekspor PDF: ' + (err?.message || err));
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  // ─── EXPORT KARTU DETAIL KARYAWAN KE PDF ───────────────────────────────────────
+  const handleExportIndividualPdf = (emp: EmployeeRecap) => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const periodTitle = `${BULAN_INDO[selectedMonth]} ${selectedYear}`;
+
+      // Kop Resmi
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('PT AKSARA RIKSA PERDANA', 14, 15);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text('PJK3 Bidang Pemeriksaan dan Pengujian Teknik K3', 14, 20);
+
+      // Kanan
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.setTextColor(15, 23, 42);
+      const titleText = 'KARTU PRESENSI KARYAWAN';
+      doc.text(titleText, 196 - doc.getTextWidth(titleText), 15);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      const subTitleText = `Periode: ${periodTitle}`;
+      doc.text(subTitleText, 196 - doc.getTextWidth(subTitleText), 20);
+
+      // Garis Kop
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.4);
+      doc.line(14, 24, 196, 24);
+
+      // Profil Karyawan Box
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(14, 27, 182, 17, 1.5, 1.5, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Nama: ${emp.fullName} (@${emp.username})`, 18, 33);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Jabatan: ${emp.role} | Divisi: ${emp.division}`, 18, 38);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Hadir: ${emp.masuk} hr (${(emp.percentHadir * 100).toFixed(1)}%)`, 125, 33);
+      doc.setTextColor(220, 38, 38);
+      doc.text(`Telat: ${emp.lateCount}x`, 125, 38);
+      doc.setTextColor(2, 132, 199);
+      doc.text(`Durasi: ${formatDurationHours(emp.totalWorkingMs)}`, 155, 38);
+
+      // Log Harian
+      const sortedDaily = (Object.values(emp.dailyDetails) as EmployeeDailyDetail[])
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const dailyHeaders = [['No', 'Tanggal', 'Jam Masuk', 'Jam Pulang', 'Durasi', 'Ketepatan Waktu / Catatan']];
+      const dailyRows = sortedDaily.map((d, i) => {
+        const dObj = safeParseDate(d.date);
+        const dayLabel = dObj
+          ? dObj.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })
+          : d.date;
+
+        const msk = d.masukTime ? safeFormatTime(d.masukTime) : '-';
+        const plg = d.pulangTime ? safeFormatTime(d.pulangTime) : (d.masukTime ? '(Belum absen)' : '-');
+        const dur = d.durationMs > 0 ? formatDurationHours(d.durationMs) : '-';
+
+        let statusText = d.isLate ? `Terlambat ${d.lateMinutes} mnt` : (d.masukTime ? 'Tepat Waktu' : '-');
+        if (d.absenceType) statusText = `${d.absenceType}: ${d.absenceReason || '-'}`;
+        if (d.notes && d.notes.length > 0) {
+          const notesStr = d.notes.map(n => `[${n.source}] ${n.note}`).join('; ');
+          statusText += ` | ${notesStr}`;
+        }
+
+        return [String(i + 1), dayLabel, msk, plg, dur, statusText];
+      });
+
+      autoTable(doc, {
+        startY: 47,
+        head: dailyHeaders,
+        body: dailyRows,
+        theme: 'grid',
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+          valign: 'middle',
+          font: 'helvetica'
+        },
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 32 },
+          2: { cellWidth: 26, halign: 'center' },
+          3: { cellWidth: 26, halign: 'center' },
+          4: { cellWidth: 22, halign: 'center' },
+          5: { cellWidth: 66 }
+        },
+        alternateRowStyles: {
+          fillColor: [250, 250, 250]
+        },
+        didDrawPage: (data) => {
+          const totalPages = (doc.internal as any).getNumberOfPages?.() || (doc as any).getNumberOfPages?.() || 1;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(148, 163, 184);
+
+          const footerLeft = `Halaman ${data.pageNumber} dari ${totalPages} • Dokumen Resmi Internal PT Aksara Riksa Perdana`;
+          doc.text(footerLeft, 14, 285);
+
+          const today = new Date();
+          const todayStr = `${today.getDate()} ${BULAN_INDO[today.getMonth()]} ${today.getFullYear()} ${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')} WIB`;
+          const footerRight = `Dicetak oleh ${activeUser || 'Admin'} pada: ${todayStr}`;
+          doc.text(footerRight, 196 - doc.getTextWidth(footerRight), 285);
+        }
+      });
+
+      doc.save(`Presensi_${emp.username}_${periodTitle.replace(/\s+/g, '_')}.pdf`);
+    } catch (err: any) {
+      alert('Gagal mengekspor kartu presensi: ' + (err?.message || err));
+    }
+  };
+
   // ═════════════════════════════════════════════════════════════════════════════════
   // RENDER: ACCESS DENIED (Bukan Zulfan / Marsya)
   // ═════════════════════════════════════════════════════════════════════════════════
@@ -725,8 +1113,18 @@ export default function AttendanceRecapModule({
             </div>
           </div>
 
-          {/* Action Buttons: Keterangan Manual + Navigasi Bulan + Tutup */}
+          {/* Action Buttons: Ekspor PDF + Keterangan Manual + Navigasi Bulan + Tutup */}
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleExportTeamPdf}
+              disabled={exportingPdf || recapData.length === 0}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition-all active:scale-95 cursor-pointer shadow-xs disabled:opacity-50"
+              title="Ekspor Seluruh Rekapitulasi Presensi Tim ke Format PDF Resmi"
+            >
+              <FileDown className={`h-3.5 w-3.5 ${exportingPdf ? 'animate-bounce' : ''}`} />
+              <span>{exportingPdf ? 'Mengekspor...' : 'Ekspor PDF'}</span>
+            </button>
+
             <button
               onClick={() => {
                 setNoteFormEmp('Angga');
@@ -1160,19 +1558,31 @@ export default function AttendanceRecapModule({
               )}
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  setNoteFormEmp(selectedEmpData.username);
-                  setNoteFormDate(new Date().toISOString().split('T')[0]);
-                  setNoteFormText('');
-                  setIsNoteModalOpen(true);
-                }}
-                className="text-xs font-bold px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer flex items-center gap-1.5"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Tambah Keterangan (WA/Surat)</span>
-              </button>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setNoteFormEmp(selectedEmpData.username);
+                    setNoteFormDate(new Date().toISOString().split('T')[0]);
+                    setNoteFormText('');
+                    setIsNoteModalOpen(true);
+                  }}
+                  className="text-xs font-bold px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Tambah Keterangan (WA/Surat)</span>
+                </button>
+
+                <button
+                  onClick={() => handleExportIndividualPdf(selectedEmpData)}
+                  className="text-xs font-bold px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 cursor-pointer flex items-center gap-1.5"
+                  title="Unduh Kartu Detail Presensi Karyawan Ini ke Format PDF"
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  <span>Unduh Kartu Presensi (PDF)</span>
+                </button>
+              </div>
+
               <button
                 onClick={() => setSelectedEmployeeUsername(null)}
                 className="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"

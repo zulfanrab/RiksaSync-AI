@@ -47,10 +47,17 @@ export function safeParseDate(val: any): Date | null {
  * Returns safe YYYY-MM-DD date string. Never throws!
  */
 export function safeIsoDate(val: any, fallback: string = ''): string {
+  if (!val) return fallback;
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) {
+    return val.trim().substring(0, 10);
+  }
   const d = safeParseDate(val);
   if (!d) return fallback;
   try {
-    return d.toISOString().split('T')[0];
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   } catch {
     return fallback;
   }
