@@ -4,10 +4,11 @@
  */
 
 import React, { useState } from 'react';
-import { X, Check, Copy, AlertCircle, FileText, RefreshCw, Send } from 'lucide-react';
+import { X, Check, Copy, AlertCircle, FileText, RefreshCw, Send, Sheet } from 'lucide-react';
 import { PnJenis, PnNomor, formatNomorUrut } from '../types/penomoran';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
+import { syncSingleNomorToSheets } from '../lib/penomoranSync';
 
 interface PenomoranFormModalProps {
   jenis: PnJenis;
@@ -37,6 +38,12 @@ export default function PenomoranFormModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [issuedNomor, setIssuedNomor] = useState<PnNomor | null>(null);
   const [copied, setCopied] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{
+    status: 'idle' | 'syncing' | 'synced' | 'failed';
+    message: string;
+  }>({ status: 'idle', message: '' });
+
+  const creatorName = currentUser?.full_name || currentUser?.username || activeUser || 'Saya';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,31 +79,19 @@ export default function PenomoranFormModal({
       setIssuedNomor(record);
       onSuccess(record);
 
-      // Trigger Webhook mirror sync jika endpoint lokal tersedia
-      fetch('/api/penomoran/sync-sheets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record })
-      }).catch(() => {});
-
-      // Sinkronisasi langsung ke Google Apps Script Web App jika URL terkonfigurasi
-      const gasUrl = localStorage.getItem('gas_penomoran_url') || (import.meta.env.VITE_GAS_PENOMORAN_URL as string) || '';
-      if (gasUrl) {
-        fetch(gasUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            record: {
-              ...record,
-              jenis_kode: jenis.kode,
-              jenis_nama: jenis.nama,
-              dibuat_oleh_nama: creatorName,
-              revisi_dari_no: revisiDariNomor ? revisiDariNomor.no_urut : null
-            }
-          })
-        }).catch((e) => console.warn('[GAS Mirror Sync Warning]:', e));
-      }
+      // Sinkronisasi otomatis ke Google Sheets
+      setSyncStatus({ status: 'syncing', message: 'Menyinkronkan ke Google Sheets...' });
+      syncSingleNomorToSheets(record, jenis, creatorName, revisiDariNomor?.no_urut)
+        .then((res) => {
+          if (res.success) {
+            setSyncStatus({ status: 'synced', message: res.message });
+          } else {
+            setSyncStatus({ status: 'failed', message: res.message });
+          }
+        })
+        .catch((err) => {
+          setSyncStatus({ status: 'failed', message: err.message || 'Gagal sinkronisasi Sheets' });
+        });
 
     } catch (err: any) {
       console.error('[pn_ambil_nomor Error]:', err);
@@ -113,8 +108,6 @@ export default function PenomoranFormModal({
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
-
-  const creatorName = currentUser?.full_name || currentUser?.username || activeUser || 'Saya';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -185,6 +178,28 @@ export default function PenomoranFormModal({
                   <div className="flex justify-between text-amber-700 pt-1 border-t border-slate-200">
                     <span>Revisi Dari:</span>
                     <span className="font-bold">No. {formatNomorUrut(revisiDariNomor.no_urut, jenis.pad_digit)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Status Sinkronisasi Google Sheets */}
+              <div className="max-w-sm mx-auto">
+                {syncStatus.status === 'syncing' && (
+                  <div className="flex items-center justify-center gap-2 py-2 px-3 bg-sky-50 border border-sky-200 rounded-xl text-sky-700 text-[11px] font-medium">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>{syncStatus.message}</span>
+                  </div>
+                )}
+                {syncStatus.status === 'synced' && (
+                  <div className="flex items-center justify-center gap-2 py-2 px-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-[11px] font-medium">
+                    <Check className="h-3.5 w-3.5 text-emerald-600 stroke-[3]" />
+                    <span>{syncStatus.message}</span>
+                  </div>
+                )}
+                {syncStatus.status === 'failed' && (
+                  <div className="flex items-center justify-center gap-2 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[11px] font-medium">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                    <span>Tersimpan di database. Info: {syncStatus.message}</span>
                   </div>
                 )}
               </div>

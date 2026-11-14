@@ -2,8 +2,20 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useUser } from '../context/UserContext';
 import { AttendanceType, WorkLocationType, AttendanceRecord, Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { safeParseDate, safeIsoDate, safeIsoString, safeFormatTime, safeFormatDate, safeToFixed } from '../lib/dateUtils';
-import AttendanceRecapModule, { isAllowedAttendanceAdmin, ManualAttendanceNote, checkLateMinutes } from './AttendanceRecapModule';
+import {
+  safeParseDate,
+  safeIsoDate,
+  safeIsoString,
+  safeFormatTime,
+  safeFormatDate,
+  safeToFixed,
+  toWibDate,
+  getWibTimeParts,
+  wibToUtcIso,
+  checkLateMinutesWib,
+  formatDurationHours
+} from '../lib/dateUtils';
+import AttendanceRecapModule, { isAllowedAttendanceAdmin, ManualAttendanceNote } from './AttendanceRecapModule';
 import {
   FileText,
   Camera,
@@ -36,8 +48,54 @@ import {
   Timer,
   TrendingUp,
   MessageSquare,
-  Plus
+  Plus,
+  Trash2,
+  Image as ImageIcon
 } from 'lucide-react';
+
+/**
+ * Kompresi gambar client-side menggunakan HTML5 Canvas
+ * Lebar maksimal 800px, format JPEG, quality 0.7 sehingga ukuran file < 150KB
+ */
+async function compressImageToJpeg(dataUrl: string, maxWidth = 800, quality = 0.7): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let width = img.naturalWidth || img.width;
+      let height = img.naturalHeight || img.height;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(compressedDataUrl);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Ekstrak thumbnail preview URL dari Google Drive link publik
+ */
+function getDriveDirectImageUrl(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('data:image')) return url;
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+  }
+  return url;
+}
 
 interface Coords {
   latitude: number;
@@ -91,23 +149,23 @@ export default function AttendanceModule({
   // Live time ticker
   const [now, setNow] = useState(new Date());
 
-  // Privacy & Manager permission check:
-  // Karyawan biasa HANYA bisa melihat absensi miliknya sendiri (Strict Privacy).
-  // Leader / IT / Admin dapat memantau tim jika diperlukan.
-  const isPrivilegedManager = Boolean(
-    currentUser?.role?.toLowerCase().includes('leader') ||
-    currentUser?.role?.toLowerCase().includes('it') ||
-    currentUser?.division?.toLowerCase() === 'it' ||
-    currentUser?.role?.toLowerCase().includes('superadmin') ||
-    activeUser?.toLowerCase() === 'zulfan' ||
-    activeUser?.toLowerCase() === 'angga'
-  );
-
-  // Akses Khusus Zulfan (Koreksi waktu presensi human error)
-  const isZulfan = Boolean(
+  // IT Super Admin Hak Akses (zulfan@aksarariksapjk3.com / Role IT / Division IT)
+  const isItAdmin = Boolean(
     activeUser?.toLowerCase() === 'zulfan' ||
     currentUser?.username?.toLowerCase() === 'zulfan' ||
-    currentUser?.email?.toLowerCase().includes('zulfan')
+    activeUserEmail?.toLowerCase() === 'zulfan@aksarariksapjk3.com' ||
+    currentUser?.email?.toLowerCase() === 'zulfan@aksarariksapjk3.com' ||
+    currentUser?.role?.toLowerCase().includes('it') ||
+    currentUser?.division?.toLowerCase() === 'it'
+  );
+  const isZulfan = isItAdmin;
+
+  // Privacy & Manager permission check
+  const isPrivilegedManager = Boolean(
+    isItAdmin ||
+    currentUser?.role?.toLowerCase().includes('leader') ||
+    currentUser?.role?.toLowerCase().includes('superadmin') ||
+    activeUser?.toLowerCase() === 'angga'
   );
 
   // Akses Khusus Zulfan & Marsya (Rekapitulasi Tim & Input Keterangan Manual)
@@ -167,11 +225,23 @@ export default function AttendanceModule({
     }
   };
 
-  // State untuk modal koreksi waktu presensi (Strictly Zulfan ONLY)
+  // State untuk modal koreksi waktu presensi (IT Super Admin Override)
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [editDate, setEditDate] = useState<string>('');
   const [editTime, setEditTime] = useState<string>('');
+  const [editType, setEditType] = useState<AttendanceType>('Masuk');
+  const [editWorkLocation, setEditWorkLocation] = useState<WorkLocationType>('Kantor');
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
+
+  // IT Super Admin Action States & Photo Preview
+  const [cleaningDuplicates, setCleaningDuplicates] = useState<boolean>(false);
+  const [previewPhoto, setPreviewPhoto] = useState<{
+    url: string;
+    employee: string;
+    type: string;
+    timestamp: string;
+    location?: string;
+  } | null>(null);
 
   // Submit & History state
   const [submitting, setSubmitting] = useState(false);
@@ -180,13 +250,15 @@ export default function AttendanceModule({
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Google Apps Script Web App URL (bisa dibaca dari localStorage atau .env)
+  // Google Apps Script Web App URL default & konfigurasi
+  const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwJ7Cj-z2P14FGZbN2J_hFfwRA8-6LMmWShJTV_2Med6TUEfCfYfywqbwLmS3gsrk34IA/exec';
+
   const [gasUrl, setGasUrl] = useState<string>(() => {
-    return localStorage.getItem('gas_attendance_url') || import.meta.env.VITE_GAS_ATTENDANCE_URL || '';
+    return localStorage.getItem('gas_attendance_url') || import.meta.env.VITE_GAS_ATTENDANCE_URL || DEFAULT_GAS_URL;
   });
   const [showGasModal, setShowGasModal] = useState<boolean>(false);
   const [inputGasUrl, setInputGasUrl] = useState<string>(() => {
-    return localStorage.getItem('gas_attendance_url') || import.meta.env.VITE_GAS_ATTENDANCE_URL || '';
+    return localStorage.getItem('gas_attendance_url') || import.meta.env.VITE_GAS_ATTENDANCE_URL || DEFAULT_GAS_URL;
   });
   const [testingGas, setTestingGas] = useState<boolean>(false);
   const [gasTestResult, setGasTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -242,15 +314,8 @@ export default function AttendanceModule({
   const targetMasukLabel = '09:00 WIB';
   const targetPulangLabel = isSaturday ? '14:00 WIB' : '17:00 WIB';
 
-  // Helper to format local YYYY-MM-DD
-  const getLocalDateString = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const todayStr = getLocalDateString(now);
+  // Helper to format local YYYY-MM-DD in Asia/Jakarta (WIB)
+  const todayStr = toWibDate(now);
 
   // Cross-check with Kelola Manpower absences (Sakit, Cuti, Izin)
   const currentManpower = manpowerList.find(
@@ -261,14 +326,14 @@ export default function AttendanceModule({
     (a) => a.manpower_id === currentManpower?.id && a.date === todayStr
   );
 
-  // Check attendance records done today by active user
+  // Check attendance records done today by active user (WIB date matched + Deduplicated)
   const userTodayRecords = history.filter((r) => {
     try {
-      const recDate = safeIsoDate(r.timestamp);
-      const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase() === activeUserEmail.toLowerCase());
-      const lowerEmpName = (r.employee_name || '').toLowerCase();
-      const lowerActive = (activeUser || '').toLowerCase();
-      const lowerFullName = (currentUser?.full_name || '').toLowerCase();
+      const recDate = toWibDate(r.timestamp) || (r as any).date;
+      const matchEmail = Boolean(r.employee_email && activeUserEmail && r.employee_email.toLowerCase().trim() === activeUserEmail.toLowerCase().trim());
+      const lowerEmpName = (r.employee_name || '').toLowerCase().trim();
+      const lowerActive = (activeUser || '').toLowerCase().trim();
+      const lowerFullName = (currentUser?.full_name || '').toLowerCase().trim();
       const matchName = Boolean(
         lowerEmpName && (
           (lowerActive && (lowerEmpName === lowerActive || lowerEmpName.startsWith(lowerActive + ' '))) ||
@@ -281,8 +346,16 @@ export default function AttendanceModule({
     }
   });
 
-  const todayMasuk = userTodayRecords.find((r) => r.type === 'Masuk');
-  const todayPulang = userTodayRecords.find((r) => r.type === 'Pulang');
+  // Anti-Duplikat Harian: Ambil 1 Masuk paling awal dan 1 Pulang paling akhir
+  const allTodayMasuk = userTodayRecords
+    .filter((r) => r.type === 'Masuk')
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const todayMasuk = allTodayMasuk[0] || null;
+
+  const allTodayPulang = userTodayRecords
+    .filter((r) => r.type === 'Pulang')
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const todayPulang = allTodayPulang[allTodayPulang.length - 1] || null;
 
   // Pelacakan Sesi Masuk Aktif & Durasi Kerja (Support Shift Malam lintas hari)
   const activeMasuk = useMemo(() => {
@@ -331,6 +404,13 @@ export default function AttendanceModule({
           diffMs
         };
       }
+      return {
+        isLive: false,
+        text: '0 jam 0 menit',
+        hours: 0,
+        mins: 0,
+        diffMs: 0
+      };
     }
 
     // Shift sedang berjalan (Live real-time timer)
@@ -356,16 +436,15 @@ export default function AttendanceModule({
     return safeFormatTime(isoStr, '');
   };
 
-  // Helper to check punctuality border color (subtle visual indicator, polite tone)
+  // Helper to check punctuality border color (Zona Waktu WIB Asia/Jakarta)
   const getPunctualityStyle = (type: AttendanceType, timestampStr?: string) => {
     if (!timestampStr) return null;
     try {
+      const wibParts = getWibTimeParts(timestampStr);
+      const totalMinutes = wibParts.hour * 60 + wibParts.minute;
+
       const d = safeParseDate(timestampStr);
-      if (!d) return null;
-      const isSat = d.getDay() === 6;
-      const hours = d.getHours();
-      const minutes = d.getMinutes();
-      const totalMinutes = hours * 60 + minutes;
+      const isSat = d ? d.getDay() === 6 : false;
 
       if (type === 'Masuk') {
         // Target: <= 09:00 WIB (540 minutes)
@@ -405,7 +484,8 @@ export default function AttendanceModule({
         bg: 'bg-amber-50/50',
         dot: 'bg-amber-500',
         badge: 'bg-amber-100 text-amber-800 border-amber-200',
-        cardBorder: 'border-amber-400'
+        cardBorder: 'border-amber-400',
+        badgeText: 'Tercatat'
       };
     } catch {
       return null;
@@ -838,7 +918,7 @@ export default function AttendanceModule({
       }
 
       // 2. AMBIL DARI GOOGLE APPS SCRIPT (Google Sheets) — Tempat penyimpanan utama selfie & presensi
-      const effectiveGasUrl = gasUrl || localStorage.getItem('gas_attendance_url') || (import.meta.env.VITE_GAS_ATTENDANCE_URL as string) || '';
+      const effectiveGasUrl = gasUrl || localStorage.getItem('gas_attendance_url') || (import.meta.env.VITE_GAS_ATTENDANCE_URL as string) || DEFAULT_GAS_URL;
       if (effectiveGasUrl) {
         try {
           let param = '';
@@ -967,6 +1047,72 @@ export default function AttendanceModule({
     const recordTimestamp = new Date().toISOString();
     const locationToSend = (customLocationName || locationInfo?.fullAddress || 'Kantor Pusat PT Aksara Riksa Perdana').trim();
 
+    // 1. Kompresi Gambar Otomatis Client-Side (HTML5 Canvas JPEG, max 800px, quality 0.7, < 150KB)
+    let compressedImage = capturedImage;
+    try {
+      compressedImage = await compressImageToJpeg(capturedImage, 800, 0.7);
+    } catch (compErr) {
+      console.warn('[Image Compression Warning]', compErr);
+    }
+
+    // 2. Upload ke Google Drive via Google Apps Script (Anti-CORS & Anti-Timeout)
+    const effectiveGasUrl = gasUrl || localStorage.getItem('gas_attendance_url') || (import.meta.env.VITE_GAS_ATTENDANCE_URL as string) || DEFAULT_GAS_URL;
+
+    if (!effectiveGasUrl) {
+      setSubmitting(false);
+      alert('URL Google Apps Script belum dikonfigurasi. Harap tentukan VITE_GAS_ATTENDANCE_URL pada .env atau atur melalui tombol konfigurasi di kanan atas.');
+      return;
+    }
+
+    const safeName = empName.replace(/[^a-zA-Z0-9]/g, '_');
+    const dateWibStr = toWibDate(recordTimestamp);
+    const timeParts = getWibTimeParts(recordTimestamp);
+    const fileName = `Absen_${attendanceType}_${workLocationType.replace(/\s+/g, '')}_${safeName}_${dateWibStr}_${timeParts.timeStr.replace(/:/g, '-')}.jpg`;
+    const folderMonth = dateWibStr.substring(0, 7);
+
+    let driveLink = '';
+
+    try {
+      const response = await fetch(effectiveGasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'submit_attendance',
+          employee_name: empName,
+          employee_email: empEmail,
+          type: attendanceType,
+          work_location_type: workLocationType,
+          building_name: locationToSend || '-',
+          location_name: locationToSend || '-',
+          address: locationInfo?.fullAddress || '-',
+          timestamp: recordTimestamp,
+          latitude: effectiveCoords.latitude,
+          longitude: effectiveCoords.longitude,
+          imageBase64: compressedImage,
+          photo_base64: compressedImage,
+          fileName: fileName,
+          folderMonth: folderMonth
+        })
+      });
+
+      if (response.ok) {
+        const resJson = await response.json();
+        const candidate = resJson?.url || resJson?.fileUrl || resJson?.drive_url;
+        if (candidate && candidate !== '-' && candidate.startsWith('http')) {
+          driveLink = candidate;
+        }
+      }
+    } catch (gasErr: any) {
+      console.error('[GAS Upload Error]', gasErr);
+    }
+
+    // VALIDASI KETAT: JANGAN PERNAH SIMPAN JIKA UPLOAD FOTO GAGAL ATAU URL KOSONG
+    if (!driveLink) {
+      setSubmitting(false);
+      alert('Gagal mengunggah foto selfie ke Google Drive via Google Apps Script. Presensi dibatalkan demi menjaga validitas bukti absensi. Silakan periksa koneksi internet Anda atau pastikan Web App Google Apps Script di-deploy dengan akses "Anyone".');
+      return;
+    }
+
     const newRecord: AttendanceRecord = {
       employee_name: empName,
       employee_email: empEmail,
@@ -978,60 +1124,13 @@ export default function AttendanceModule({
       timestamp: recordTimestamp,
       latitude: effectiveCoords.latitude,
       longitude: effectiveCoords.longitude,
-      photo_drive_url: ''
+      photo_drive_url: driveLink
     };
 
-    let driveLink = '';
-    let gasErrorOccurred = false;
-
-    // 1. Send to Google Apps Script (Drive + Sheets) if configured (with 6s timeout so UI never hangs)
-    if (gasUrl) {
-      try {
-        const controller = new AbortController();
-        const gasTimeout = setTimeout(() => controller.abort(), 6000);
-
-        const response = await fetch(gasUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'submit_attendance',
-            employee_name: empName,
-            employee_email: empEmail,
-            type: attendanceType,
-            work_location_type: workLocationType,
-            building_name: locationToSend || '-',
-            location_name: locationToSend || '-',
-            address: locationInfo?.fullAddress || '-',
-            timestamp: recordTimestamp,
-            latitude: effectiveCoords.latitude,
-            longitude: effectiveCoords.longitude,
-            photo_base64: capturedImage
-          }),
-          signal: controller.signal
-        });
-        clearTimeout(gasTimeout);
-
-        if (response.ok) {
-          const resJson = await response.json();
-          if (resJson && resJson.drive_url && resJson.drive_url !== '-') {
-            driveLink = resJson.drive_url;
-            newRecord.photo_drive_url = driveLink;
-          } else {
-            gasErrorOccurred = true;
-          }
-        } else {
-          gasErrorOccurred = true;
-        }
-      } catch (gasErr) {
-        console.warn('[GAS Attendance Submission Warning / Timeout]', gasErr);
-        gasErrorOccurred = true;
-      }
-    }
-
-    // 2. Save directly to Supabase attendance_logs for high availability
+    // 3. Simpan ke Supabase attendance_logs dengan photo_drive_url valid
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from('attendance_logs').insert([
+        const { data, error } = await supabase.from('attendance_logs').insert([
           {
             employee_name: empName,
             employee_email: empEmail,
@@ -1043,28 +1142,28 @@ export default function AttendanceModule({
             timestamp: recordTimestamp,
             latitude: effectiveCoords.latitude,
             longitude: effectiveCoords.longitude,
-            photo_drive_url: driveLink || null
+            photo_drive_url: driveLink
           }
-        ]);
+        ]).select();
+
+        if (!error && data && data.length > 0) {
+          newRecord.id = data[0].id;
+        }
       } catch (sbErr) {
         console.warn('[Supabase Attendance Log Insert Warning]', sbErr);
       }
     }
 
-    // 3. Save to localStorage fallback
+    // 4. Update localStorage
     try {
       const existing = JSON.parse(localStorage.getItem('local_attendance_logs') || '[]');
-      const updated = [newRecord, ...existing.slice(0, 49)];
+      const updated = [newRecord, ...existing.slice(0, 99)];
       localStorage.setItem('local_attendance_logs', JSON.stringify(updated));
-      setHistory(updated);
     } catch (e) {}
 
+    setHistory((prev) => [newRecord, ...prev]);
     setSubmitting(false);
-    if (driveLink) {
-      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat! Foto selfie tersimpan otomatis. ✅`);
-    } else {
-      setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat pada ${now.toLocaleTimeString('id-ID')} WIB! ✅`);
-    }
+    setSubmitSuccess(`Presensi ${attendanceType} berhasil dicatat! Foto selfie tersimpan aman di Google Drive. ✅`);
 
     // Reset captured photo and reload history
     setCapturedImage(null);
@@ -1072,31 +1171,24 @@ export default function AttendanceModule({
     startCamera();
   };
 
-  // ── KOREKSI WAKTU PRESENSI (HUMAN ERROR) — STRICTLY ZULFAN ONLY ────────────
+  // ── IT SUPER ADMIN OVERRIDE: EDIT WAKTU, TIPE, & LOKASI ─────────────────────
   const handleOpenEditRecord = (rec: AttendanceRecord) => {
     setEditingRecord(rec);
-    const d = safeParseDate(rec.timestamp) || new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    const seconds = String(d.getSeconds()).padStart(2, '0');
-
-    setEditDate(`${year}-${month}-${day}`);
-    setEditTime(`${hours}:${minutes}:${seconds}`);
+    const dateWib = toWibDate(rec.timestamp);
+    const timeParts = getWibTimeParts(rec.timestamp);
+    setEditDate(dateWib);
+    setEditTime(`${timeParts.timeStr}:${String(timeParts.second).padStart(2, '0')}`);
+    setEditType(rec.type || 'Masuk');
+    setEditWorkLocation(rec.work_location_type || 'Kantor');
   };
 
   const handleSaveEditTimestamp = async () => {
     if (!editingRecord || !editDate || !editTime) return;
     setSavingEdit(true);
 
-    const timeWithSec = editTime.includes(':') && editTime.split(':').length === 2 ? `${editTime}:00` : editTime;
-    const newDateObj = safeParseDate(`${editDate}T${timeWithSec}+07:00`) || new Date(`${editDate}T${timeWithSec}`);
-    const newIsoTimestamp = newDateObj && !isNaN(newDateObj.getTime()) ? newDateObj.toISOString() : new Date().toISOString();
+    const newIsoTimestamp = wibToUtcIso(editDate, editTime);
 
-    // 1. UPDATE REACT STATE SECARA INSTAN TANPA MENUNGGU SUPABASE
-    // Status Tepat Waktu / Telat langsung terupdate detik itu juga di layar!
+    // 1. UPDATE REACT STATE SECARA INSTAN
     setHistory((prev) =>
       prev.map((r) => {
         const isMatch =
@@ -1104,13 +1196,21 @@ export default function AttendanceModule({
           (r.employee_name === editingRecord.employee_name &&
             r.type === editingRecord.type &&
             r.timestamp === editingRecord.timestamp);
-        return isMatch ? { ...r, timestamp: newIsoTimestamp, created_at: newIsoTimestamp } : r;
+        return isMatch
+          ? {
+              ...r,
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp,
+              type: editType,
+              work_location_type: editWorkLocation
+            }
+          : r;
       })
     );
 
     // 2. SIMPAN KE LOCALSTORAGE (Map koreksi permanen)
     try {
-      const origDate = safeIsoDate(editingRecord.timestamp);
+      const origDate = toWibDate(editingRecord.timestamp);
       const correctionsRaw = localStorage.getItem('attendance_corrections_map');
       const corrections = correctionsRaw ? JSON.parse(correctionsRaw) : {};
       if (editingRecord.id) {
@@ -1132,7 +1232,13 @@ export default function AttendanceModule({
               r.type === editingRecord.type &&
               r.timestamp === editingRecord.timestamp);
           if (isMatch) {
-            return { ...r, timestamp: newIsoTimestamp, created_at: newIsoTimestamp };
+            return {
+              ...r,
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp,
+              type: editType,
+              work_location_type: editWorkLocation
+            };
           }
           return r;
         });
@@ -1148,19 +1254,24 @@ export default function AttendanceModule({
             .from('attendance_logs')
             .update({
               timestamp: newIsoTimestamp,
-              created_at: newIsoTimestamp
+              created_at: newIsoTimestamp,
+              type: editType,
+              work_location_type: editWorkLocation
             })
             .eq('id', editingRecord.id);
+        } else {
+          await supabase
+            .from('attendance_logs')
+            .update({
+              timestamp: newIsoTimestamp,
+              created_at: newIsoTimestamp,
+              type: editType,
+              work_location_type: editWorkLocation
+            })
+            .eq('employee_name', editingRecord.employee_name)
+            .eq('type', editingRecord.type)
+            .eq('timestamp', editingRecord.timestamp);
         }
-        await supabase
-          .from('attendance_logs')
-          .update({
-            timestamp: newIsoTimestamp,
-            created_at: newIsoTimestamp
-          })
-          .eq('employee_name', editingRecord.employee_name)
-          .eq('type', editingRecord.type)
-          .eq('timestamp', editingRecord.timestamp);
       }
     } catch (err) {
       console.warn('[Supabase Update Timestamp Warning]', err);
@@ -1168,7 +1279,162 @@ export default function AttendanceModule({
 
     setSavingEdit(false);
     setEditingRecord(null);
-    setSubmitSuccess('Waktu presensi berhasil dikoreksi! Status ketepatan waktu langsung terupdate. ✅');
+    setSubmitSuccess('Waktu, tipe, dan lokasi presensi berhasil diperbarui di database! Status kehadiran langsung terupdate. ✅');
+  };
+
+  // ── IT SUPER ADMIN OVERRIDE: HAPUS LOG PRESENSI PER BARIS ───────────────────
+  const handleOpenDeleteRecord = async (rec: AttendanceRecord) => {
+    if (!isItAdmin) {
+      alert('Hanya akun IT yang memiliki wewenang untuk menghapus log presensi.');
+      return;
+    }
+
+    const confirmMsg = `Apakah Anda yakin ingin menghapus log presensi berikut dari database Supabase?\n\nKaryawan: ${rec.employee_name}\nTipe: ${rec.type} (${rec.work_location_type || 'Kantor'})\nWaktu: ${safeFormatDate(rec.timestamp)} ${safeFormatTime(rec.timestamp)}\n\nTindakan ini permanen.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      if (isSupabaseConfigured && supabase) {
+        if (rec.id) {
+          const { error } = await supabase.from('attendance_logs').delete().eq('id', rec.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('attendance_logs')
+            .delete()
+            .eq('employee_name', rec.employee_name)
+            .eq('type', rec.type)
+            .eq('timestamp', rec.timestamp);
+          if (error) throw error;
+        }
+      }
+
+      // Update react state
+      setHistory((prev) =>
+        prev.filter((r) => {
+          if (rec.id && r.id) return r.id !== rec.id;
+          return !(r.employee_name === rec.employee_name && r.type === rec.type && r.timestamp === rec.timestamp);
+        })
+      );
+
+      // Update localStorage
+      try {
+        const local = localStorage.getItem('local_attendance_logs');
+        if (local) {
+          const parsed: AttendanceRecord[] = JSON.parse(local);
+          const updated = parsed.filter((r) => {
+            if (rec.id && r.id) return r.id !== rec.id;
+            return !(r.employee_name === rec.employee_name && r.type === rec.type && r.timestamp === rec.timestamp);
+          });
+          localStorage.setItem('local_attendance_logs', JSON.stringify(updated));
+        }
+      } catch {}
+
+      alert('Log presensi berhasil dihapus dari database Supabase. ✅');
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      alert(`Gagal menghapus log presensi: ${err?.message || err}`);
+    }
+  };
+
+  // ── IT SUPER ADMIN OVERRIDE: BERSIHKAN DATA DUPLIKAT SEKALI KLIK ───────────
+  const handleCleanDuplicates = async () => {
+    if (!isItAdmin) {
+      alert('Hanya akun IT yang memiliki wewenang untuk membersihkan data duplikat.');
+      return;
+    }
+
+    const confirmMsg =
+      'Bersihkan seluruh data presensi ganda/trial?\n\n' +
+      'Sistem akan memindai database Supabase dan:\n' +
+      '1. Mengambil 1 log Masuk paling awal per karyawan per hari (WIB)\n' +
+      '2. Mengambil 1 log Pulang paling akhir per karyawan per hari (WIB)\n' +
+      '3. Menghapus seluruh log ganda lainnya dari database Supabase.\n\n' +
+      'Lanjutkan proses pembersihan?';
+    if (!window.confirm(confirmMsg)) return;
+
+    setCleaningDuplicates(true);
+    try {
+      let allRecords: AttendanceRecord[] = [];
+      if (isSupabaseConfigured && supabase) {
+        const { data, error } = await supabase
+          .from('attendance_logs')
+          .select('*')
+          .order('timestamp', { ascending: true });
+        if (!error && data) {
+          allRecords = data as AttendanceRecord[];
+        }
+      }
+      if (allRecords.length === 0) {
+        allRecords = [...history];
+      }
+
+      // Group records by (employee_email || employee_name) + WIB date + type
+      const groups: Record<string, AttendanceRecord[]> = {};
+      allRecords.forEach((rec) => {
+        const empKey = (rec.employee_email || rec.employee_name || '').toLowerCase().trim();
+        const dateWib = toWibDate(rec.timestamp);
+        const type = rec.type || 'Masuk';
+        const groupKey = `${empKey}___${dateWib}___${type}`;
+        if (!groups[groupKey]) groups[groupKey] = [];
+        groups[groupKey].push(rec);
+      });
+
+      const idsToDelete: string[] = [];
+      Object.entries(groups).forEach(([groupKey, records]) => {
+        if (records.length <= 1) return;
+        const type = groupKey.split('___')[2];
+
+        // Urutkan ascending by timestamp
+        records.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        if (type === 'Masuk') {
+          // Simpan record pertama (paling awal), hapus sisanya
+          const toRemove = records.slice(1);
+          toRemove.forEach((r) => {
+            if (r.id) idsToDelete.push(r.id);
+          });
+        } else if (type === 'Pulang') {
+          // Simpan record terakhir (paling akhir), hapus yang lebih awal
+          const toRemove = records.slice(0, records.length - 1);
+          toRemove.forEach((r) => {
+            if (r.id) idsToDelete.push(r.id);
+          });
+        }
+      });
+
+      if (idsToDelete.length === 0) {
+        alert('Tidak ditemukan log presensi duplikat! Database sudah 100% bersih, rapi, dan sesuai aturan.');
+        setCleaningDuplicates(false);
+        return;
+      }
+
+      // Hapus dari Supabase
+      if (isSupabaseConfigured && supabase) {
+        const { error } = await supabase.from('attendance_logs').delete().in('id', idsToDelete);
+        if (error) throw error;
+      }
+
+      // Update local state
+      setHistory((prev) => prev.filter((r) => !r.id || !idsToDelete.includes(r.id)));
+
+      // Update localStorage
+      try {
+        const local = localStorage.getItem('local_attendance_logs');
+        if (local) {
+          const parsed: AttendanceRecord[] = JSON.parse(local);
+          const updated = parsed.filter((r) => !r.id || !idsToDelete.includes(r.id));
+          localStorage.setItem('local_attendance_logs', JSON.stringify(updated));
+        }
+      } catch {}
+
+      alert(`Sukses! Sebanyak ${idsToDelete.length} baris log presensi duplikat berhasil dihapus dari database Supabase. ✅`);
+      loadHistory();
+    } catch (err: any) {
+      console.error('Error cleaning duplicates:', err);
+      alert(`Gagal membersihkan data duplikat: ${err?.message || err}`);
+    } finally {
+      setCleaningDuplicates(false);
+    }
   };
 
   return (
@@ -1971,6 +2237,38 @@ export default function AttendanceModule({
               </div>
             </div>
 
+            {/* IT Super Admin Control Banner (Bersihkan Data Duplikat & Audit) */}
+            {isItAdmin && (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-800 shrink-0">
+                    <ShieldCheck className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-black text-amber-950">Panel IT Super Admin</span>
+                      <span className="text-[9px] bg-amber-200/80 text-amber-900 font-mono px-1.5 py-0.2 rounded font-semibold">
+                        {activeUserEmail || 'IT Staff'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-800 leading-tight mt-0.5">
+                      Hak kontrol penuh: edit waktu WIB, hapus log error, dan pembersihan duplikat otomatis.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCleanDuplicates}
+                  disabled={cleaningDuplicates}
+                  className="flex items-center justify-center gap-1.5 text-xs font-bold text-amber-900 bg-white hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-xl transition-all shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+                  title="Hapus log ganda pada hari yang sama dari database Supabase"
+                >
+                  <Trash2 className={`h-3.5 w-3.5 text-amber-700 ${cleaningDuplicates ? 'animate-spin' : ''}`} />
+                  <span>{cleaningDuplicates ? 'Memproses...' : 'Bersihkan Data Duplikat'}</span>
+                </button>
+              </div>
+            )}
+
             {/* Privacy notice badge */}
             <div className="flex items-center gap-1.5 text-[10px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200/80">
               <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
@@ -2073,14 +2371,50 @@ export default function AttendanceModule({
                           ))}
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                        {/* Tombol Preview Bukti Foto Selfie */}
+                        {rec.photo_drive_url && rec.photo_drive_url !== '-' ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewPhoto({
+                                  url: rec.photo_drive_url!,
+                                  employee: rec.employee_name || 'Karyawan',
+                                  type: rec.type,
+                                  timestamp: rec.timestamp,
+                                  location: rec.location_name || rec.building_name || rec.address || ''
+                                })
+                              }
+                              className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                              title="Buka bukti foto selfie presensi"
+                            >
+                              <Camera className="h-3 w-3 text-emerald-600" />
+                              <span>Lihat Foto</span>
+                            </button>
+                            <a
+                              href={rec.photo_drive_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100 transition-colors"
+                              title="Buka langsung di tab Google Drive baru"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-mono px-2 py-1">
+                            {rec.latitude ? `📍 ${safeToFixed(rec.latitude, 2)}` : '✅ Tercatat'}
+                          </span>
+                        )}
+
                         {/* Tombol Input Keterangan Manual (Zulfan & Marsya) */}
                         {isAllowedRecapAdmin && (
                           <button
                             type="button"
                             onClick={() => {
                               setTargetNoteEmp(rec.employee_name || activeUser || 'Karyawan');
-                              setTargetNoteDate(safeIsoDate(rec.timestamp));
+                              setTargetNoteDate(toWibDate(rec.timestamp) || safeIsoDate(rec.timestamp));
                               setNoteText('');
                               setShowNoteModal(true);
                             }}
@@ -2092,34 +2426,28 @@ export default function AttendanceModule({
                           </button>
                         )}
 
-                        {/* Tombol Koreksi Waktu Presensi (Strictly Zulfan Only) */}
-                        {isZulfan && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditRecord(rec)}
-                            title="Koreksi Waktu Presensi (Khusus IT Zulfan)"
-                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer"
-                          >
-                            <Edit3 className="h-3 w-3 text-amber-600" />
-                            <span className="hidden sm:inline">Koreksi Jam</span>
-                          </button>
-                        )}
-
-                        {rec.photo_drive_url && rec.photo_drive_url !== '-' ? (
-                          <a
-                            href={rec.photo_drive_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-                            title="Lihat foto bukti di Google Drive"
-                          >
-                            <span>Foto</span>
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {rec.latitude ? `📍 ${safeToFixed(rec.latitude, 2)}` : '✅ Tercatat'}
-                          </span>
+                        {/* Tombol IT Super Admin Override (Edit Waktu & Hapus Log) */}
+                        {isItAdmin && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditRecord(rec)}
+                              title="Edit Waktu, Tipe, & Lokasi Presensi (Khusus IT Admin)"
+                              className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="h-3 w-3 text-amber-600" />
+                              <span className="hidden sm:inline">Edit Waktu</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDeleteRecord(rec)}
+                              title="Hapus Log Presensi dari Database (Khusus IT Admin)"
+                              className="flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="h-3 w-3 text-rose-600" />
+                              <span className="hidden sm:inline">Hapus</span>
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2238,14 +2566,101 @@ export default function AttendanceModule({
         </div>
       )}
 
-      {/* Modal Koreksi Waktu Presensi (Strictly Zulfan ONLY) */}
-      {editingRecord && isZulfan && (
+      {/* Modal Preview Bukti Foto Presensi (In-App Modal & Drive Link) */}
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50 shrink-0">
+              <div className="min-w-0 pr-2">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                    previewPhoto.type === 'Masuk' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
+                  }`}>
+                    Absen {previewPhoto.type}
+                  </span>
+                  <h4 className="text-xs font-black text-slate-800 truncate">
+                    {previewPhoto.employee}
+                  </h4>
+                </div>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                  📅 {safeFormatDate(previewPhoto.timestamp)} • ⏰ {safeFormatTime(previewPhoto.timestamp)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Image Preview Box */}
+            <div className="p-4 bg-slate-950 flex items-center justify-center overflow-auto flex-1 min-h-[260px]">
+              <img
+                src={getDriveDirectImageUrl(previewPhoto.url)}
+                alt={`Bukti Presensi ${previewPhoto.employee}`}
+                className="max-h-[50vh] w-auto object-contain rounded-xl shadow-lg border border-slate-800"
+                onError={(e) => {
+                  // Fallback jika Google Drive thumbnail terhambat oleh browser sandbox
+                  const target = e.currentTarget;
+                  target.style.display = 'none';
+                  const parent = target.parentElement;
+                  if (parent && !parent.querySelector('.drive-fallback-msg')) {
+                    const fallbackDiv = document.createElement('div');
+                    fallbackDiv.className = 'drive-fallback-msg text-center p-6 text-white space-y-3';
+                    fallbackDiv.innerHTML = `
+                      <p class="text-xs text-slate-300">Preview langsung gambar memerlukan izin cookie Google Drive.</p>
+                      <a href="${previewPhoto.url}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md">
+                        <span>Buka Foto di Google Drive</span>
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                      </a>
+                    `;
+                    parent.appendChild(fallbackDiv);
+                  }
+                }}
+              />
+            </div>
+
+            {/* Bottom info & actions */}
+            <div className="p-4 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0 text-slate-600 text-xs">
+                <span className="font-bold text-slate-800 block text-[10px] uppercase">Lokasi Tercatat:</span>
+                <span className="text-[11px] text-slate-500 truncate block">
+                  {previewPhoto.location || 'Kantor Pusat PT Aksara Riksa Perdana'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={previewPhoto.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+                >
+                  <span>Buka di Google Drive</span>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewPhoto(null)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3.5 py-2 rounded-xl transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal IT Super Admin Override: Edit Waktu, Tipe, & Lokasi Presensi */}
+      {editingRecord && isItAdmin && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-amber-600" />
-                <h3 className="text-base font-black text-slate-800">Koreksi Waktu Presensi</h3>
+                <h3 className="text-base font-black text-slate-800">Edit Waktu Presensi</h3>
               </div>
               <button
                 type="button"
@@ -2257,17 +2672,44 @@ export default function AttendanceModule({
             </div>
 
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
-              <strong>Khusus Otoritas IT (Zulfan):</strong> Koreksi jam presensi karyawan untuk mengatasi keterlambatan akibat sinyal / human error. Status ketepatan waktu otomatis dikalkulasi ulang.
+              <strong>Otoritas IT Super Admin:</strong> Edit jam presensi dalam format WIB. Tanggal & jam akan otomatis dikonversi ke ISO UTC saat disimpan ke Supabase.
             </div>
 
             <div className="space-y-3">
               <div>
-                <span className="text-[11px] text-slate-500 block">Karyawan:</span>
-                <span className="text-xs font-bold text-slate-800">{editingRecord.employee_name} ({editingRecord.type})</span>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Karyawan:</span>
+                <span className="text-xs font-bold text-slate-800">{editingRecord.employee_name}</span>
+                <span className="text-[10px] text-slate-500 font-mono block">{editingRecord.employee_email || '-'}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Tipe Presensi:</label>
+                  <select
+                    value={editType}
+                    onChange={(e) => setEditType(e.target.value as AttendanceType)}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="Masuk">🟢 Masuk</option>
+                    <option value="Pulang">🔵 Pulang</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Lokasi Kerja:</label>
+                  <select
+                    value={editWorkLocation}
+                    onChange={(e) => setEditWorkLocation(e.target.value as WorkLocationType)}
+                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="Kantor">🏢 Kantor</option>
+                    <option value="On Site">🏭 On Site</option>
+                    <option value="WFH">🏠 WFH</option>
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Tanggal Presensi:</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Tanggal Presensi (WIB):</label>
                 <input
                   type="date"
                   value={editDate}
@@ -2308,7 +2750,7 @@ export default function AttendanceModule({
                 className="text-xs font-bold px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 {savingEdit && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-                <span>{savingEdit ? 'Menyimpan...' : 'Simpan Koreksi'}</span>
+                <span>{savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
               </button>
             </div>
           </div>

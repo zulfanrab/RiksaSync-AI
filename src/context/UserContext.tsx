@@ -11,12 +11,14 @@ export const INITIAL_APP_USERS: AppUser[] = [
   { id: 'u3',  username: 'Fauzan',   role: 'Ahli Spesialis',      email: 'fauzan@aksarariksapjk3.com',   full_name: 'Fauzan Akmaluddin',               division: 'Ahli' },
   { id: 'u4',  username: 'Fakhziar', role: 'Ahli Spesialis',      email: 'fakhziar@aksarariksapjk3.com', full_name: 'Fakhziar Wildan Hidayat',         division: 'Ahli' },
   { id: 'u5',  username: 'Fazar',    role: 'Ahli Spesialis',      email: 'fazar@aksarariksapjk3.com',    full_name: 'Muhammad Fazar Maulana',          division: 'Ahli' },
-  { id: 'u6',  username: 'Arya',     role: 'Support Staff',       email: 'arya@aksarariksapjk3.com',     full_name: 'Arya Rizki Pratama',              division: 'Admin' },
-  { id: 'u7',  username: 'Rio',      role: 'Support Staff',       email: 'rio@aksarariksapjk3.com',      full_name: 'Rio Andrian',                     division: 'Admin' },
-  { id: 'u8',  username: 'Aulia',    role: 'Support Staff',       email: 'aulia@aksarariksapjk3.com',    full_name: 'Aulia Zahra Dikrika',             division: 'Admin' },
-  { id: 'u9',  username: 'Disa',     role: 'Support Staff',       email: 'disa@aksarariksapjk3.com',     full_name: 'Disa Liestianie Putri',           division: 'Admin' },
-  { id: 'u10', username: 'Marsya',   role: 'Support Staff',       email: 'marsya@aksarariksapjk3.com',   full_name: 'Marsya Aulia Rohman',             division: 'Admin' },
-  { id: 'u11', username: 'Zulfan',   role: 'IT Staff',            email: 'zulfan@aksarariksapjk3.com',   full_name: 'Zulfan Rafly Baihaqi',            division: 'IT' }
+  { id: 'u6',  username: 'Demas',    role: 'Inspector Assistant', email: 'demas@aksarariksapjk3.com',    full_name: 'Demas Cahyadi Ningrat',           division: 'Ahli' },
+  { id: 'u7',  username: 'Arya',     role: 'Support Staff',       email: 'arya@aksarariksapjk3.com',     full_name: 'Arya Rizki Pratama',              division: 'Admin' },
+  { id: 'u8',  username: 'Rio',      role: 'Support Staff',       email: 'rio@aksarariksapjk3.com',      full_name: 'Rio Andrian',                     division: 'Admin' },
+  { id: 'u9',  username: 'Aulia',    role: 'Support Staff',       email: 'aulia@aksarariksapjk3.com',    full_name: 'Aulia Zahra Dikrika',             division: 'Admin' },
+  { id: 'u10', username: 'Disa',     role: 'Support Staff',       email: 'disa@aksarariksapjk3.com',     full_name: 'Disa Liestianie Putri',           division: 'Admin' },
+  { id: 'u11', username: 'Marsya',   role: 'Support Staff',       email: 'marsya@aksarariksapjk3.com',   full_name: 'Marsya Aulia Rohman',             division: 'Admin' },
+  { id: 'u12', username: 'Reyhan',   role: 'Support Staff',       email: 'reyhan@aksarariksapjk3.com',   full_name: 'Reyhan Afril Julianto',           division: 'Admin' },
+  { id: 'u13', username: 'Zulfan',   role: 'IT Staff',            email: 'zulfan@aksarariksapjk3.com',   full_name: 'Zulfan Rafly Baihaqi',            division: 'IT' }
 ];
 
 interface UserContextType {

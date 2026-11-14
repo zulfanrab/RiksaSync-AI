@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { X, AlertTriangle, ShieldCheck, Clock, CheckCircle2, History, Trash2, Ban } from 'lucide-react';
 import { PnJenis, PnNomor, PnLog, formatNomorUrut } from '../types/penomoran';
 import { supabase } from '../lib/supabase';
+import { syncSingleNomorToSheets } from '../lib/penomoranSync';
 
 interface PenomoranDetailModalProps {
   nomor: PnNomor;
@@ -81,24 +82,13 @@ export default function PenomoranDetailModal({
 
       const updated = data as PnNomor;
 
-      // Sinkronisasi status pembatalan ke Google Apps Script Web App jika URL terkonfigurasi
-      const gasUrl = localStorage.getItem('gas_penomoran_url') || (import.meta.env.VITE_GAS_PENOMORAN_URL as string) || '';
-      if (gasUrl) {
-        fetch(gasUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            record: {
-              ...updated,
-              jenis_kode: jenis.kode,
-              jenis_nama: jenis.nama,
-              status: 'batal',
-              alasan_batal: cancelReason.trim()
-            }
-          })
-        }).catch(() => {});
-      }
+      // Sinkronisasi status pembatalan ke Google Sheets secara aman & real-time
+      syncSingleNomorToSheets(
+        { ...updated, status: 'batal', alasan_batal: cancelReason.trim() },
+        jenis,
+        updated.dibuat_oleh_nama || nomor.dibuat_oleh_nama || 'Admin ARP',
+        updated.revisi_dari_no || nomor.revisi_dari_no
+      ).catch((e) => console.warn('[Cancel Sync to Sheets Warning]:', e));
 
       onCancelSuccess(updated);
       onClose();

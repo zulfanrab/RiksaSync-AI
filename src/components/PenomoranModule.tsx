@@ -6,7 +6,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   FileText, Plus, Search, Filter, RefreshCw, ChevronRight, ArrowLeft,
-  CheckCircle2, Ban, ShieldCheck, Download, AlertCircle, Copy, Check
+  CheckCircle2, Ban, ShieldCheck, Download, AlertCircle, Copy, Check,
+  FileSpreadsheet, Calendar, Table, Layers, ArrowUpDown, ChevronDown,
+  RotateCcw, ExternalLink
 } from 'lucide-react';
 import {
   PnJenis, PnNomor, PnKelompok, PnJenisSummary, formatNomorUrut
@@ -15,6 +17,12 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
 import PenomoranFormModal from './PenomoranFormModal';
 import PenomoranDetailModal from './PenomoranDetailModal';
+import { syncAllNomorToSheets, getGasPenomoranUrl } from '../lib/penomoranSync';
+import {
+  exportPenomoranToExcel,
+  exportPenomoranToCSV,
+  copyPenomoranTableToClipboard
+} from '../lib/penomoranExport';
 
 const KELOMPOK_TITLES: Record<PnKelompok, { title: string; color: string; badge: string }> = {
   tagihan: { title: '1. Dokumen Tagihan & Komersial', color: 'emerald', badge: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
@@ -36,19 +44,40 @@ export default function PenomoranModule() {
     return Boolean(activeUser || currentUser);
   }, [activeUser, currentUser]);
 
+  // Main Tab Navigation: 'catalog' = Katalog Jenis Dokumen, 'recap' = Rekapitulasi & Export
+  const [mainTab, setMainTab] = useState<'catalog' | 'recap'>('catalog');
+
   // Master & Transactional states
   const [allJenis, setAllJenis] = useState<PnJenis[]>([]);
   const [allNomor, setAllNomor] = useState<PnNomor[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Active view: null = Beranda, string = jenis_kode
+  // Active view on catalog: null = Beranda, string = jenis_kode
   const [activeJenisKode, setActiveJenisKode] = useState<string | null>(null);
 
-  // Filter states
+  // Filter states per jenis
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all'); // 'all' or '01'..'12'
   const [selectedPembuat, setSelectedPembuat] = useState<string>('all');
+  const [singleStartDate, setSingleStartDate] = useState<string>('');
+  const [singleEndDate, setSingleEndDate] = useState<string>('');
+
+  // ── FILTER REKAPITULASI DENGAN RENTANG TANGGAL ──
+  const [recapStartDate, setRecapStartDate] = useState<string>(() => {
+    const y = new Date().getFullYear();
+    return `${y}-01-01`;
+  });
+  const [recapEndDate, setRecapEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [recapJenisId, setRecapJenisId] = useState<string>('all');
+  const [recapKelompok, setRecapKelompok] = useState<string>('all');
+  const [recapStatus, setRecapStatus] = useState<string>('all'); // 'all' | 'aktif' | 'batal'
+  const [recapPembuat, setRecapPembuat] = useState<string>('all');
+  const [recapSearch, setRecapSearch] = useState<string>('');
+  const [recapPage, setRecapPage] = useState<number>(1);
+  const rowsPerPage = 50;
 
   // Modal states
   const [showFormModal, setShowFormModal] = useState(false);
@@ -60,6 +89,7 @@ export default function PenomoranModule() {
   const [syncingSheets, setSyncingSheets] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [copiedNoId, setCopiedNoId] = useState<string | null>(null);
+  const [copyTableFeedback, setCopyTableFeedback] = useState(false);
 
   // ─── 1. FETCH DATA DARI SUPABASE ─────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -191,6 +221,14 @@ export default function PenomoranModule() {
       });
     }
 
+    // Filter Rentang Tanggal jika diisi
+    if (singleStartDate) {
+      list = list.filter(n => !n.tanggal || n.tanggal >= singleStartDate);
+    }
+    if (singleEndDate) {
+      list = list.filter(n => !n.tanggal || n.tanggal <= singleEndDate);
+    }
+
     // Filter Bulan
     if (selectedMonth !== 'all') {
       list = list.filter(n => n.tanggal && n.tanggal.split('-')[1] === selectedMonth);
@@ -202,7 +240,88 @@ export default function PenomoranModule() {
     }
 
     return list;
-  }, [activeJenis, allNomor, searchQuery, selectedMonth, selectedPembuat]);
+  }, [activeJenis, allNomor, searchQuery, singleStartDate, singleEndDate, selectedMonth, selectedPembuat]);
+
+  // ─── 4. FILTER REKAPITULASI DENGAN RENTANG TANGGAL (RECAP TAB) ─────────────────
+  const recapFilteredNomor = useMemo(() => {
+    let list = [...allNomor];
+
+    // Filter Rentang Tanggal (Start Date & End Date)
+    if (recapStartDate) {
+      list = list.filter(n => !n.tanggal || n.tanggal >= recapStartDate);
+    }
+    if (recapEndDate) {
+      list = list.filter(n => !n.tanggal || n.tanggal <= recapEndDate);
+    }
+
+    // Filter Kelompok
+    if (recapKelompok !== 'all') {
+      const allowedJenisIds = new Set(allJenis.filter(j => j.kelompok === recapKelompok).map(j => j.id));
+      list = list.filter(n => allowedJenisIds.has(n.jenis_id));
+    }
+
+    // Filter Jenis Dokumen Spesifik
+    if (recapJenisId !== 'all') {
+      list = list.filter(n => n.jenis_id === recapJenisId);
+    }
+
+    // Filter Status (Aktif / Batal)
+    if (recapStatus === 'aktif') {
+      list = list.filter(n => n.status !== 'batal');
+    } else if (recapStatus === 'batal') {
+      list = list.filter(n => n.status === 'batal');
+    }
+
+    // Filter Pembuat
+    if (recapPembuat !== 'all') {
+      list = list.filter(n => (n.dibuat_oleh_nama || '').toLowerCase() === recapPembuat.toLowerCase());
+    }
+
+    // Filter Pencarian Teks Bebas
+    if (recapSearch.trim()) {
+      const q = recapSearch.toLowerCase().trim();
+      list = list.filter(n => {
+        const j = allJenis.find(item => item.id === n.jenis_id);
+        const noFormatted = formatNomorUrut(n.no_urut, j?.pad_digit).toLowerCase();
+        const jenisNama = (j?.nama || '').toLowerCase();
+        const klien = (n.klien || '').toLowerCase();
+        const perihal = (n.perihal || '').toLowerCase();
+        const ref = (n.ref || '').toLowerCase();
+        const pembuat = (n.dibuat_oleh_nama || '').toLowerCase();
+        return (
+          noFormatted.includes(q) ||
+          jenisNama.includes(q) ||
+          klien.includes(q) ||
+          perihal.includes(q) ||
+          ref.includes(q) ||
+          pembuat.includes(q)
+        );
+      });
+    }
+
+    return list;
+  }, [allNomor, allJenis, recapStartDate, recapEndDate, recapKelompok, recapJenisId, recapStatus, recapPembuat, recapSearch]);
+
+  // Statistik Cepat Rekapan
+  const recapStats = useMemo(() => {
+    const total = recapFilteredNomor.length;
+    const aktif = recapFilteredNomor.filter(n => n.status !== 'batal').length;
+    const batal = recapFilteredNomor.filter(n => n.status === 'batal').length;
+    const klienSet = new Set(recapFilteredNomor.map(n => (n.klien || '').trim().toLowerCase()).filter(Boolean));
+    return {
+      total,
+      aktif,
+      batal,
+      klienCount: klienSet.size
+    };
+  }, [recapFilteredNomor]);
+
+  // Pagination for Recap
+  const totalPages = Math.max(1, Math.ceil(recapFilteredNomor.length / rowsPerPage));
+  const paginatedRecapList = useMemo(() => {
+    const start = (recapPage - 1) * rowsPerPage;
+    return recapFilteredNomor.slice(start, start + rowsPerPage);
+  }, [recapFilteredNomor, recapPage, rowsPerPage]);
 
   // Daftar nama pembuat unik untuk dropdown filter
   const uniquePembuatList = useMemo(() => {
@@ -213,7 +332,85 @@ export default function PenomoranModule() {
     return Array.from(set).sort();
   }, [allNomor]);
 
-  // ─── 4. HANDLERS ─────────────────────────────────────────────────────────────
+  // ─── 5. DATE PRESET HANDLERS ─────────────────────────────────────────────────
+  const handleDatePreset = (preset: 'today' | '7days' | 'month' | 'year' | 'all') => {
+    const today = new Date().toISOString().split('T')[0];
+    const curYear = new Date().getFullYear();
+    const curMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+
+    if (preset === 'today') {
+      setRecapStartDate(today);
+      setRecapEndDate(today);
+    } else if (preset === '7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      setRecapStartDate(d.toISOString().split('T')[0]);
+      setRecapEndDate(today);
+    } else if (preset === 'month') {
+      setRecapStartDate(`${curYear}-${curMonth}-01`);
+      setRecapEndDate(today);
+    } else if (preset === 'year') {
+      setRecapStartDate(`${curYear}-01-01`);
+      setRecapEndDate(today);
+    } else if (preset === 'all') {
+      setRecapStartDate('');
+      setRecapEndDate('');
+    }
+    setRecapPage(1);
+  };
+
+  const handleResetRecapFilter = () => {
+    const curYear = new Date().getFullYear();
+    setRecapStartDate(`${curYear}-01-01`);
+    setRecapEndDate(new Date().toISOString().split('T')[0]);
+    setRecapJenisId('all');
+    setRecapKelompok('all');
+    setRecapStatus('all');
+    setRecapPembuat('all');
+    setRecapSearch('');
+    setRecapPage(1);
+  };
+
+  // ─── 6. EXPORT HANDLERS ──────────────────────────────────────────────────────
+  const handleExportRecapExcel = () => {
+    const selectedJenis = allJenis.find(j => j.id === recapJenisId);
+    exportPenomoranToExcel(recapFilteredNomor, allJenis, {
+      startDate: recapStartDate || 'Awal',
+      endDate: recapEndDate || 'Akhir',
+      jenisName: selectedJenis ? selectedJenis.nama : 'Semua Dokumen',
+      status: recapStatus,
+      totalData: recapFilteredNomor.length
+    });
+  };
+
+  const handleExportRecapCSV = () => {
+    const selectedJenis = allJenis.find(j => j.id === recapJenisId);
+    exportPenomoranToCSV(recapFilteredNomor, allJenis, {
+      startDate: recapStartDate || 'Awal',
+      endDate: recapEndDate || 'Akhir',
+      jenisName: selectedJenis ? selectedJenis.nama : 'Semua Dokumen'
+    });
+  };
+
+  const handleCopyRecapTable = async () => {
+    const success = await copyPenomoranTableToClipboard(recapFilteredNomor, allJenis);
+    if (success) {
+      setCopyTableFeedback(true);
+      setTimeout(() => setCopyTableFeedback(false), 2500);
+    }
+  };
+
+  const handleExportSingleJenisExcel = () => {
+    if (!activeJenis) return;
+    exportPenomoranToExcel(filteredNomorList, allJenis, {
+      startDate: singleStartDate || (selectedMonth !== 'all' ? `Bulan ${selectedMonth}` : 'Tahun 2026'),
+      endDate: singleEndDate || '',
+      jenisName: activeJenis.nama,
+      totalData: filteredNomorList.length
+    });
+  };
+
+  // ─── 7. MODAL & SYNC HANDLERS ────────────────────────────────────────────────
   const handleOpenAmbilNomor = (jenisToUse?: PnJenis) => {
     const target = jenisToUse || activeJenis || allJenis[0];
     setFormJenisTarget(target);
@@ -237,7 +434,7 @@ export default function PenomoranModule() {
 
   // Sinkronisasi ulang manual ke Google Sheets (Rebuild All)
   const handleSyncAllSheets = async () => {
-    let gasUrl = localStorage.getItem('gas_penomoran_url') || (import.meta.env.VITE_GAS_PENOMORAN_URL as string) || '';
+    let gasUrl = getGasPenomoranUrl();
     if (!gasUrl) {
       const inputUrl = window.prompt('Masukkan Web App URL Google Apps Script Anda:\n(Contoh: https://script.google.com/macros/s/.../exec)');
       if (!inputUrl || !inputUrl.trim()) {
@@ -247,7 +444,7 @@ export default function PenomoranModule() {
       localStorage.setItem('gas_penomoran_url', gasUrl);
     }
 
-    if (!window.confirm('Sinkron ulang semua tab di Google Sheets dari database Supabase sekarang?')) {
+    if (!window.confirm(`Sinkronkan ulang seluruh ${allNomor.length} data nomor dokumen ke Google Sheets sekarang?`)) {
       return;
     }
 
@@ -255,20 +452,13 @@ export default function PenomoranModule() {
     setSyncResult(null);
 
     try {
-      const res = await fetch('/api/penomoran/sync-sheets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'rebuild_all', gas_url: gasUrl })
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || 'Gagal menyinkronkan spreadsheet.');
+      const res = await syncAllNomorToSheets(allNomor, allJenis);
+      if (res.success) {
+        setSyncResult(`✅ ${res.message}`);
+      } else {
+        setSyncResult(`⚠️ Info Sinkronisasi: ${res.message}`);
       }
-
-      const result = await res.json();
-      setSyncResult(`✅ Berhasil menyinkronkan ${result.count || ''} nomor ke Google Sheets!`);
-      setTimeout(() => setSyncResult(null), 5000);
+      setTimeout(() => setSyncResult(null), 6000);
     } catch (e: any) {
       console.error('[Sync Error]:', e);
       setSyncResult(`⚠️ Info: Sinkronisasi Google Sheets: ${e.message}`);
@@ -297,9 +487,12 @@ export default function PenomoranModule() {
                 }`}>
                   {isAdmin ? '🛡️ Otoritas Admin' : '👤 Staf'}
                 </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  {allNomor.length} Nomor Terbit
+                </span>
               </div>
               <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-                Penerbitan nomor surat otomatis & atomik via database Supabase. Nol nomor duplikat, audit trail lengkap, dan live mirror ke Google Sheets.
+                Penerbitan nomor surat otomatis & atomik via database Supabase, rekapan data dengan filter rentang tanggal, dan sinkronisasi live mirror ke Google Sheets.
               </p>
             </div>
           </div>
@@ -317,11 +510,11 @@ export default function PenomoranModule() {
             {isAdmin && (
               <button
                 onClick={handleSyncAllSheets}
-                disabled={syncingSheets}
+                disabled={syncingSheets || loading}
                 className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all cursor-pointer disabled:opacity-50"
                 title="Sinkronkan seluruh data ke Google Sheets"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${syncingSheets ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${syncingSheets ? 'animate-spin text-emerald-600' : ''}`} />
                 <span className="hidden sm:inline">{syncingSheets ? 'Menyinkronkan...' : 'Sinkron Sheets'}</span>
               </button>
             )}
@@ -339,10 +532,54 @@ export default function PenomoranModule() {
 
         {/* Feedback Sync Notif */}
         {syncResult && (
-          <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium">
-            {syncResult}
+          <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center justify-between">
+            <span>{syncResult}</span>
+            <button onClick={() => setSyncResult(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer font-bold text-xs">✕</button>
           </div>
         )}
+
+        {/* ── MODULE MAIN TABS: KATALOG DOKUMEN VS REKAP & EXPORT ── */}
+        <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80">
+            <button
+              onClick={() => {
+                setMainTab('catalog');
+                setActiveJenisKode(null);
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                mainTab === 'catalog'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="h-4 w-4 text-emerald-600" />
+              <span>Katalog Jenis Dokumen</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setMainTab('recap');
+                setActiveJenisKode(null);
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                mainTab === 'recap'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              <span>Rekapitulasi & Export Data</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-700 font-mono font-black">
+                {allNomor.length}
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Mirror Google Sheets Terhubung</span>
+          </div>
+        </div>
       </div>
 
       {/* ERROR BANNER */}
@@ -357,9 +594,478 @@ export default function PenomoranModule() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          TAMPILAN 1: BERANDA PENOMORAN (TABEL RINGKASAN PER KELOMPOK)
+          TAMPILAN REKAPITULASI & EXPORT (TAB: 'recap')
           ══════════════════════════════════════════════════════════════════════════ */}
-      {!activeJenis ? (
+      {mainTab === 'recap' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          
+          {/* PANEL FILTER REKAPAN */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-50 text-emerald-700 rounded-xl">
+                  <Filter className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-800">Filter Data Rekapan</h3>
+                  <p className="text-[11px] text-slate-500">Filter rentang tanggal, jenis dokumen, dan status untuk melihat & mengekspor rekapan.</p>
+                </div>
+              </div>
+
+              {/* Action Buttons: Export Excel, CSV, Copy */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleExportRecapExcel}
+                  disabled={recapFilteredNomor.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                  title="Unduh rekapan terfilter sebagai file Excel .xlsx"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Export Excel (.xlsx)</span>
+                </button>
+
+                <button
+                  onClick={handleExportRecapCSV}
+                  disabled={recapFilteredNomor.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                  title="Unduh format CSV"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>CSV</span>
+                </button>
+
+                <button
+                  onClick={handleCopyRecapTable}
+                  disabled={recapFilteredNomor.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                  title="Salin tabel terfilter ke clipboard (bisa langsung paste di Excel)"
+                >
+                  {copyTableFeedback ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  <span>{copyTableFeedback ? 'Tersalin!' : 'Salin Tabel'}</span>
+                </button>
+
+                <button
+                  onClick={handleResetRecapFilter}
+                  className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-xl transition-all cursor-pointer"
+                  title="Reset Filter ke Default"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Form Kontrol Filter */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              
+              {/* Tanggal Mulai */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  📅 Dari Tanggal (Mulai)
+                </label>
+                <input
+                  type="date"
+                  value={recapStartDate}
+                  onChange={(e) => {
+                    setRecapStartDate(e.target.value);
+                    setRecapPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Tanggal Selesai */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  📅 Sampai Tanggal (Selesai)
+                </label>
+                <input
+                  type="date"
+                  value={recapEndDate}
+                  onChange={(e) => {
+                    setRecapEndDate(e.target.value);
+                    setRecapPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Pilihan Kelompok Dokumen */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  📁 Kelompok Dokumen
+                </label>
+                <select
+                  value={recapKelompok}
+                  onChange={(e) => {
+                    setRecapKelompok(e.target.value);
+                    setRecapJenisId('all');
+                    setRecapPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white font-semibold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="all">Semua Kelompok</option>
+                  <option value="tagihan">1. Tagihan & Komersial</option>
+                  <option value="pemeriksaan">2. Pemeriksaan & Riksa Uji</option>
+                  <option value="umum">3. Dokumen Umum & Pengajuan</option>
+                  <option value="tugas">4. Surat Tugas Lapangan</option>
+                </select>
+              </div>
+
+              {/* Pilihan Jenis Dokumen Spesifik */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  📜 Jenis Dokumen
+                </label>
+                <select
+                  value={recapJenisId}
+                  onChange={(e) => {
+                    setRecapJenisId(e.target.value);
+                    setRecapPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white font-semibold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="all">Semua Jenis Dokumen ({allJenis.length})</option>
+                  {allJenis
+                    .filter(j => recapKelompok === 'all' || j.kelompok === recapKelompok)
+                    .map(j => (
+                      <option key={j.id} value={j.id}>
+                        {j.nama}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Status Dokumen */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  🏷️ Status Dokumen
+                </label>
+                <select
+                  value={recapStatus}
+                  onChange={(e) => {
+                    setRecapStatus(e.target.value);
+                    setRecapPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white font-semibold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="all">Semua Status (Aktif & Batal)</option>
+                  <option value="aktif">Hanya Dokumen Aktif</option>
+                  <option value="batal">Hanya Dokumen Batal</option>
+                </select>
+              </div>
+
+              {/* Pembuat Dokumen */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  👤 Dibuat Oleh
+                </label>
+                <select
+                  value={recapPembuat}
+                  onChange={(e) => {
+                    setRecapPembuat(e.target.value);
+                    setRecapPage(1);
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white font-semibold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="all">Semua Pembuat</option>
+                  {uniquePembuatList.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Pencarian Teks */}
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  🔍 Pencarian Kata Kunci
+                </label>
+                <div className="relative">
+                  <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={recapSearch}
+                    onChange={(e) => {
+                      setRecapSearch(e.target.value);
+                      setRecapPage(1);
+                    }}
+                    placeholder="Cari nomor, perihal pekerjaan, nama klien, atau ref..."
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+            </div>
+
+            {/* Preset Tombol Cepat Rentang Tanggal */}
+            <div className="flex items-center gap-1.5 pt-1 text-[11px] flex-wrap">
+              <span className="font-bold text-slate-400 mr-1">Preset Rentang:</span>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('today')}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+              >
+                Hari Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('7days')}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+              >
+                7 Hari Terakhir
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('month')}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+              >
+                Bulan Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('year')}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+              >
+                Tahun 2026
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('all')}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
+              >
+                Semua Waktu
+              </button>
+            </div>
+          </div>
+
+          {/* KARTU STATISTIK METRICS REKAPAN */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Dokumen</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900 font-mono">{recapStats.total}</span>
+                <span className="text-xs text-slate-400">nomor</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+              <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Dokumen Aktif</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-700 font-mono">{recapStats.aktif}</span>
+                <span className="text-xs text-emerald-600/70 font-semibold">
+                  {recapStats.total > 0 ? `${Math.round((recapStats.aktif / recapStats.total) * 100)}%` : '0%'}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+              <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">Dibatalkan</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-rose-600 font-mono">{recapStats.batal}</span>
+                <span className="text-xs text-rose-500/70 font-semibold">dokumen</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+              <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Klien Unik</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-indigo-700 font-mono">{recapStats.klienCount}</span>
+                <span className="text-xs text-indigo-500/70">perusahaan</span>
+              </div>
+            </div>
+          </div>
+
+          {/* TABEL DATA REKAPITULASI */}
+          <div className="bg-white border border-slate-200 rounded-3xl shadow-xs overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Table className="h-4 w-4 text-emerald-600" />
+                <h4 className="text-xs sm:text-sm font-extrabold text-slate-800">
+                  Daftar Nomor Dokumen Terfilter ({recapFilteredNomor.length})
+                </h4>
+              </div>
+              <span className="text-[11px] text-slate-400 font-medium">
+                Halaman {recapPage} dari {totalPages}
+              </span>
+            </div>
+
+            {recapFilteredNomor.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 space-y-2">
+                <FileSpreadsheet className="h-10 w-10 mx-auto text-slate-300 stroke-[1.5]" />
+                <p className="text-sm font-bold text-slate-700">Tidak ada nomor dokumen yang cocok</p>
+                <p className="text-xs max-w-sm mx-auto">
+                  Cobalah melonggarkan filter rentang tanggal, jenis dokumen, atau menghapus kata kunci pencarian.
+                </p>
+                <button
+                  onClick={handleResetRecapFilter}
+                  className="mt-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 cursor-pointer"
+                >
+                  Reset Semua Filter
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px] bg-slate-50/50">
+                        <th className="py-3 px-4 text-center">No</th>
+                        <th className="py-3 px-3">Jenis Dokumen</th>
+                        <th className="py-3 px-3">Tanggal</th>
+                        <th className="py-3 px-3">Dibuat Oleh</th>
+                        <th className="py-3 px-3">Klien / Lokasi</th>
+                        <th className="py-3 px-4">Perihal / Pekerjaan</th>
+                        <th className="py-3 px-3">Ref</th>
+                        <th className="py-3 px-3 text-center">Status</th>
+                        <th className="py-3 px-4 text-center">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {paginatedRecapList.map((n) => {
+                        const j = allJenis.find(item => item.id === n.jenis_id);
+                        const isBatal = n.status === 'batal';
+                        const formattedNo = formatNomorUrut(n.no_urut, j?.pad_digit);
+                        const isCopied = copiedNoId === n.id;
+
+                        return (
+                          <tr
+                            key={n.id}
+                            className={`hover:bg-slate-50 transition-colors ${
+                              isBatal ? 'bg-slate-50/70 text-slate-400' : ''
+                            }`}
+                          >
+                            {/* No Urut */}
+                            <td className="py-3 px-4 text-center font-mono font-black text-sm">
+                              <span className={isBatal ? 'line-through text-slate-400' : 'text-slate-900'}>
+                                {formattedNo}
+                              </span>
+                            </td>
+
+                            {/* Jenis Dokumen */}
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <span className="font-extrabold text-slate-900 block">
+                                {j?.nama || 'Dokumen'}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {j?.kode}
+                              </span>
+                            </td>
+
+                            {/* Tanggal */}
+                            <td className="py-3 px-3 font-mono text-[11px] whitespace-nowrap text-slate-600">
+                              {n.tanggal}
+                            </td>
+
+                            {/* Dibuat Oleh */}
+                            <td className="py-3 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                              👤 {n.dibuat_oleh_nama || 'Karyawan'}
+                            </td>
+
+                            {/* Klien */}
+                            <td className="py-3 px-3 font-medium max-w-[140px] truncate" title={n.klien || ''}>
+                              {n.klien || '-'}
+                            </td>
+
+                            {/* Perihal */}
+                            <td className="py-3 px-4 font-medium max-w-[220px]" title={n.perihal}>
+                              <div className={`line-clamp-2 leading-relaxed ${isBatal ? 'line-through' : ''}`}>
+                                {n.perihal}
+                              </div>
+                            </td>
+
+                            {/* Ref */}
+                            <td className="py-3 px-3 text-[11px] max-w-[120px] truncate text-slate-500" title={n.ref || ''}>
+                              {n.ref || '-'}
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                              {isBatal ? (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                  Batal
+                                </span>
+                              ) : n.direvisi_di_no ? (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                                  Direvisi #{formatNomorUrut(n.direvisi_di_no, j?.pad_digit)}
+                                </span>
+                              ) : n.revisi_dari_no ? (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
+                                  Rev #{formatNomorUrut(n.revisi_dari_no, j?.pad_digit)}
+                                </span>
+                              ) : (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  Aktif
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Aksi */}
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => handleCopyNo(n.id, formattedNo)}
+                                  className="p-1.5 hover:bg-slate-200/60 rounded-lg text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                                  title="Salin Nomor"
+                                >
+                                  {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    if (j) {
+                                      setActiveJenisKode(j.kode);
+                                      setDetailNomorTarget(n);
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  Detail
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="p-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">
+                      Menampilkan {(recapPage - 1) * rowsPerPage + 1} - {Math.min(recapPage * rowsPerPage, recapFilteredNomor.length)} dari {recapFilteredNomor.length} data
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setRecapPage(p => Math.max(1, p - 1))}
+                        disabled={recapPage === 1}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Sebelumnya
+                      </button>
+                      <span className="font-mono px-2 font-bold text-slate-800">
+                        {recapPage} / {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setRecapPage(p => Math.min(totalPages, p + 1))}
+                        disabled={recapPage === totalPages}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Berikutnya
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          TAMPILAN 1: BERANDA PENOMORAN (KATALOG PER KELOMPOK DOKUMEN)
+          ══════════════════════════════════════════════════════════════════════════ */}
+      {mainTab === 'catalog' && !activeJenis && (
         <div className="space-y-6">
 
           {(['tagihan', 'pemeriksaan', 'umum', 'tugas'] as PnKelompok[]).map(kelompokKey => {
@@ -467,22 +1173,30 @@ export default function PenomoranModule() {
                       <div
                         key={item.jenis.id}
                         onClick={() => setActiveJenisKode(item.jenis.kode)}
-                        className="p-4 hover:bg-slate-50 transition-colors cursor-pointer"
+                        className="p-4 hover:bg-slate-50 transition-colors cursor-pointer flex items-center justify-between"
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-extrabold text-slate-900 text-xs">
+                        <div>
+                          <h4 className="font-bold text-xs text-slate-800">
                             {item.jenis.nama}
                           </h4>
-                          <span className="font-mono text-xs font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                            Berikutnya: {formattedNext}
-                          </span>
+                          <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-mono">
+                            <span>Terakhir: #{formattedLast}</span>
+                            <span>•</span>
+                            <span>Total: {item.jumlahTerpakai}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500">
-                          <span>Terakhir: <strong className="text-slate-700 font-mono">{formattedLast}</strong></span>
-                          <span>Bulan ini: <strong className="text-slate-700">{item.bulanIni}</strong></span>
-                          <span className="text-emerald-600 font-bold flex items-center gap-0.5">
-                            Buka <ChevronRight className="h-3 w-3" />
-                          </span>
+
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 block font-mono">Berikutnya:</span>
+                            <span className="font-mono font-black text-emerald-600 text-sm">#{formattedNext}</span>
+                          </div>
+                          <button
+                            onClick={() => handleOpenAmbilNomor(item.jenis)}
+                            className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                          >
+                            Ambil
+                          </button>
                         </div>
                       </div>
                     );
@@ -493,11 +1207,12 @@ export default function PenomoranModule() {
           })}
 
         </div>
-      ) : (
+      )}
 
-        /* ══════════════════════════════════════════════════════════════════════════
-            TAMPILAN 2: HALAMAN DETAIL PER JENIS DOKUMEN (TAB DEDIKASI)
-            ══════════════════════════════════════════════════════════════════════════ */
+      {/* ══════════════════════════════════════════════════════════════════════════
+          TAMPILAN 2: DAFTAR NOMOR SPESIFIK JENIS DOKUMEN (MODE DETAIL)
+          ══════════════════════════════════════════════════════════════════════════ */}
+      {mainTab === 'catalog' && activeJenis && (
         <div className="space-y-4 animate-in fade-in">
 
           {/* Subheader: Tombol Kembali & Info Jenis */}
@@ -529,13 +1244,26 @@ export default function PenomoranModule() {
                 </div>
               </div>
 
-              <button
-                onClick={() => handleOpenAmbilNomor(activeJenis)}
-                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Ambil Nomor {activeJenis.nama}</span>
-              </button>
+              {/* Action Buttons: Export Excel & Ambil Nomor */}
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <button
+                  onClick={handleExportSingleJenisExcel}
+                  disabled={filteredNomorList.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                  title="Export seluruh nomor jenis ini ke Excel"
+                >
+                  <Download className="h-4 w-4 text-emerald-700" />
+                  <span>Export Excel ({filteredNomorList.length})</span>
+                </button>
+
+                <button
+                  onClick={() => handleOpenAmbilNomor(activeJenis)}
+                  className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Ambil Nomor {activeJenis.nama}</span>
+                </button>
+              </div>
             </div>
 
             {/* Filter Bar */}
@@ -786,4 +1514,3 @@ export default function PenomoranModule() {
     </div>
   );
 }
-

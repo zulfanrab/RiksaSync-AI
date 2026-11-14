@@ -1365,77 +1365,112 @@ app.post('/api/delete-drive', async (req, res) => {
   }
 });
 
-// ── Penomoran: Sinkron Ulang Seluruh Data ke Google Sheets (Rebuild All) ──
+// ── Penomoran: Sinkron Data ke Google Sheets (Single Record & Rebuild All) ──
 app.post('/api/penomoran/sync-sheets', async (req, res) => {
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
-    const gasUrl = req.body?.gas_url || process.env.GAS_PENOMORAN_URL || process.env.VITE_GAS_PENOMORAN_URL || '';
-
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: 'Supabase credentials not configured on server.' });
-    }
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    const gasUrl = (req.body?.gas_url || process.env.GAS_PENOMORAN_URL || process.env.VITE_GAS_PENOMORAN_URL || '').trim();
 
     if (!gasUrl) {
       return res.status(400).json({ error: 'GAS_PENOMORAN_URL belum dikonfigurasi di server atau request body.' });
     }
 
-    const supa = createClient(supabaseUrl, supabaseKey);
+    // MODE 1: SINKRONISASI SINGLE RECORD (Nomor baru atau pembatalan nomor)
+    if (req.body?.record) {
+      const record = req.body.record;
+      console.log(`[Penomoran Sync] Forwarding single record (Tab: ${record.jenis_nama || record.jenis_kode}, No: ${record.no_urut}) to GAS`);
+      
+      const gasResponse = await fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ record })
+      });
 
-    // Ambil seluruh nomor dokumen yang ada di database tahun 2026
-    const { data: rows, error: fetchErr } = await supa
-      .from('pn_nomor')
-      .select(`
-        id,
-        jenis_id,
-        tahun,
-        no_urut,
-        tanggal,
-        dibuat_oleh,
-        klien,
-        perihal,
-        ref,
-        revisi_dari,
-        status,
-        alasan_batal,
-        pn_jenis:jenis_id (kode, nama, pad, kelompok)
-      `)
-      .order('tahun', { ascending: true })
-      .order('no_urut', { ascending: true });
-
-    if (fetchErr) {
-      return res.status(500).json({ error: fetchErr.message });
+      const gasResult = await gasResponse.json().catch(() => ({ success: true, tab: record.jenis_nama, no: record.no_urut }));
+      return res.json({
+        success: true,
+        message: `Berhasil menyinkronkan nomor ${record.no_urut} ke Google Sheets.`,
+        gasResult
+      });
     }
 
-    // Ambil nama pembuat dari app_users
-    const { data: users } = await supa
-      .from('app_users')
-      .select('auth_id, full_name, username');
+    // MODE 2: REBUILD ALL TABS (Manual Rebuild / Batch Sync)
+    let formattedRecords = req.body?.records;
 
-    const userMap = new Map<string, string>();
-    (users || []).forEach((u: any) => {
-      if (u.auth_id) userMap.set(u.auth_id, u.full_name || u.username);
-    });
+    // Jika records tidak dikirim dari client, ambil dari Supabase jika kredensial tersedia di server
+    if (!formattedRecords && supabaseUrl && supabaseKey) {
+      const supa = createClient(supabaseUrl, supabaseKey);
 
-    const formattedRecords = (rows || []).map((r: any) => ({
-      jenis_kode: r.pn_jenis?.kode || '',
-      jenis_nama: r.pn_jenis?.nama || '',
-      tahun: r.tahun,
-      no_urut: r.no_urut,
-      tanggal: r.tanggal,
-      dibuat_oleh_nama: userMap.get(r.dibuat_oleh) || 'Admin ARP',
-      klien: r.klien || '',
-      perihal: r.perihal || '',
-      ref: r.ref || '',
-      revisi_dari_no: r.revisi_dari ? r.revisi_dari.no_urut : null,
-      status: r.status,
-      alasan_batal: r.alasan_batal || ''
-    }));
+      // Ambil seluruh nomor dokumen yang ada di database tahun 2026
+      const { data: rows, error: fetchErr } = await supa
+        .from('pn_nomor')
+        .select(`
+          id,
+          jenis_id,
+          tahun,
+          no_urut,
+          tanggal,
+          dibuat_oleh,
+          klien,
+          perihal,
+          ref,
+          revisi_dari,
+          status,
+          alasan_batal,
+          pn_jenis:jenis_id (kode, nama, pad_digit, kelompok)
+        `)
+        .order('tahun', { ascending: true })
+        .order('no_urut', { ascending: true });
 
-    // Kirim bulk payload ke Google Apps Script Web App
+      if (fetchErr) {
+        return res.status(500).json({ error: fetchErr.message });
+      }
+
+      // Ambil nama pembuat dari app_users
+      const { data: users } = await supa
+        .from('app_users')
+        .select('auth_id, full_name, username');
+
+      const userMap = new Map<string, string>();
+      (users || []).forEach((u: any) => {
+        if (u.auth_id) userMap.set(u.auth_id, u.full_name || u.username);
+      });
+
+      formattedRecords = (rows || []).map((r: any) => ({
+        jenis_kode: r.pn_jenis?.kode || '',
+        jenis_nama: r.pn_jenis?.nama || '',
+        tahun: r.tahun,
+        no_urut: r.no_urut,
+        tanggal: r.tanggal,
+        dibuat_oleh_nama: userMap.get(r.dibuat_oleh) || 'Admin ARP',
+        klien: r.klien || '',
+        perihal: r.perihal || '',
+        ref: r.ref || '',
+        revisi_dari_no: r.revisi_dari ? r.revisi_dari.no_urut : null,
+        status: r.status,
+        alasan_batal: r.alasan_batal || ''
+      }));
+
+      // Catat ke pn_sync_log jika database Supabase aktif
+      try {
+        await supa.from('pn_sync_log').insert([{
+          target: 'sheets',
+          endpoint: gasUrl,
+          status: 'sukses',
+          payload: { count: formattedRecords.length }
+        }]);
+      } catch (_) {}
+    }
+
+    if (!formattedRecords || !Array.isArray(formattedRecords) || formattedRecords.length === 0) {
+      return res.status(400).json({ error: 'Tidak ada data rekaman (records) yang diberikan untuk sinkronisasi.' });
+    }
+
+    // Kirim bulk payload ke Google Apps Script Web App dengan header text/plain (CORS-friendly)
     const gasResponse = await fetch(gasUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'rebuild_all',
         records: formattedRecords
@@ -1443,14 +1478,6 @@ app.post('/api/penomoran/sync-sheets', async (req, res) => {
     });
 
     const gasResult = await gasResponse.json().catch(() => ({ success: true, count: formattedRecords.length }));
-
-    // Catat ke pn_sync_log
-    await supa.from('pn_sync_log').insert([{
-      target: 'sheets',
-      endpoint: gasUrl,
-      status: 'sukses',
-      payload: { count: formattedRecords.length }
-    }]).catch(() => {});
 
     return res.json({
       success: true,

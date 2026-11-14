@@ -297,7 +297,8 @@ export default function ManpowerManagement({
     } finally {
       // 3. Mirror/Sync otomatis ke Google Apps Script & Google Sheet jika terhubung
       try {
-        const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta as any).env?.VITE_GAS_ATTENDANCE_URL;
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwJ7Cj-z2P14FGZbN2J_hFfwRA8-6LMmWShJTV_2Med6TUEfCfYfywqbwLmS3gsrk34IA/exec';
+        const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta as any).env?.VITE_GAS_ATTENDANCE_URL || DEFAULT_GAS_URL;
         if (gasUrl) {
           const selectedPerson = manpowerList.find(m => m.id === absenceManpowerId);
           fetch(gasUrl, {
@@ -354,7 +355,8 @@ export default function ManpowerManagement({
 
     // Mirror delete to Google Apps Script if connected
     try {
-      const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta as any).env?.VITE_GAS_ATTENDANCE_URL;
+      const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwJ7Cj-z2P14FGZbN2J_hFfwRA8-6LMmWShJTV_2Med6TUEfCfYfywqbwLmS3gsrk34IA/exec';
+      const gasUrl = localStorage.getItem('gas_attendance_url') || (import.meta as any).env?.VITE_GAS_ATTENDANCE_URL || DEFAULT_GAS_URL;
       if (gasUrl) {
         const selectedPerson = manpowerList.find(m => m.id === manpowerId);
         fetch(gasUrl, {
