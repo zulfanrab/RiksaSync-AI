@@ -17,6 +17,7 @@ function onOpen() {
       .createMenu('📜 RiksaSync Penomoran')
       .addItem('▷ 1. Setup 20 Tab & Isi Semua 889 Data', 'setupSemuaTabPenomoran')
       .addItem('▷ 2. Refresh / Timpa Ulang 889 Data', 'importSemuaDataHistoris2026')
+      .addItem('▷ 3. Rapikan & Urutkan Nomor (Ascending)', 'rapikanDanUrutkanSemuaTab')
       .addToUi();
   } catch (e) {}
 }
@@ -263,6 +264,9 @@ function upsertNomorKeSheet(data) {
     sheet.getRange(nextRow, 8).setHorizontalAlignment("center");
   }
 
+  // Selalu urutkan nomor pada sheet agar teratur naik (1, 2, 3 ... dst)
+  urutkanTabBerdasarkanNomor(sheet);
+
   var nowStr = Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm:ss");
   sheet.getRange("H2").setValue("Terakhir disinkron: " + nowStr + " WIB");
 
@@ -296,6 +300,11 @@ function batchUpsertNomorKeSheet(records) {
     if (!sheet) {
       sheet = ss.insertSheet(tName);
     }
+
+    // Urutkan data yang akan disinkronkan secara ascending (naik)
+    group.items.sort(function(a, b) {
+      return (Number(a.no_urut) || 0) - (Number(b.no_urut) || 0);
+    });
 
     var lastRow = sheet.getLastRow();
     var existingRowMap = {};
@@ -346,11 +355,45 @@ function batchUpsertNomorKeSheet(records) {
       sheet.getRange(nextRow, 8, rowsToAppend.length, 1).setHorizontalAlignment("center");
     }
 
+    // Rapikan dan urutkan seluruh baris di tab ini agar rapi dari 1 s/d nomor terakhir
+    urutkanTabBerdasarkanNomor(sheet);
+
     sheet.getRange("H2").setValue("Terakhir disinkron: " + nowStr + " WIB");
   }
 
   SpreadsheetApp.flush();
   return { success: true, count: updatedCount };
+}
+
+// ── 8. FUNGSI PENGURUT NOMOR TAB OTOMATIS (ASCENDING NUMERIK) ─────────────────
+function urutkanTabBerdasarkanNomor(sheet) {
+  if (!sheet) return;
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 5) return;
+
+  var numRows = lastRow - 4;
+  var range = sheet.getRange(5, 1, numRows, 8);
+  var values = range.getValues();
+
+  // Urutkan nilai array secara numerik berdasarkan No. Urut (Kolom 1)
+  values.sort(function(a, b) {
+    var rawA = String(a[0]).replace(/\D/g, '');
+    var rawB = String(b[0]).replace(/\D/g, '');
+    var noA = parseInt(rawA, 10) || 0;
+    var noB = parseInt(rawB, 10) || 0;
+    return noA - noB;
+  });
+
+  range.setValues(values);
+}
+
+function rapikanDanUrutkanSemuaTab() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    urutkanTabBerdasarkanNomor(sheets[i]);
+  }
+  SpreadsheetApp.flush();
 }
 
 function doPost(e) {

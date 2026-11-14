@@ -129,7 +129,10 @@ export async function syncAllNomorToSheets(
   const gasUrl = getGasPenomoranUrl();
   const jenisMap = new Map(allJenis.map(j => [j.id, j]));
 
-  const formattedRecords = allNomor.map(n => {
+  // Pastikan urutan data SELALU ASCENDING (1, 2, 3 ... 175, 176 ... 188) sebelum dikirim ke Google Sheets
+  const sortedNomor = [...allNomor].sort((a, b) => Number(a.no_urut) - Number(b.no_urut));
+
+  const formattedRecords = sortedNomor.map(n => {
     const j = jenisMap.get(n.jenis_id);
     return {
       id: n.id,
