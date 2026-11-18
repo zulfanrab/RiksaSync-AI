@@ -64,13 +64,9 @@ export default function PenomoranModule() {
   const [singleEndDate, setSingleEndDate] = useState<string>('');
 
   // ── FILTER REKAPITULASI DENGAN RENTANG TANGGAL ──
-  const [recapStartDate, setRecapStartDate] = useState<string>(() => {
-    const y = new Date().getFullYear();
-    return `${y}-01-01`;
-  });
-  const [recapEndDate, setRecapEndDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  // Default kosong agar seluruh data historis & terbitan terbaru langsung tampil tanpa terpotong tanggal jam perangkat HP
+  const [recapStartDate, setRecapStartDate] = useState<string>('');
+  const [recapEndDate, setRecapEndDate] = useState<string>('');
   const [recapJenisId, setRecapJenisId] = useState<string>('all');
   const [recapKelompok, setRecapKelompok] = useState<string>('all');
   const [recapStatus, setRecapStatus] = useState<string>('all'); // 'all' | 'aktif' | 'batal'
@@ -78,6 +74,9 @@ export default function PenomoranModule() {
   const [recapSearch, setRecapSearch] = useState<string>('');
   const [recapPage, setRecapPage] = useState<number>(1);
   const rowsPerPage = 50;
+
+  // Filter Tahun Global (Default 'all' agar nomor 2026 dan tahun lainnya selalu tampil di HP)
+  const [selectedYear, setSelectedYear] = useState<string>('all');
 
   // Modal states
   const [showFormModal, setShowFormModal] = useState(false);
@@ -113,13 +112,13 @@ export default function PenomoranModule() {
       if (jenisErr) throw jenisErr;
       setAllJenis((jenisData || []) as PnJenis[]);
 
-      // 2. Ambil Nomor Surat yang Diterbitkan Tahun Ini
-      const currentYear = new Date().getFullYear();
+      // 2. Ambil Seluruh Nomor Surat yang Diterbitkan (Semua Tahun tanpa dibatasi clock perangkat HP)
       const { data: nomorData, error: nomorErr } = await supabase
         .from('pn_nomor')
         .select('*')
-        .eq('tahun', currentYear)
-        .order('no_urut', { ascending: false });
+        .order('tahun', { ascending: false })
+        .order('no_urut', { ascending: false })
+        .limit(10000);
 
       if (nomorErr) throw nomorErr;
 
@@ -165,6 +164,21 @@ export default function PenomoranModule() {
     loadData();
   }, [loadData]);
 
+  // ─── 1b. DAFTAR TAHUN TERSEDIA & FILTER TAHUN GLOBAL ─────────────────────────
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    allNomor.forEach(n => {
+      if (n.tahun) years.add(n.tahun);
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [allNomor]);
+
+  const yearFilteredNomor = useMemo(() => {
+    if (selectedYear === 'all') return allNomor;
+    const yNum = Number(selectedYear);
+    return allNomor.filter(n => n.tahun === yNum);
+  }, [allNomor, selectedYear]);
+
   // ─── 2. REKAPITULASI BERANDA PER JENIS ────────────────────────────────────────
   const currentMonthStr = useMemo(() => {
     const m = new Date().getMonth() + 1;
@@ -173,7 +187,7 @@ export default function PenomoranModule() {
 
   const summaryData = useMemo((): PnJenisSummary[] => {
     return allJenis.map(j => {
-      const records = allNomor.filter(n => n.jenis_id === j.id);
+      const records = yearFilteredNomor.filter(n => n.jenis_id === j.id);
       const countTotal = records.length;
       const countBulanIni = records.filter(n => n.tanggal && n.tanggal.split('-')[1] === currentMonthStr).length;
 
@@ -195,7 +209,7 @@ export default function PenomoranModule() {
         tanggalTerakhir: lastDate
       };
     });
-  }, [allJenis, allNomor, currentMonthStr]);
+  }, [allJenis, yearFilteredNomor, currentMonthStr]);
 
   // Jenis aktif yang sedang dibuka (jika dalam mode detail)
   const activeJenis = useMemo(() => {
@@ -207,7 +221,7 @@ export default function PenomoranModule() {
   const filteredNomorList = useMemo(() => {
     if (!activeJenis) return [];
 
-    let list = allNomor.filter(n => n.jenis_id === activeJenis.id);
+    let list = yearFilteredNomor.filter(n => n.jenis_id === activeJenis.id);
 
     // Filter Pencarian
     if (searchQuery.trim()) {
@@ -241,11 +255,11 @@ export default function PenomoranModule() {
     }
 
     return list;
-  }, [activeJenis, allNomor, searchQuery, singleStartDate, singleEndDate, selectedMonth, selectedPembuat]);
+  }, [activeJenis, yearFilteredNomor, searchQuery, singleStartDate, singleEndDate, selectedMonth, selectedPembuat]);
 
   // ─── 4. FILTER REKAPITULASI DENGAN RENTANG TANGGAL (RECAP TAB) ─────────────────
   const recapFilteredNomor = useMemo(() => {
-    let list = [...allNomor];
+    let list = [...yearFilteredNomor];
 
     // Filter Rentang Tanggal (Start Date & End Date)
     if (recapStartDate) {
@@ -301,7 +315,7 @@ export default function PenomoranModule() {
     }
 
     return list;
-  }, [allNomor, allJenis, recapStartDate, recapEndDate, recapKelompok, recapJenisId, recapStatus, recapPembuat, recapSearch]);
+  }, [yearFilteredNomor, allJenis, recapStartDate, recapEndDate, recapKelompok, recapJenisId, recapStatus, recapPembuat, recapSearch]);
 
   // Statistik Cepat Rekapan
   const recapStats = useMemo(() => {
@@ -351,8 +365,9 @@ export default function PenomoranModule() {
       setRecapStartDate(`${curYear}-${curMonth}-01`);
       setRecapEndDate(today);
     } else if (preset === 'year') {
-      setRecapStartDate(`${curYear}-01-01`);
-      setRecapEndDate(today);
+      const targetYear = availableYears.length > 0 ? availableYears[0] : curYear;
+      setRecapStartDate(`${targetYear}-01-01`);
+      setRecapEndDate(`${targetYear}-12-31`);
     } else if (preset === 'all') {
       setRecapStartDate('');
       setRecapEndDate('');
@@ -361,14 +376,14 @@ export default function PenomoranModule() {
   };
 
   const handleResetRecapFilter = () => {
-    const curYear = new Date().getFullYear();
-    setRecapStartDate(`${curYear}-01-01`);
-    setRecapEndDate(new Date().toISOString().split('T')[0]);
+    setRecapStartDate('');
+    setRecapEndDate('');
     setRecapJenisId('all');
     setRecapKelompok('all');
     setRecapStatus('all');
     setRecapPembuat('all');
     setRecapSearch('');
+    setSelectedYear('all');
     setRecapPage(1);
   };
 
@@ -570,14 +585,14 @@ export default function PenomoranModule() {
                 setMainTab('catalog');
                 setActiveJenisKode(null);
               }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 mainTab === 'catalog'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <FileText className="h-4 w-4 text-emerald-600" />
-              <span>Katalog Jenis Dokumen</span>
+              <span>Katalog Jenis</span>
             </button>
 
             <button
@@ -585,23 +600,47 @@ export default function PenomoranModule() {
                 setMainTab('recap');
                 setActiveJenisKode(null);
               }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 mainTab === 'recap'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              <span>Rekapitulasi & Export Data</span>
+              <span>Rekapan & Export</span>
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-700 font-mono font-black">
-                {allNomor.length}
+                {yearFilteredNomor.length}
               </span>
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Mirror Google Sheets Terhubung</span>
+          <div className="flex items-center gap-3">
+            {/* Filter Tahun Global Dropdown */}
+            {availableYears.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200">
+                <span className="text-[11px] font-bold text-slate-500">Tahun:</span>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => {
+                    setSelectedYear(e.target.value);
+                    setRecapPage(1);
+                  }}
+                  className="text-xs font-bold bg-transparent text-slate-800 cursor-pointer focus:outline-hidden"
+                >
+                  <option value="all">Semua ({allNomor.length})</option>
+                  {availableYears.map(y => (
+                    <option key={y} value={String(y)}>
+                      {y} ({allNomor.filter(n => n.tahun === y).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="hidden sm:flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>Mirror Google Sheets Terhubung</span>
+            </div>
           </div>
         </div>
       </div>
@@ -849,7 +888,7 @@ export default function PenomoranModule() {
                 onClick={() => handleDatePreset('year')}
                 className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer"
               >
-                Tahun 2026
+                Tahun {availableYears[0] || 'Ini'}
               </button>
               <button
                 type="button"
@@ -928,7 +967,8 @@ export default function PenomoranModule() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                {/* Desktop View Table */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px] bg-slate-50/50">
@@ -1051,6 +1091,95 @@ export default function PenomoranModule() {
                       })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile View Card List (Tampil Rapi di HP) */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {paginatedRecapList.map((n) => {
+                    const j = allJenis.find(item => item.id === n.jenis_id);
+                    const isBatal = n.status === 'batal';
+                    const formattedNo = formatNomorUrut(n.no_urut, j?.pad_digit);
+                    const isCopied = copiedNoId === n.id;
+
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          if (j) {
+                            setActiveJenisKode(j.kode);
+                            setDetailNomorTarget(n);
+                          }
+                        }}
+                        className={`p-4 hover:bg-slate-50 transition-colors cursor-pointer ${
+                          isBatal ? 'bg-slate-50/70 text-slate-400' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className={`font-mono text-base font-black ${isBatal ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                              #{formattedNo}
+                            </span>
+                            {j && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                {j.nama}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            {n.tanggal || '-'}
+                          </span>
+                        </div>
+
+                        <p className={`text-xs font-semibold text-slate-800 leading-snug line-clamp-2 ${isBatal ? 'line-through text-slate-400' : ''}`}>
+                          {n.perihal}
+                        </p>
+
+                        <div className="flex items-center justify-between mt-2.5 text-[11px] text-slate-500">
+                          <span className="font-medium truncate max-w-[150px]">{n.klien || 'Tanpa Klien'}</span>
+                          <span className="shrink-0">👤 {n.dibuat_oleh_nama}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                          <div>
+                            {isBatal ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                Batal
+                              </span>
+                            ) : n.direvisi_di_no ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                                Direvisi
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                Aktif
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleCopyNo(n.id, formattedNo)}
+                              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors cursor-pointer"
+                              title="Salin Nomor"
+                            >
+                              {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (j) {
+                                  setActiveJenisKode(j.kode);
+                                  setDetailNomorTarget(n);
+                                }
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Detail
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Pagination Controls */}
