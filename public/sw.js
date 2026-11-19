@@ -1,5 +1,5 @@
-// AksaraSync AI - Service Worker v4 (Penomoran & Mobile Support Auto Refresh)
-const CACHE_NAME = 'aksarasync-v4';
+// AksaraSync AI - Service Worker v5 (WIB Format, Until Finished Dispatch & Surat Tugas Fix)
+const CACHE_NAME = 'aksarasync-v5';
 const STATIC_ASSETS = ['/', '/index.html', '/logo-AksaraSyncAI.png', '/custom-notification.mp3'];
 
 // ── Install: pre-cache static assets ──────────────────────────────────────

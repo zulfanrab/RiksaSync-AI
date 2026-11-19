@@ -342,11 +342,15 @@ export default function CalendarView({
       if (s.end_date !== s.start_date) {
         dateCell += ` s/d ${s.end_date}`;
       }
-      const timeStr = s.is_until_finished 
-        ? '\nSampai Selesai' 
-        : (s.start_time || s.end_time) 
-        ? `\n${s.start_time || '--:--'} - ${s.end_time || '--:--'}` 
-        : '';
+      const isUntil = Boolean(s.is_until_finished || !s.end_time);
+      let timeStr = '';
+      if (s.start_time && isUntil) {
+        timeStr = `\n${s.start_time} WIB - Selesai`;
+      } else if (s.start_time && s.end_time) {
+        timeStr = `\n${s.start_time} - ${s.end_time} WIB`;
+      } else if (isUntil && s.is_until_finished) {
+        timeStr = '\nSampai Selesai';
+      }
       dateCell += timeStr;
 
       const clientCell = `${s.client_name}\nPIC: ${s.pic_name || 'No PIC'}\nPriority: ${s.priority}`;
@@ -856,11 +860,10 @@ export default function CalendarView({
                       daySchedules.map((s) => {
                         const leadExpert = manpowerList.find(m => m.id === s.lead_expert_id);
                         
-                        const timeText = s.is_until_finished 
-                          ? 'Selesai' 
-                          : (s.start_time || s.end_time) 
-                          ? `${s.start_time || '--:--'}` 
-                          : 'Standar';
+                        const isUntil = Boolean(s.is_until_finished || !s.end_time);
+                        const timeText = isUntil
+                          ? (s.start_time ? `${s.start_time} WIB - Selesai` : 'Sampai Selesai')
+                          : (s.start_time && s.end_time ? `${s.start_time} - ${s.end_time} WIB` : s.start_time ? `${s.start_time} WIB` : 'Standar');
 
                         return (
                           <div
@@ -976,9 +979,11 @@ export default function CalendarView({
                           <Tag className="h-3 w-3 text-slate-400 shrink-0" />
                           <span className="truncate font-medium">{s.pic_name || 'Tanpa PIC'}</span>
                         </div>
-                        {(s.start_time || s.end_time) && (
+                        {(s.start_time || s.end_time || s.is_until_finished) && (
                           <div className="flex items-center gap-1 text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded font-mono text-[9px] font-semibold shrink-0">
-                            <span>🕒 {s.start_time || '--:--'} - {s.end_time || '--:--'}</span>
+                            <span>🕒 {s.is_until_finished || !s.end_time
+                              ? (s.start_time ? `${s.start_time} WIB - Selesai` : 'Sampai Selesai')
+                              : `${s.start_time || '08:00'} - ${s.end_time} WIB`}</span>
                           </div>
                         )}
                       </div>
@@ -1290,7 +1295,9 @@ export default function CalendarView({
                             <Clock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                             <span>
                               <strong className="text-slate-700">Jam Operasional:</strong>{' '}
-                              {s.is_until_finished ? 'Sampai Selesai' : (s.start_time || s.end_time) ? `${s.start_time || '--:--'} - ${s.end_time || '--:--'}` : 'Standar'}
+                              {s.is_until_finished || !s.end_time
+                                ? (s.start_time ? `${s.start_time} WIB - Selesai` : 'Sampai Selesai')
+                                : (s.start_time && s.end_time ? `${s.start_time} - ${s.end_time} WIB` : 'Standar Operasional')}
                             </span>
                           </div>
                         </div>

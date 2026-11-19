@@ -79,6 +79,24 @@ export default function WhatsappDispatcher({
     return `${y}-${m}-${day}`;
   };
 
+  const formatDispatchTime = (s: Schedule): string => {
+    const isUntil = Boolean(s.is_until_finished || !s.end_time);
+
+    if (s.start_time && isUntil) {
+      return `${s.start_time} WIB - Selesai`;
+    }
+    if (s.start_time && s.end_time) {
+      return `${s.start_time} - ${s.end_time} WIB`;
+    }
+    if (isUntil) {
+      return 'Sampai Selesai';
+    }
+    if (s.end_time) {
+      return `s.d. ${s.end_time} WIB`;
+    }
+    return '08:00 WIB - Selesai';
+  };
+
   const generateTodayText = (): string => {
     const daySchedules = getSchedulesForDay(selectedDate);
     const dayAbsences = absences.filter(a => a.date === selectedDate);
@@ -103,12 +121,8 @@ export default function WhatsappDispatcher({
         text += `*${idx + 1}. [${statusLabel}] ${targetLabel}: ${s.client_name}*\n`;
         text += `• Kegiatan: ${agendaLabel}\n`;
         
-        // Time
-        const timeStr = s.is_until_finished 
-          ? '09:00 - Selesai' 
-          : (s.start_time || s.end_time) 
-          ? `${s.start_time || '--:--'} - ${s.end_time || '--:--'}` 
-          : '08:00 - Selesai';
+        // Time (Format WIB & Sampai Selesai yang presisi tanpa '--:--')
+        const timeStr = formatDispatchTime(s);
         text += `• Jam: ${timeStr}\n`;
 
         // PIC Klien
@@ -205,11 +219,7 @@ export default function WhatsappDispatcher({
         daySchedules.forEach((s) => {
           const agendaLabel = s.agenda_type === 'Lainnya' ? (s.manual_agenda || 'Lainnya') : s.agenda_type || 'Riksa Uji';
           
-          const timeStr = s.is_until_finished 
-            ? '09:00 - Selesai' 
-            : (s.start_time || s.end_time) 
-            ? `${s.start_time || '--:--'} - ${s.end_time || '--:--'}` 
-            : 'Selesai';
+          const timeStr = formatDispatchTime(s);
 
           const lead = manpowerList.find(m => m.id === s.lead_expert_id);
           const leadName = lead ? lead.name : 'Belum Ditugaskan';

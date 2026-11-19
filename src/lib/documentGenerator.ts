@@ -469,7 +469,7 @@ export interface GenerateDocOptions {
  * 5. Potong Halaman 2 jika includeSppd === false (Presisi XML tanpa merusak penutup tag)
  * 6. Normalisasi {{VAR}} -> {VAR}
  */
-export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean } = {}): void {
+export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean; isSingleDay?: boolean } = {}): void {
   const xmlFile = zip.file('word/document.xml');
   if (!xmlFile) return;
 
@@ -487,6 +487,12 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean }
   // 2. Patch Pengikut SPPD menjadi variabel tunggal {{DAFTAR_PENGIKUT}}
   xml = xml.replace(/1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*/g, '{{DAFTAR_PENGIKUT}}');
   xml = xml.replace(/1\.\s*\{NAMA_PERSONEL_2\}\s*2\.\s*\{NAMA_PERSONEL_3\}\s*/g, '{DAFTAR_PENGIKUT}');
+
+  // 2b. Patch Waktu Pelaksanaan Surat Tugas: Jika agenda cuma 1 hari, cukup tulis 1 tanggal (tanpa double "20 Nov 2026 s.d. 20 Nov 2026")
+  if (options.isSingleDay) {
+    xml = xml.replace(/\{\{TANGGAL_MULAI\}\}\s*s\.?d\.?\s*\{\{TANGGAL_SELESAI\}\}/gi, '{{TANGGAL_MULAI}}');
+    xml = xml.replace(/\{TANGGAL_MULAI\}\s*s\.?d\.?\s*\{TANGGAL_SELESAI\}/gi, '{TANGGAL_MULAI}');
+  }
 
   // 3. Nama Pak Habsi:
   // - Di form awal: "Habsi Gufira Pradana" (Title case, tanpa S.AP.)
@@ -618,6 +624,7 @@ function buildPayload(
   // Lama Hari: cukup angka + terbilang, contoh "1 (Satu)"
   const lamaHari = hitungLamaHari(schedule.start_date, schedule.end_date);
   const lamaHariFormatted = `${lamaHari} (${terbilangHari(lamaHari)})`;
+  const isSingleDay = !schedule.end_date || schedule.start_date === schedule.end_date || lamaHari <= 1;
 
   const detailUnit = options.detailUnit ?? (
     schedule.agenda_type === 'Riksa Uji' && schedule.unit_descriptions && schedule.unit_descriptions.length > 0
@@ -653,7 +660,8 @@ function buildPayload(
       NAMA_PERSONEL_3: personnelsList[2]?.NAMA || '-',
     },
     nomorUrut,
-    includeSppd: options.includeSppd !== false
+    includeSppd: options.includeSppd !== false,
+    isSingleDay
   };
 }
 
@@ -684,7 +692,7 @@ export async function renderSuratTugasDocxBlob(
     throw new Error(`Gagal mengambil template Word: ${(err as Error).message}`);
   }
 
-  const { payload, nomorUrut, includeSppd } = buildPayload(schedule, manpowerList, options);
+  const { payload, nomorUrut, includeSppd, isSingleDay } = buildPayload(schedule, manpowerList, options);
 
   let zip: PizZip;
   try {
@@ -693,8 +701,8 @@ export async function renderSuratTugasDocxBlob(
     throw new Error('File template Word rusak atau format .docx tidak valid.');
   }
 
-  // Auto-patch XML
-  patchTemplateXml(zip, { includeSppd });
+  // Auto-patch XML (termasuk patch satu tanggal jika agenda 1 hari)
+  patchTemplateXml(zip, { includeSppd, isSingleDay });
 
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,

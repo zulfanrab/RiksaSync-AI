@@ -829,22 +829,12 @@ export default function ScheduleForm({
                 <span>Hari Ini (Survey Cepat)</span>
               </label>
 
-              {/* Checkbox Sampai Selesainya */}
-              <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-extrabold text-slate-500 hover:text-emerald-600 select-none">
-                <input
-                  type="checkbox"
-                  checked={isUntilFinished}
-                  onChange={e => {
-                    const checked = e.target.checked;
-                    setIsUntilFinished(checked);
-                    if (checked) {
-                      setEndDate(startDate);
-                    }
-                  }}
-                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 h-3.5 w-3.5"
-                />
-                <span>Sampai Selesai</span>
-              </label>
+              {/* Status 1 Hari jika Sampai Selesai */}
+              {isUntilFinished && (
+                <span className="text-[9px] font-mono font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded">
+                  1 Hari Penuh
+                </span>
+              )}
             </div>
           </div>
 
@@ -865,53 +855,89 @@ export default function ScheduleForm({
             </div>
             <div className="space-y-1">
               <span className="text-[9px] font-extrabold text-slate-400 block uppercase">Selesai</span>
-              {isUntilFinished ? (
-                <input
-                  type="text"
-                  disabled
-                  value="Sampai Selesainya"
-                  className="w-full bg-slate-100 border border-slate-200 disabled:opacity-90 rounded-lg px-3 py-2 text-xs text-emerald-700 font-extrabold italic h-10 text-center"
-                />
-              ) : (
-                <input
-                  type="date"
-                  required
-                  value={endDate}
-                  disabled={isTodayChecked}
-                  onChange={e => {
-                    setEndDate(e.target.value);
-                    setIsTodayChecked(false);
-                  }}
-                  className="w-full bg-white border border-slate-200 disabled:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
-                />
-              )}
+              <input
+                type="date"
+                required
+                value={endDate}
+                disabled={isTodayChecked || isUntilFinished}
+                onChange={e => {
+                  setEndDate(e.target.value);
+                  setIsTodayChecked(false);
+                }}
+                className="w-full bg-white border border-slate-200 disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
+              />
             </div>
           </div>
         </div>
 
         {/* Jam Kerja */}
         <div className="bg-slate-50/50 p-3.5 rounded-xl border border-slate-200/60 space-y-2">
-          <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">Jam Kerja / Operasional</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">
+              Jam Kerja / Operasional (WIB)
+            </span>
+            <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-extrabold text-slate-600 hover:text-emerald-700 select-none bg-white px-2 py-0.5 rounded-md border border-slate-200/80 shadow-2xs">
+              <input
+                type="checkbox"
+                checked={isUntilFinished}
+                onChange={e => {
+                  const checked = e.target.checked;
+                  setIsUntilFinished(checked);
+                  if (checked) {
+                    setEndTime('');
+                    if (startDate && (!endDate || endDate !== startDate)) {
+                      setEndDate(startDate);
+                    }
+                  }
+                }}
+                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 h-3.5 w-3.5"
+              />
+              <span>Sampai Selesai</span>
+            </label>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Jam Mulai</label>
-              <input
-                type="time"
-                value={startTime}
-                onChange={e => setStartTime(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono h-10"
-              />
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Jam Mulai</label>
+                <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1 py-0.2 rounded">WIB</span>
+              </div>
+              <div className="relative">
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={e => setStartTime(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg pl-3 pr-10 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono h-10"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none font-mono">WIB</span>
+              </div>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Jam Selesai</label>
-              <input
-                type="time"
-                value={isUntilFinished ? '' : endTime}
-                disabled={isUntilFinished}
-                onChange={e => setEndTime(e.target.value)}
-                placeholder="Sampai Selesai"
-                className="w-full bg-white border border-slate-250 disabled:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono h-10"
-              />
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Jam Selesai</label>
+                <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1 py-0.2 rounded">WIB</span>
+              </div>
+              {isUntilFinished ? (
+                <div className="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-xs text-emerald-800 font-extrabold flex items-center justify-between h-10 select-none">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Sampai Selesai
+                  </span>
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-mono">
+                    WIB
+                  </span>
+                </div>
+              ) : (
+                <div className="relative">
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={e => setEndTime(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg pl-3 pr-10 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono h-10"
+                  />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none font-mono">WIB</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
