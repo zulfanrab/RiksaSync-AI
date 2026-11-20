@@ -485,7 +485,9 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean; 
     }
   }
 
-  // 2. Patch Pengikut SPPD menjadi variabel tunggal {{DAFTAR_PENGIKUT}}
+  // 2. Patch Pengikut SPPD menjadi variabel loop {{PENGIKUT_LIST}} dengan Jabatan Italic
+  const pengikutLoopXml = '{{#PENGIKUT_LIST}}<w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{NO}}. {{NAMA}} (</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN}}</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">)</w:t><w:br/></w:r>{{/PENGIKUT_LIST}}{{^PENGIKUT_LIST}}<w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">-</w:t></w:r>{{/PENGIKUT_LIST}}';
+  xml = xml.replace(/<w:r [^>]*><w:rPr>[^<]*<w:rFonts [^>]*\/>[^<]*<w:sz [^>]*\/>[^<]*<w:szCs [^>]*\/>[^<]*<w:rtl [^>]*\/><\/w:rPr><w:t xml:space="preserve">1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*<\/w:t><\/w:r>/, pengikutLoopXml);
   xml = xml.replace(/1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*/g, '{{DAFTAR_PENGIKUT}}');
   xml = xml.replace(/1\.\s*\{NAMA_PERSONEL_2\}\s*2\.\s*\{NAMA_PERSONEL_3\}\s*/g, '{DAFTAR_PENGIKUT}');
 
@@ -495,15 +497,33 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean; 
     xml = xml.replace(/\{TANGGAL_MULAI\}\s*s\.?d\.?\s*\{TANGGAL_SELESAI\}/gi, '{TANGGAL_MULAI}');
   }
 
+  // 2c. Patch Jabatan Personel di Tabel Surat Tugas agar selalu Italic (Bahasa Inggris)
+  xml = xml.replace(
+    /<w:rPr><w:sz w:val="20"\/><w:szCs w:val="20"\/><w:rtl w:val="0"\/><\/w:rPr><w:t xml:space="preserve">\{\{JABATAN\}\}\s*<\/w:t>/g,
+    '<w:rPr><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN}} </w:t>'
+  );
+
+  // 2d. Patch Jabatan Ketua di SPPD agar Italic
+  xml = xml.replace(
+    '<w:t xml:space="preserve">{{NAMA_KETUA}} ({{JABATAN_KETUA}})</w:t>',
+    '<w:t xml:space="preserve">{{NAMA_KETUA}} (</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN_KETUA}}</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">)</w:t>'
+  );
+
+  // 2e. Patch Jabatan Director di Form Header menjadi Italic
+  xml = xml.replace(
+    '<w:tab/><w:tab/><w:t xml:space="preserve">: Director </w:t>',
+    '<w:tab/><w:tab/><w:t xml:space="preserve">: </w:t></w:r><w:r><w:rPr><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">Director</w:t>'
+  );
+
   // 3. Nama Pak Habsi:
   // - Di form awal: "Habsi Gufira Pradana" (Title case, tanpa S.AP.)
-  // - Di tanda tangan: "HABSI GUFIRA PRADANA" (All caps) & "DIRECTOR" (All caps)
+  // - Di tanda tangan: "HABSI GUFIRA PRADANA" (All caps) & "DIRECTOR" (All caps Italic)
   xml = xml.replace(
     /<w:t xml:space="preserve">HABSI GUFIRA PRADANA<\/w:t><w:br w:type="textWrapping"\/><w:t xml:space="preserve">DIREKTUR<\/w:t>/g,
-    '<w:t xml:space="preserve">HABSI GUFIRA PRADANA</w:t><w:br/><w:t xml:space="preserve">DIRECTOR</w:t>'
+    '<w:t xml:space="preserve">HABSI GUFIRA PRADANA</w:t><w:br/></w:r><w:r><w:rPr><w:b w:val="1"/><w:bCs w:val="1"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">DIRECTOR</w:t>'
   );
-  xml = xml.replace(/HABSI GUFIRA PRADANADIREKTUR/g, 'HABSI GUFIRA PRADANA<w:br/>DIRECTOR');
-  xml = xml.replace(/HABSI GUFIRA PRADANA,\s*S\.AP\.<w:br\/>Director/gi, 'HABSI GUFIRA PRADANA<w:br/>DIRECTOR');
+  xml = xml.replace(/HABSI GUFIRA PRADANADIREKTUR/g, 'HABSI GUFIRA PRADANA<w:br/></w:r><w:r><w:rPr><w:b w:val="1"/><w:bCs w:val="1"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>DIRECTOR</w:t>');
+  xml = xml.replace(/HABSI GUFIRA PRADANA,\s*S\.AP\.<w:br\/>Director/gi, 'HABSI GUFIRA PRADANA<w:br/></w:r><w:r><w:rPr><w:b w:val="1"/><w:bCs w:val="1"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>DIRECTOR</w:t>');
   xml = xml.replace(/HABSI GUFIRA PRADANA,\s*S\.AP\./gi, 'HABSI GUFIRA PRADANA');
   xml = xml.replace(/Habsi Gufira Pradana,\s*S\.AP\./gi, 'Habsi Gufira Pradana');
   xml = xml.replace(/Habsi Gufira Pradana\s*\(Director\)/gi, 'Habsi Gufira Pradana (DIRECTOR)');
@@ -609,10 +629,15 @@ function buildPayload(
 
   // Daftar Pengikut SPPD:
   let daftarPengikut = '-';
+  const pengikutList = personnelsList.slice(1).map((p, idx) => ({
+    NO: idx + 1,
+    NAMA: p.NAMA,
+    JABATAN: p.JABATAN
+  }));
+
   if (personnelsList.length > 1) {
-    daftarPengikut = personnelsList
-      .slice(1)
-      .map((p, idx) => `${idx + 1}. ${p.NAMA} (${p.JABATAN})`)
+    daftarPengikut = pengikutList
+      .map(p => `${p.NO}. ${p.NAMA} (${p.JABATAN})`)
       .join('\n');
   }
 
@@ -661,6 +686,7 @@ function buildPayload(
       NAMA_KETUA: ketuaNama,
       JABATAN_KETUA: ketuaJabatan,
       DAFTAR_PENGIKUT: daftarPengikut,
+      PENGIKUT_LIST: pengikutList,
       LOKASI_KOTA_TUJUAN: kotaTujuan,
       LAMA_HARI: lamaHariFormatted,
       NAMA_PERSONEL_2: personnelsList[1]?.NAMA || '-',

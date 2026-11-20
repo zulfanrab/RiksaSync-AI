@@ -821,7 +821,7 @@ export default function ManpowerManagement({
                             </div>
 
                             <div className="flex items-center gap-3 text-[10px] text-slate-500 font-medium flex-wrap">
-                              <span>{person.jabatan_resmi || person.role}</span>
+                              <span className="italic">{person.jabatan_resmi || person.role}</span>
                               {person.nik && (
                                 <span className="text-slate-400 font-mono">NIK: {person.nik}</span>
                               )}

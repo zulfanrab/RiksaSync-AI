@@ -1314,7 +1314,7 @@ export default function ScheduleForm({
                           </span>
                         )}
                         <span className="text-[9px] text-slate-500 block mt-1 font-medium">
-                          {support.jabatan_resmi || support.role} {support.skp && support.skp.length > 0 ? `- SKP: ${support.skp.join(', ')}` : ''}
+                          <span className="italic">{support.jabatan_resmi || support.role}</span> {support.skp && support.skp.length > 0 ? `- SKP: ${support.skp.join(', ')}` : ''}
                         </span>
                       </div>
                     </label>

@@ -271,7 +271,7 @@ export default function SuratTugasModal({
                         )}
                       </td>
                       <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-600">{p.NIK}</td>
-                      <td className="py-1.5 px-2 text-slate-600">{p.JABATAN}</td>
+                      <td className="py-1.5 px-2 text-slate-600 italic font-medium">{p.JABATAN}</td>
                     </tr>
                   ))}
                 </tbody>
