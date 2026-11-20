@@ -75,6 +75,7 @@ self.addEventListener('push', (event) => {
     body: data.body,
     icon: '/logo-AksaraSyncAI.png',
     badge: '/logo-AksaraSyncAI.png',
+    sound: '/custom-notification.mp3',
     tag: data.tag || 'aksarasync-notif',   // group notifikasi sejenis
     renotify: true,                         // selalu bunyi walau tag sama
     requireInteraction: false,

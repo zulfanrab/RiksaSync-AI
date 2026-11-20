@@ -542,16 +542,16 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
             {/* Banner HP Status / Test Action Bar */}
             {permission === 'granted' ? (
-              <div className="bg-emerald-50/80 px-3.5 py-2 border-b border-emerald-100 flex items-center justify-between gap-2 shrink-0">
+              <div className="bg-emerald-50/80 px-3.5 py-2.5 border-b border-emerald-100 flex items-center justify-between gap-2 shrink-0">
                 <div className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] font-bold text-emerald-800">Banner HP Aktif</span>
+                  <span className="text-[10px] font-extrabold text-emerald-800">Banner HP Aktif ✅</span>
                 </div>
                 <button
                   onClick={handleSendTestPush}
                   disabled={isTestingPush}
                   className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs active:scale-95 disabled:opacity-50"
-                  title="Kirim notifikasi tes untuk memastikan banner muncul di HP Anda"
+                  title="Kirim notifikasi tes untuk memastikan banner dan suara muncul di HP Anda"
                 >
                   {isTestingPush ? (
                     <>
@@ -560,26 +560,27 @@ export default function NotificationCenter({ isFloating = false, className = '' 
                     </>
                   ) : (
                     <>
-                      <span>🧪 Tes Banner HP</span>
+                      <span>🧪 Tes Suara / Banner</span>
                     </>
                   )}
                 </button>
               </div>
             ) : (
-              <div className="bg-amber-50 px-3.5 py-2 border-b border-amber-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 px-3.5 py-2.5 border-b border-emerald-200 flex items-center justify-between gap-2 shrink-0">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-bold text-amber-900 flex items-center gap-1">
-                    <span>🔔</span> Izin Banner HP Belum Aktif
+                  <p className="text-[10px] font-bold text-emerald-950 flex items-center gap-1">
+                    <span>🔔</span> Notifikasi Belum Aktif
                   </p>
-                  <p className="text-[9px] text-amber-700 leading-tight">
-                    Aktifkan agar banner jadwal baru muncul di HP.
+                  <p className="text-[9px] text-emerald-700 leading-tight">
+                    Aktifkan agar jadwal baru meluncur ke HP Anda.
                   </p>
                 </div>
                 <button
                   onClick={handleReSubscribe}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-[10px] font-bold shrink-0 cursor-pointer shadow-xs active:scale-95 transition-all"
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shrink-0 cursor-pointer shadow-sm active:scale-95 transition-all flex items-center gap-1"
                 >
-                  Izinkan
+                  <span>🔔</span>
+                  <span>Izinkan Notif Banner</span>
                 </button>
               </div>
             )}
