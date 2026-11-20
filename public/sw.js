@@ -1,5 +1,5 @@
-// AksaraSync AI - Service Worker v7 (Web Push VAPID Key Re-Pair & Multi-Device Broadcast)
-const CACHE_NAME = 'aksarasync-v7';
+// AksaraSync AI - Service Worker v8 (Rich Activity-based Notification Narratives)
+const CACHE_NAME = 'aksarasync-v8';
 const STATIC_ASSETS = ['/', '/index.html', '/logo-AksaraSyncAI.png', '/custom-notification.mp3'];
 
 // ── Install: pre-cache static assets ──────────────────────────────────────

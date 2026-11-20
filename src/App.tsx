@@ -24,7 +24,7 @@ import NotificationCenter from './components/NotificationCenter';
 import AttendanceModule from './components/AttendanceModule';
 import PenomoranModule from './components/PenomoranModule';
 import { safeIsoDate } from './lib/dateUtils';
-import { sendPushNotification } from './lib/pushNotifier';
+import { sendPushNotification, formatScheduleNotification } from './lib/pushNotifier';
 
 const INITIAL_MANPOWER: Manpower[] = [
   { id: 'm1',  name: 'Angga',    role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
@@ -761,14 +761,26 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         const savedId = editingSchedule.id;
         setEditingSchedule(null);
 
+        // Format narasi kaya dan detail sesuai jenis agenda
+        const notifMeta = formatScheduleNotification(
+          { ...scheduleData, id: savedId },
+          'UPDATE',
+          manpowerList,
+          units
+        );
+
         // Broadcast Web Push to all devices
         sendPushNotification({
           table: 'schedules',
           type: 'UPDATE',
+          title: notifMeta.title,
+          body: notifMeta.body,
+          tag: notifMeta.tag,
           record: {
-            client_name: scheduleData.client_name,
-            agenda_type: scheduleData.agenda_type || 'Riksa Uji',
-            status: scheduleData.status
+            ...scheduleData,
+            title: notifMeta.title,
+            body: notifMeta.body,
+            id: savedId
           }
         }).catch(() => {});
 
@@ -792,18 +804,32 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
         setIsFormOpen(false);
 
+        const newId = data?.[0]?.id;
+
+        // Format narasi kaya dan detail sesuai jenis agenda
+        const notifMeta = formatScheduleNotification(
+          { ...scheduleData, id: newId },
+          'INSERT',
+          manpowerList,
+          units
+        );
+
         // Broadcast Web Push to all devices
         sendPushNotification({
           table: 'schedules',
           type: 'INSERT',
+          title: notifMeta.title,
+          body: notifMeta.body,
+          tag: notifMeta.tag,
           record: {
-            client_name: scheduleData.client_name,
-            agenda_type: scheduleData.agenda_type || 'Riksa Uji',
-            status: scheduleData.status
+            ...scheduleData,
+            title: notifMeta.title,
+            body: notifMeta.body,
+            id: newId
           }
         }).catch(() => {});
 
-        return data?.[0]?.id;
+        return newId;
       }
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);

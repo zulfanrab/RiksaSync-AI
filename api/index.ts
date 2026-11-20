@@ -1048,25 +1048,99 @@ app.post('/api/push-send', async (req, res) => {
       body = payload.body;
       tag = payload.tag || 'aksarasync-custom';
     } else if (table === 'schedules') {
-      const clientName = record.client_name || 'Klien';
+      const clientName = (record.client_name || 'Klien').trim();
       const agendaType = record.agenda_type || 'Riksa Uji';
+      const status = record.status || 'Scheduled';
+
+      const bulanId = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      const bulanShort = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+      const fmtDate = (d?: string) => {
+        if (!d) return '';
+        const p = d.split('-');
+        if (p.length < 3) return d;
+        const m = parseInt(p[1], 10) - 1;
+        return `${parseInt(p[2], 10)} ${bulanId[m] || p[1]} ${p[0]}`;
+      };
+      const fmtDateShort = (d?: string) => {
+        if (!d) return '';
+        const p = d.split('-');
+        if (p.length < 3) return d;
+        const m = parseInt(p[1], 10) - 1;
+        return `${parseInt(p[2], 10)} ${bulanShort[m] || p[1]}`;
+      };
+
+      const startDate = record.start_date || '';
+      const endDate = record.end_date || '';
+      let dateStr = startDate ? fmtDate(startDate) : 'Tanggal belum diatur';
+      if (startDate && endDate) {
+        if (startDate === endDate) {
+          dateStr = fmtDate(startDate);
+        } else {
+          dateStr = `${fmtDateShort(startDate)} - ${fmtDate(endDate)}`;
+        }
+      }
+
+      let timeStr = '08:00 WIB';
+      if (record.is_until_finished) {
+        timeStr = `${record.start_time || '08:00'} WIB - Selesai`;
+      } else if (record.start_time && record.end_time) {
+        timeStr = `${record.start_time} - ${record.end_time} WIB`;
+      } else if (record.start_time) {
+        timeStr = `${record.start_time} WIB`;
+      }
+
+      const leadName = record.lead_expert_name || (record.lead_expert_id ? 'Ahli K3' : '');
+      const supportNames = Array.isArray(record.support_names) ? record.support_names : [];
+      let timStr = '';
+      if (leadName && supportNames.length > 0) {
+        timStr = `${leadName} (Lead), ${supportNames.join(', ')}`;
+      } else if (leadName) {
+        timStr = `${leadName} (Lead)`;
+      } else if (supportNames.length > 0) {
+        timStr = supportNames.join(', ');
+      } else {
+        timStr = 'Tim Lapangan';
+      }
+
+      let unitStr = '';
+      if (Array.isArray(record.unit_descriptions) && record.unit_descriptions.length > 0) {
+        unitStr = record.unit_descriptions.filter(Boolean).slice(0, 3).join(', ');
+      }
+
       if (eventType === 'INSERT') {
-        title = '📅 Agenda Baru Masuk!';
-        body = `[${agendaType}] ${clientName} — Jadwal baru telah ditambahkan.`;
-        tag = 'aksarasync-schedule-new';
+        if (agendaType === 'Riksa Uji') {
+          title = `⚙️ Riksa Uji Baru: ${clientName}`;
+          body = `📅 ${dateStr} (${timeStr}) • Tim: ${timStr}${record.pic_name ? ` • PIC: ${record.pic_name}` : ''}${unitStr ? ` • Unit: ${unitStr}` : ''}`;
+          tag = 'aksarasync-schedule-riksa';
+        } else if (agendaType === 'Meeting') {
+          title = `🤝 Agenda Meeting: ${clientName}`;
+          const loc = record.location || record.client_address || 'Kantor Klien';
+          body = `📅 ${dateStr} (${timeStr}) • Lokasi: ${loc} • Tim: ${timStr}${record.pic_name ? ` • PIC: ${record.pic_name}` : ''}`;
+          tag = 'aksarasync-schedule-meeting';
+        } else if (agendaType === 'Survey') {
+          title = `🔍 Survey Lapangan: ${clientName}`;
+          const loc = record.location || record.client_address || 'Site Klien';
+          body = `📅 ${dateStr} (${timeStr}) • Lokasi: ${loc} • Surveyor: ${timStr}${record.pic_name ? ` • PIC: ${record.pic_name}` : ''}`;
+          tag = 'aksarasync-schedule-survey';
+        } else {
+          const label = record.manual_agenda || 'Agenda Baru';
+          title = `📌 ${label}: ${clientName}`;
+          const loc = record.location || record.client_address;
+          body = `📅 ${dateStr} (${timeStr}) • Klien: ${clientName} • Tim: ${timStr}${loc ? ` • Lokasi: ${loc}` : ''}`;
+          tag = 'aksarasync-schedule-other';
+        }
       } else if (eventType === 'UPDATE') {
-        const status = record.status || '';
         if (status === 'Completed') {
-          title = '✅ Agenda Selesai!';
-          body = `Pengerjaan untuk ${clientName} telah selesai.`;
+          title = `✅ Selesai: ${clientName} [${agendaType}]`;
+          body = `Pekerjaan ${agendaType} untuk ${clientName} telah rampung diselesaikan oleh tim (${timStr}).`;
           tag = 'aksarasync-schedule-done';
         } else if (status === 'Cancelled') {
-          title = '⚠️ Agenda Dibatalkan';
-          body = `Jadwal [${agendaType}] ${clientName} dibatalkan.`;
+          title = `⚠️ Dibatalkan: ${clientName} [${agendaType}]`;
+          body = `Agenda ${agendaType} pada ${dateStr} untuk ${clientName} resmi dibatalkan.`;
           tag = 'aksarasync-schedule-cancel';
         } else {
-          title = '🔄 Agenda Diperbarui';
-          body = `Jadwal ${clientName} (${agendaType}) telah diperbarui.`;
+          title = `🔄 Reschedule: ${clientName} [${agendaType}]`;
+          body = `Jadwal ${agendaType} dialihkan ke tanggal ${dateStr} (${timeStr}) • Tim: ${timStr}. Mohon cek kalender kerja.`;
           tag = 'aksarasync-schedule-update';
         }
       }
@@ -1094,7 +1168,7 @@ app.post('/api/push-send', async (req, res) => {
       const { error: logError } = await supa.from('notifications_log').insert([{
         title: title,
         message: body,
-        priority: tag === 'aksarasync-schedule-new' ? 'P1' : (tag === 'aksarasync-absence' ? 'P2' : 'P3'),
+        priority: payload.priority || (tag && tag.includes('cancel') ? 'P1' : (tag && (tag.includes('riksa') || tag.includes('meeting') || tag.includes('survey')) ? 'P2' : 'P3')),
         is_read: false
       }]);
       if (logError) console.error('[Push] Failed to log notification:', logError.message);

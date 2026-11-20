@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, Check, X, BellRing, Inbox, Download, Smartphone, RefreshCw, Send } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { sendPushNotification } from '../lib/pushNotifier';
+import { sendPushNotification, formatScheduleNotification } from '../lib/pushNotifier';
 import { AnimatePresence, motion } from 'motion/react';
 
 export interface AppNotification {
@@ -344,37 +344,18 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
           if (!schedule || !schedule.id) return;
 
-          let title = '';
-          let message = '';
-          let priority = schedule.priority || 'P3';
-
-          if (eventType === 'INSERT') {
-            title = '📅 Agenda Baru Masuk!';
-            message = `[${schedule.agenda_type || 'Riksa Uji'}] ${schedule.client_name || 'Klien Baru'} oleh ${schedule.pic_name || 'Tim'}.`;
-          } else if (eventType === 'UPDATE') {
-            if (schedule.status === 'Completed') {
-              title = '✅ Agenda Selesai!';
-              message = `Pengerjaan untuk ${schedule.client_name} telah selesai dilaksanakan.`;
-              priority = 'P3';
-            } else if (schedule.status === 'Cancelled') {
-              title = '⚠️ Agenda Dibatalkan';
-              message = `Jadwal [${schedule.agenda_type || 'Riksa Uji'}] ${schedule.client_name} dibatalkan.`;
-              priority = 'P1';
-            } else {
-              title = '🔄 Agenda Reschedule / Diperbarui';
-              message = `Jadwal ${schedule.client_name} (${schedule.agenda_type || 'Riksa Uji'}) diperbarui ke tanggal ${schedule.start_date}.`;
-            }
-          } else {
-            return; // Ignore deletes
-          }
+          const notifMeta = formatScheduleNotification(
+            schedule,
+            eventType === 'UPDATE' ? 'UPDATE' : 'INSERT'
+          );
 
           const notif: AppNotification = {
             id: `notif_${Date.now()}_${schedule.id}`,
-            title,
-            message,
+            title: notifMeta.title,
+            message: notifMeta.body,
             timestamp: new Date().toISOString(),
             read: false,
-            priority,
+            priority: notifMeta.priority,
           };
 
           setNotifications(prev => [notif, ...prev]);
