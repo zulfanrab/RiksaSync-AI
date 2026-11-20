@@ -49,6 +49,7 @@ export default function SuratTugasModal({
 
   // ── STATE FORM ──────────────────────────────────────────────────────────────
   const [nomorUrut, setNomorUrut] = useState<number>(1);
+  const [jenisKegiatan, setJenisKegiatan] = useState<string>('Riksa Uji');
   const [detailUnit, setDetailUnit] = useState<string>('');
   const [picName, setPicName] = useState<string>('');
   const [picPhone, setPicPhone] = useState<string>('');
@@ -67,6 +68,12 @@ export default function SuratTugasModal({
     // Nomor urut tersimpan atau counter baru
     const initialNomor = getStoredNomorUrut(schedule.id);
     setNomorUrut(initialNomor);
+
+    // Jenis Kegiatan / Agenda (prioritaskan manual_agenda jika tipe Lainnya)
+    const initialJenis = schedule.agenda_type === 'Lainnya'
+      ? (schedule.manual_agenda?.trim() || 'Lainnya')
+      : (schedule.agenda_type?.trim() || 'Riksa Uji');
+    setJenisKegiatan(initialJenis);
 
     // Detail Unit
     const initialUnit = schedule.unit_descriptions && schedule.unit_descriptions.length > 0
@@ -109,6 +116,7 @@ export default function SuratTugasModal({
   const getGeneratorOptions = () => ({
     nomorUrut,
     customNomorSurat: nomorSuratST,
+    jenisAgenda: jenisKegiatan.trim() || (schedule.agenda_type === 'Lainnya' ? (schedule.manual_agenda || 'Lainnya') : (schedule.agenda_type || 'Riksa Uji')),
     detailUnit,
     picName,
     picPhone,
@@ -163,7 +171,7 @@ export default function SuratTugasModal({
                 Cetak Surat Tugas & SPPD
               </h3>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                {schedule.client_name} • {formatTanggalIndonesia(schedule.start_date)}
+                {schedule.client_name} • <span className="font-semibold text-blue-600">{schedule.agenda_type === 'Lainnya' ? (schedule.manual_agenda || 'Lainnya') : (schedule.agenda_type || 'Riksa Uji')}</span> • {formatTanggalIndonesia(schedule.start_date)}
               </p>
             </div>
           </div>
@@ -276,6 +284,28 @@ export default function SuratTugasModal({
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
               Detail Dokumen Penugasan
             </span>
+
+            {/* Jenis Kegiatan / Agenda Penugasan */}
+            <div>
+              <label className="text-[11px] font-bold text-slate-600 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <FileText className="h-3 w-3 text-slate-400" />
+                  <span>Jenis Kegiatan / Agenda Penugasan</span>
+                </span>
+                {schedule.agenda_type === 'Lainnya' && (
+                  <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                    Agenda Manual
+                  </span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={jenisKegiatan}
+                onChange={(e) => setJenisKegiatan(e.target.value)}
+                className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                placeholder="Contoh: Riksa Uji, Survey Lapangan, Training K3, Meeting..."
+              />
+            </div>
 
             {/* Objek Pemeriksaan */}
             <div>

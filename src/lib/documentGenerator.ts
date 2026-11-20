@@ -450,6 +450,7 @@ export function saveStoredNomorUrut(scheduleId: string, nomorUrut: number): void
 export interface GenerateDocOptions {
   nomorUrut?: number;
   customNomorSurat?: string;
+  jenisAgenda?: string;
   detailUnit?: string;
   picName?: string;
   picPhone?: string;
@@ -637,12 +638,18 @@ function buildPayload(
   const alamatKlien = options.clientAddress ?? (schedule.client_address || schedule.location || '-');
   const kotaTujuan = options.kotaTujuan ?? extractKotaTujuan(alamatKlien || schedule.client_name || '');
 
+  const jenisAgenda = options.jenisAgenda?.trim() || (
+    schedule.agenda_type === 'Lainnya'
+      ? (schedule.manual_agenda?.trim() || 'Lainnya')
+      : (schedule.agenda_type?.trim() || 'Riksa Uji')
+  );
+
   return {
     payload: {
       NOMOR_SURAT_AUTO: nomorSuratAuto,
       NOMOR_SURAT_SPPD: nomorSuratSppd,
       PERSONNELS: personnelsList,
-      JENIS_AGENDA: schedule.agenda_type || 'Riksa Uji',
+      JENIS_AGENDA: jenisAgenda,
       DETAIL_UNIT: detailUnit,
       NAMA_KLIEN: schedule.client_name || '-',
       PIC_LAPANGAN: picName,

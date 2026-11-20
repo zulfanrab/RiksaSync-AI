@@ -538,6 +538,10 @@ export default function ScheduleForm({
       if (!leadExpertId) return alert('Mohon tentukan Lead Expert');
     }
 
+    if (agendaType === 'Lainnya' && !manualAgenda.trim()) {
+      return alert('Mohon isi nama kegiatan manual untuk jenis agenda Lainnya');
+    }
+
     // Save to local storage history on submit
     const newItems = unitDescriptions.filter(val => val.trim() !== '');
     if (newItems.length > 0) {
@@ -600,7 +604,7 @@ export default function ScheduleForm({
         priority,
         status,
         agenda_type: agendaType,
-        manual_agenda: agendaType === 'Lainnya' ? manualAgenda : undefined,
+        manual_agenda: agendaType === 'Lainnya' ? manualAgenda.trim() : undefined,
         is_until_finished: isUntilFinished,
         location: location || clientAddress.trim() || undefined
       });
