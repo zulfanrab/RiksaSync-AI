@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, X, BellRing, Inbox, Download, Smartphone, RefreshCw } from 'lucide-react';
+import { Bell, Check, X, BellRing, Inbox, Download, Smartphone, RefreshCw, Send } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { sendPushNotification } from '../lib/pushNotifier';
 import { AnimatePresence, motion } from 'motion/react';
 
 export interface AppNotification {
@@ -121,9 +122,11 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   const showInstallCard = !isAppInstalled && (installPrompt !== null || isIOS);
 
   // --- Web Push Subscription Logic ---
+  const [isTestingPush, setIsTestingPush] = useState(false);
+
   const subscribeToWebPush = async () => {
     try {
-      if (!('Notification' in window)) return;
+      if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
       const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
       if (!vapidPublicKey) {
         console.warn('[Push] VITE_VAPID_PUBLIC_KEY not set. Web Push not available.');
@@ -133,18 +136,8 @@ export default function NotificationCenter({ isFloating = false, className = '' 
       const registration = await navigator.serviceWorker.ready;
 
       // Check if already subscribed
-      const existingSub = await registration.pushManager.getSubscription();
-      if (existingSub) {
-        // Already subscribed — sync to server (in case server lost it)
-        await fetch('/api/push-subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(existingSub.toJSON()),
-        }).catch(() => {});
-        return;
-      }
-
-      // Convert VAPID public key from base64 to Uint8Array
+      let subscription = await registration.pushManager.getSubscription();
+      
       const urlBase64ToUint8Array = (base64String: string) => {
         const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
         const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -152,37 +145,36 @@ export default function NotificationCenter({ isFloating = false, className = '' 
         return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
       };
 
-      // Subscribe to push
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-      });
+      if (!subscription) {
+        // Subscribe to push
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
+      }
 
-      // Send subscription to server
+      // Always sync subscription to server (in case Supabase lost it or re-deployed)
       await fetch('/api/push-subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subscription.toJSON()),
-      });
+      }).catch((e) => console.warn('[Push] Sync error:', e));
 
-      console.log('[Push] Successfully subscribed to Web Push.');
+      console.log('[Push] Successfully subscribed & synced to Web Push.');
+      return true;
     } catch (err) {
       console.warn('[Push] Web Push subscription failed:', err);
+      return false;
     }
   };
 
   const handleReSubscribe = async () => {
     try {
-      if (!('Notification' in window)) return;
-      const registration = await navigator.serviceWorker.ready;
-      const existingSub = await registration.pushManager.getSubscription();
-      
-      if (existingSub) {
-        await existingSub.unsubscribe();
-        console.log('[Push] Unsubscribed existing subscription for a fresh sync.');
+      if (!('Notification' in window)) {
+        alert('Browser Anda tidak mendukung Web Push Notification.');
+        return;
       }
       
-      // Request permission again if needed and subscribe (safely handles both Promise & callback for Safari/iOS)
       let p: NotificationPermission = 'default';
       try {
         p = await new Promise<NotificationPermission>((resolve) => {
@@ -199,13 +191,55 @@ export default function NotificationCenter({ isFloating = false, className = '' 
       setPermission(p);
       if (p === 'granted') {
         await subscribeToWebPush();
-        alert('Sinkronisasi Notifikasi Latar Belakang berhasil! Coba test sekarang.');
+        alert('Izin notifikasi berhasil diberikan! Sekarang banner akan meluncur di layar HP Anda saat ada pembaruan.');
       } else {
-        alert('Gagal mengaktifkan notifikasi: Izin diblokir browser.');
+        alert('Gagal mengaktifkan notifikasi: Izin belum diberikan di browser Anda.');
       }
     } catch (e) {
       console.error('[Push] Force sync failed:', e);
       alert('Gagal menyinkronkan notifikasi.');
+    }
+  };
+
+  const handleSendTestPush = async () => {
+    setIsTestingPush(true);
+    try {
+      // 1. Tampilkan notifikasi langsung via Service Worker
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification('🔔 AksaraSync AI (Tes Banner)', {
+            body: 'Tes Berhasil! Notifikasi banner HP Anda berfungsi normal dan aktif. 🎉',
+            icon: '/logo-AksaraSyncAI.png',
+            badge: '/logo-AksaraSyncAI.png',
+            vibrate: [200, 100, 200],
+            tag: 'aksarasync-test-local',
+            data: { url: '/' }
+          } as any);
+        } catch (swErr) {
+          console.warn('[Push Test Local SW Warn]', swErr);
+        }
+      }
+
+      playNotificationSound();
+
+      // 2. Kirim sinyal push ke server backend
+      const result = await sendPushNotification({
+        type: 'TEST',
+        title: '🔔 AksaraSync AI (Tes Banner)',
+        body: 'Tes Berhasil! Notifikasi banner HP Anda berfungsi normal dan aktif. 🎉'
+      });
+
+      if (result && result.success) {
+        alert('Notifikasi tes berhasil dikirim! Periksa banner/status bar di bagian atas HP Anda.');
+      } else {
+        alert('Notifikasi tes berhasil dipicu di layar Anda!');
+      }
+    } catch (err: any) {
+      console.error('[Push Test Error]', err);
+      alert('Gagal memicu tes notifikasi: ' + (err?.message || 'Error'));
+    } finally {
+      setIsTestingPush(false);
     }
   };
 
@@ -461,7 +495,7 @@ export default function NotificationCenter({ isFloating = false, className = '' 
             transition={{ duration: 0.15 }}
             className={isFloating
               ? "fixed bottom-22 right-4 left-4 max-w-md md:absolute md:bottom-auto md:top-full md:right-0 md:left-auto md:w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 text-left"
-              : "absolute top-full right-0 mt-3 w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 origin-top-right text-left"
+              : "fixed inset-x-3 top-14 max-w-sm ml-auto sm:static sm:w-80 sm:inset-auto sm:absolute sm:top-full sm:right-0 sm:mt-3 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 origin-top-right text-left"
             }
           >
             {/* Header */}
@@ -496,6 +530,50 @@ export default function NotificationCenter({ isFloating = false, className = '' 
                 </button>
               </div>
             </div>
+
+            {/* Banner HP Status / Test Action Bar */}
+            {permission === 'granted' ? (
+              <div className="bg-emerald-50/80 px-3.5 py-2 border-b border-emerald-100 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-emerald-800">Banner HP Aktif</span>
+                </div>
+                <button
+                  onClick={handleSendTestPush}
+                  disabled={isTestingPush}
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs active:scale-95 disabled:opacity-50"
+                  title="Kirim notifikasi tes untuk memastikan banner muncul di HP Anda"
+                >
+                  {isTestingPush ? (
+                    <>
+                      <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                      <span>Mengirim...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🧪 Tes Banner HP</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="bg-amber-50 px-3.5 py-2 border-b border-amber-200 flex items-center justify-between gap-2 shrink-0">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold text-amber-900 flex items-center gap-1">
+                    <span>🔔</span> Izin Banner HP Belum Aktif
+                  </p>
+                  <p className="text-[9px] text-amber-700 leading-tight">
+                    Aktifkan agar banner jadwal baru muncul di HP.
+                  </p>
+                </div>
+                <button
+                  onClick={handleReSubscribe}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-[10px] font-bold shrink-0 cursor-pointer shadow-xs active:scale-95 transition-all"
+                >
+                  Izinkan
+                </button>
+              </div>
+            )}
 
             {/* Notification List */}
             <div className="max-h-[45vh] overflow-y-auto scrollbar-thin bg-white flex-1 p-0">
@@ -603,13 +681,6 @@ export default function NotificationCenter({ isFloating = false, className = '' 
                 </div>
               )}
             </div>
-            
-            {/* Permission Alert (Optional) */}
-            {permission !== 'granted' && (
-              <div className="bg-amber-50 p-2 text-[9px] font-medium text-amber-800 border-t border-amber-100 shrink-0 text-center">
-                Izin Push Notifikasi belum diberikan.
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

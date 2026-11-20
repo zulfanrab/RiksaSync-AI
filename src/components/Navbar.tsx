@@ -44,8 +44,8 @@ export default function Navbar({
 
         {/* Integration Status & Actions */}
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-          {/* Notification Center */}
-          <NotificationCenter className="hidden md:block" />
+          {/* Notification Center (Tampil di Desktop & HP) */}
+          <NotificationCenter />
 
           {/* Guide Button */}
           <button

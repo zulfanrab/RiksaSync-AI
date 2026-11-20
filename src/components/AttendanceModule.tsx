@@ -16,6 +16,7 @@ import {
   formatDurationHours
 } from '../lib/dateUtils';
 import AttendanceRecapModule, { isAllowedAttendanceAdmin, ManualAttendanceNote } from './AttendanceRecapModule';
+import { sendPushNotification } from '../lib/pushNotifier';
 import {
   FileText,
   Camera,
@@ -381,6 +382,17 @@ export default function AttendanceModule({
     .filter((r) => r.type === 'Pulang')
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const todayPulang = allTodayPulang[allTodayPulang.length - 1] || null;
+
+  // Sinkronisasi status sudah absen hari ini ke penyimpanan lokal untuk tombol melayang mobile
+  useEffect(() => {
+    if (todayMasuk && (activeUser || currentManpower?.name)) {
+      const u = (activeUser || currentManpower?.name || '').toLowerCase().trim();
+      try {
+        localStorage.setItem(`aksara_attended_${todayStr}_${u}`, 'true');
+        window.dispatchEvent(new Event('aksara_attendance_updated'));
+      } catch (e) {}
+    }
+  }, [todayMasuk, activeUser, currentManpower?.name, todayStr]);
 
   // Pelacakan Sesi Masuk Aktif & Durasi Kerja (Support Shift Malam lintas hari)
   const activeMasuk = useMemo(() => {
@@ -1180,7 +1192,19 @@ export default function AttendanceModule({
       const existing = JSON.parse(localStorage.getItem('local_attendance_logs') || '[]');
       const updated = [newRecord, ...existing.slice(0, 99)];
       localStorage.setItem('local_attendance_logs', JSON.stringify(updated));
+      const u = (newRecord.employee_name || activeUser || '').toLowerCase().trim();
+      if (u) {
+        localStorage.setItem(`aksara_attended_${todayStr}_${u}`, 'true');
+      }
+      window.dispatchEvent(new Event('aksara_attendance_updated'));
     } catch (e) {}
+
+    // 5. Broadcast Web Push notification ke seluruh perangkat tim
+    sendPushNotification({
+      title: `📍 Presensi ${attendanceType}: ${newRecord.employee_name}`,
+      body: `${newRecord.employee_name} telah melakukan absen ${attendanceType} pada ${newRecord.time} WIB.`,
+      tag: 'aksarasync-attendance'
+    }).catch(() => {});
 
     setHistory((prev) => [newRecord, ...prev]);
     setSubmitting(false);

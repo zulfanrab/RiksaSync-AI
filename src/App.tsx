@@ -24,6 +24,7 @@ import NotificationCenter from './components/NotificationCenter';
 import AttendanceModule from './components/AttendanceModule';
 import PenomoranModule from './components/PenomoranModule';
 import { safeIsoDate } from './lib/dateUtils';
+import { sendPushNotification } from './lib/pushNotifier';
 
 const INITIAL_MANPOWER: Manpower[] = [
   { id: 'm1',  name: 'Angga',    role: 'Leader & Ahli Utama', status: 'internal', skp: ['PTP', 'PAA', 'Elevator', 'Eskalator'] },
@@ -116,7 +117,7 @@ const saveLocalSchedules = (list: Schedule[]) => {
 };
 
 export default function App() {
-  const { activeUser, loading, logout, error: authError } = useUser();
+  const { activeUser, activeUserEmail, loading, logout, error: authError } = useUser();
 
   // Database States
   const [manpowerList, setManpowerList] = useState<Manpower[]>([]);
@@ -129,6 +130,79 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'links' | 'attendance' | 'penomoran'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Deteksi status absensi user hari ini (WIB) untuk tombol melayang mobile
+  const [hasAttendedToday, setHasAttendedToday] = useState(false);
+
+  useEffect(() => {
+    const checkTodayAttendance = () => {
+      try {
+        const todayWib = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(new Date());
+
+        const username = activeUser ? activeUser.toLowerCase().trim() : '';
+
+        // 1. Cek dari direct flag
+        if (username && localStorage.getItem(`aksara_attended_${todayWib}_${username}`) === 'true') {
+          setHasAttendedToday(true);
+          return;
+        }
+
+        // 2. Cek apakah ada record di local_attendance_logs
+        const rawLogs = localStorage.getItem('local_attendance_logs');
+        if (rawLogs && username) {
+          const logs = JSON.parse(rawLogs);
+          const found = logs.some((l: any) => {
+            const lDate = l.timestamp ? new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'Asia/Jakarta',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            }).format(new Date(l.timestamp)) : l.date;
+            const matchName = l.employee_name && l.employee_name.toLowerCase().trim() === username;
+            const matchEmail = activeUserEmail && l.email && l.email.toLowerCase().trim() === activeUserEmail.toLowerCase().trim();
+            return lDate === todayWib && (matchName || matchEmail) && l.type === 'Masuk';
+          });
+          if (found) {
+            setHasAttendedToday(true);
+            return;
+          }
+        }
+
+        // 3. Cek apakah user sedang Sakit/Cuti/Izin di tabel absences
+        if (username && manpowerList && absences) {
+          const currentManpower = manpowerList.find(
+            (m) => m.name.toLowerCase().trim() === username
+          );
+          if (currentManpower) {
+            const hasLeave = absences.some(
+              (a) => a.manpower_id === currentManpower.id && a.date === todayWib
+            );
+            if (hasLeave) {
+              setHasAttendedToday(true);
+              return;
+            }
+          }
+        }
+
+        setHasAttendedToday(false);
+      } catch (e) {
+        setHasAttendedToday(false);
+      }
+    };
+
+    checkTodayAttendance();
+    window.addEventListener('storage', checkTodayAttendance);
+    window.addEventListener('aksara_attendance_updated', checkTodayAttendance);
+    return () => {
+      window.removeEventListener('storage', checkTodayAttendance);
+      window.removeEventListener('aksara_attendance_updated', checkTodayAttendance);
+    };
+  }, [activeUser, activeUserEmail, manpowerList, absences]);
 
   // System status
   const [supabaseConnected, setSupabaseConnected] = useState(false);
@@ -686,6 +760,18 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         setIsFormOpen(false);
         const savedId = editingSchedule.id;
         setEditingSchedule(null);
+
+        // Broadcast Web Push to all devices
+        sendPushNotification({
+          table: 'schedules',
+          type: 'UPDATE',
+          record: {
+            client_name: scheduleData.client_name,
+            agenda_type: scheduleData.agenda_type || 'Riksa Uji',
+            status: scheduleData.status
+          }
+        }).catch(() => {});
+
         return savedId;
       } else {
         // Add flow (or edit local flow)
@@ -705,6 +791,18 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         await loadAllData();
         setSummaryTrigger(p => p + 1); // trigger AI Summary recalculation
         setIsFormOpen(false);
+
+        // Broadcast Web Push to all devices
+        sendPushNotification({
+          table: 'schedules',
+          type: 'INSERT',
+          record: {
+            client_name: scheduleData.client_name,
+            agenda_type: scheduleData.agenda_type || 'Riksa Uji',
+            status: scheduleData.status
+          }
+        }).catch(() => {});
+
         return data?.[0]?.id;
       }
     } catch (err: any) {
@@ -1501,8 +1599,8 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         <p className="mt-1 text-slate-500">Dikembangkan khusus sebagai Solusi Manajemen Sumber Daya PJK3</p>
       </footer>
 
-      {/* Mobile Floating Quick Action (Jika belum absen hari ini) */}
-      {activeTab !== 'attendance' && (
+      {/* Mobile Floating Quick Action (HANYA tampil jika user BELUM absen hari ini) */}
+      {activeTab !== 'attendance' && !hasAttendedToday && (
         <div className="md:hidden fixed bottom-18 left-1/2 -translate-x-1/2 z-40 animate-bounce">
           <button
             onClick={() => setActiveTab('attendance')}
@@ -1569,9 +1667,6 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
           <span>Nomor</span>
         </button>
       </nav>
-
-      {/* Floating Mobile Notification Center */}
-      <NotificationCenter isFloating={true} className="hidden" />
     </div>
   );
 }

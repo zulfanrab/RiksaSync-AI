@@ -1,5 +1,5 @@
-// AksaraSync AI - Service Worker v5 (WIB Format, Until Finished Dispatch & Surat Tugas Fix)
-const CACHE_NAME = 'aksarasync-v5';
+// AksaraSync AI - Service Worker v6 (Web Push Banner HP & Mobile Nav Sync)
+const CACHE_NAME = 'aksarasync-v6';
 const STATIC_ASSETS = ['/', '/index.html', '/logo-AksaraSyncAI.png', '/custom-notification.mp3'];
 
 // ── Install: pre-cache static assets ──────────────────────────────────────

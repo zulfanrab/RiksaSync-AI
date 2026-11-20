@@ -1017,11 +1017,19 @@ app.post('/api/push-subscribe', async (req, res) => {
 // Fetches all stored subscriptions and sends push to every device.
 app.post('/api/push-send', async (req, res) => {
   try {
-    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-      return res.status(500).json({ error: 'VAPID keys not configured.' });
+    const pubKey = process.env.VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY;
+    const privKey = process.env.VAPID_PRIVATE_KEY || VAPID_PRIVATE_KEY;
+    const subject = process.env.VAPID_SUBJECT || VAPID_SUBJECT || 'mailto:admin@aksarasync.com';
+
+    if (!pubKey || !privKey) {
+      return res.status(500).json({ error: 'VAPID keys not configured in server environment.' });
     }
 
-    const payload = req.body;
+    try {
+      webpush.setVapidDetails(subject, pubKey, privKey);
+    } catch (e) {}
+
+    const payload = req.body || {};
     const table = payload?.table || 'schedules';
     const record = payload?.record || payload?.new || {};
     const eventType = payload?.type || 'INSERT';
@@ -1029,9 +1037,17 @@ app.post('/api/push-send', async (req, res) => {
     // Build notification content based on event
     let title = '🔔 AksaraSync AI';
     let body = 'Ada pembaruan baru di database.';
-    let tag = 'aksarasync-general';
+    let tag = payload?.tag || 'aksarasync-general';
 
-    if (table === 'schedules') {
+    if (payload?.type === 'TEST' || payload?.action === 'test') {
+      title = payload?.title || '🔔 Tes Notifikasi AksaraSync AI';
+      body = payload?.body || 'Mantap! Notifikasi banner HP Anda berhasil terhubung dan aktif! 🎉';
+      tag = 'aksarasync-test';
+    } else if (payload?.title && payload?.body) {
+      title = payload.title;
+      body = payload.body;
+      tag = payload.tag || 'aksarasync-custom';
+    } else if (table === 'schedules') {
       const clientName = record.client_name || 'Klien';
       const agendaType = record.agenda_type || 'Riksa Uji';
       if (eventType === 'INSERT') {
