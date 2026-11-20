@@ -980,10 +980,10 @@ app.post('/api/push-subscribe', async (req, res) => {
     }
 
     const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
-    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
 
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: 'Supabase not configured on server.' });
+      return res.status(500).json({ error: 'Supabase credentials not configured on server.' });
     }
 
     const supa = createClient(supabaseUrl, supabaseKey);
@@ -1000,11 +1000,11 @@ app.post('/api/push-subscribe', async (req, res) => {
     );
 
     if (error) {
-      console.error('[Push] Failed to save subscription:', error.message);
-      return res.status(500).json({ error: error.message });
+      console.error('[Push] Failed to save subscription to Supabase:', error.message);
+      return res.status(500).json({ error: `Gagal menyimpan ke push_subscriptions: ${error.message}` });
     }
 
-    console.log('[Push] Subscription saved:', subscription.endpoint.substring(0, 60) + '...');
+    console.log('[Push] Subscription saved successfully:', subscription.endpoint.substring(0, 60) + '...');
     res.json({ success: true, message: 'Subscription saved.' });
   } catch (err: any) {
     console.error('[Push] push-subscribe error:', err.message);
@@ -1081,10 +1081,10 @@ app.post('/api/push-send', async (req, res) => {
 
     // Fetch all subscriptions from Supabase
     const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
-    const supabaseKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
 
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: 'Supabase not configured on server.' });
+      return res.status(500).json({ error: 'Supabase credentials not configured on server.' });
     }
 
     const supa = createClient(supabaseUrl, supabaseKey);
@@ -1107,13 +1107,16 @@ app.post('/api/push-send', async (req, res) => {
       .select('*');
 
     if (fetchError) {
-      console.error('[Push] Failed to fetch subscriptions:', fetchError.message);
-      return res.status(500).json({ error: fetchError.message });
+      console.error('[Push] Failed to fetch subscriptions from push_subscriptions:', fetchError.message);
+      return res.status(500).json({ error: `Gagal membaca tabel push_subscriptions: ${fetchError.message}` });
     }
 
     if (!subscriptions || subscriptions.length === 0) {
-      return res.json({ success: true, sent: 0, message: 'No subscriptions found.' });
+      console.warn('[Push] Zero subscriptions found in push_subscriptions table.');
+      return res.json({ success: true, sent: 0, message: 'Belum ada perangkat yang terdaftar di database push_subscriptions.' });
     }
+
+    console.log(`[Push] Broadcasting to ${subscriptions.length} registered device(s)...`);
 
     // Send push to all subscriptions in parallel
     const results = await Promise.allSettled(
@@ -1125,6 +1128,7 @@ app.post('/api/push-send', async (req, res) => {
         try {
           await webpush.sendNotification(pushSub, pushPayload);
         } catch (pushErr: any) {
+          console.error('[Push Send Error for sub]:', pushErr.statusCode, pushErr.message);
           // Remove expired/invalid subscriptions (410 Gone)
           if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
             console.log('[Push] Removing expired subscription:', sub.endpoint.substring(0, 60));
@@ -1137,7 +1141,7 @@ app.post('/api/push-send', async (req, res) => {
     );
 
     const successCount = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`[Push] Sent to ${successCount}/${subscriptions.length} devices.`);
+    console.log(`[Push] Successfully sent to ${successCount}/${subscriptions.length} devices.`);
     res.json({ success: true, sent: successCount, total: subscriptions.length });
   } catch (err: any) {
     console.error('[Push] push-send error:', err.message);

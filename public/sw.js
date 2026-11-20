@@ -1,5 +1,5 @@
-// AksaraSync AI - Service Worker v6 (Web Push Banner HP & Mobile Nav Sync)
-const CACHE_NAME = 'aksarasync-v6';
+// AksaraSync AI - Service Worker v7 (Web Push VAPID Key Re-Pair & Multi-Device Broadcast)
+const CACHE_NAME = 'aksarasync-v7';
 const STATIC_ASSETS = ['/', '/index.html', '/logo-AksaraSyncAI.png', '/custom-notification.mp3'];
 
 // ── Install: pre-cache static assets ──────────────────────────────────────

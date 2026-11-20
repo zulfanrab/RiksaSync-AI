@@ -124,20 +124,19 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   // --- Web Push Subscription Logic ---
   const [isTestingPush, setIsTestingPush] = useState(false);
 
-  const subscribeToWebPush = async () => {
+  const subscribeToWebPush = async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+      if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+        return { success: false, error: 'Browser atau mode webview ini tidak mendukung Web Push.' };
+      }
       const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
       if (!vapidPublicKey) {
         console.warn('[Push] VITE_VAPID_PUBLIC_KEY not set. Web Push not available.');
-        return;
+        return { success: false, error: 'VITE_VAPID_PUBLIC_KEY belum terbaca di aplikasi.' };
       }
 
       const registration = await navigator.serviceWorker.ready;
 
-      // Check if already subscribed
-      let subscription = await registration.pushManager.getSubscription();
-      
       const urlBase64ToUint8Array = (base64String: string) => {
         const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
         const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -145,26 +144,39 @@ export default function NotificationCenter({ isFloating = false, className = '' 
         return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
       };
 
-      if (!subscription) {
-        // Subscribe to push
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
+      // Unsubscribe any stale previous subscription to ensure matching with new VAPID keys
+      const existingSub = await registration.pushManager.getSubscription();
+      if (existingSub) {
+        try {
+          await existingSub.unsubscribe();
+          console.log('[Push] Cleared old subscription to ensure fresh VAPID key sync.');
+        } catch (e) {}
       }
 
-      // Always sync subscription to server (in case Supabase lost it or re-deployed)
-      await fetch('/api/push-subscribe', {
+      // Fresh subscription with the current VAPID key
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      });
+
+      // Register subscription on backend
+      const res = await fetch('/api/push-subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subscription.toJSON()),
-      }).catch((e) => console.warn('[Push] Sync error:', e));
+      });
 
-      console.log('[Push] Successfully subscribed & synced to Web Push.');
-      return true;
-    } catch (err) {
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('[Push] /api/push-subscribe error:', resData);
+        return { success: false, error: resData.error || `HTTP ${res.status}` };
+      }
+
+      console.log('[Push] Successfully registered subscription on server:', resData);
+      return { success: true };
+    } catch (err: any) {
       console.warn('[Push] Web Push subscription failed:', err);
-      return false;
+      return { success: false, error: err?.message || String(err) };
     }
   };
 
@@ -190,8 +202,12 @@ export default function NotificationCenter({ isFloating = false, className = '' 
       }
       setPermission(p);
       if (p === 'granted') {
-        await subscribeToWebPush();
-        alert('Izin notifikasi berhasil diberikan! Sekarang banner akan meluncur di layar HP Anda saat ada pembaruan.');
+        const subRes = await subscribeToWebPush();
+        if (subRes.success) {
+          alert('✅ HP Anda berhasil didaftarkan ke server! Sekarang banner notifikasi akan meluncur ke HP ini.');
+        } else {
+          alert(`⚠️ Izin diberikan, tapi gagal mendaftarkan ke server: ${subRes.error}`);
+        }
       } else {
         alert('Gagal mengaktifkan notifikasi: Izin belum diberikan di browser Anda.');
       }
@@ -204,36 +220,29 @@ export default function NotificationCenter({ isFloating = false, className = '' 
   const handleSendTestPush = async () => {
     setIsTestingPush(true);
     try {
-      // 1. Tampilkan notifikasi langsung via Service Worker
-      if ('serviceWorker' in navigator) {
-        try {
-          const reg = await navigator.serviceWorker.ready;
-          await reg.showNotification('🔔 AksaraSync AI (Tes Banner)', {
-            body: 'Tes Berhasil! Notifikasi banner HP Anda berfungsi normal dan aktif. 🎉',
-            icon: '/logo-AksaraSyncAI.png',
-            badge: '/logo-AksaraSyncAI.png',
-            vibrate: [200, 100, 200],
-            tag: 'aksarasync-test-local',
-            data: { url: '/' }
-          } as any);
-        } catch (swErr) {
-          console.warn('[Push Test Local SW Warn]', swErr);
-        }
+      // 1. Pastikan token HP ini terdaftar ke server
+      const subResult = await subscribeToWebPush();
+      if (!subResult.success) {
+        console.warn('[Push Test Subscribe Warn]:', subResult.error);
       }
 
-      playNotificationSound();
-
-      // 2. Kirim sinyal push ke server backend
+      // 2. Minta server menembakkan Web Push ke seluruh HP terdaftar
       const result = await sendPushNotification({
         type: 'TEST',
         title: '🔔 AksaraSync AI (Tes Banner)',
         body: 'Tes Berhasil! Notifikasi banner HP Anda berfungsi normal dan aktif. 🎉'
       });
 
+      playNotificationSound();
+
       if (result && result.success) {
-        alert('Notifikasi tes berhasil dikirim! Periksa banner/status bar di bagian atas HP Anda.');
+        if (result.sent === 0) {
+          alert('⚠️ Server memproses, tapi JUMLAH HP TERDAFTAR ADALAH 0 (sent: 0)!\n\nArtinya token HP belum tersimpan di database. Silakan jalankan script SQL GRANT di Supabase SQL Editor.');
+        } else {
+          alert(`✅ BERHASIL! Notifikasi banner dikirim server ke ${result.sent} perangkat HP! Cek layar HP Anda sekarang.`);
+        }
       } else {
-        alert('Notifikasi tes berhasil dipicu di layar Anda!');
+        alert('❌ Gagal mengirim dari server: ' + (result?.error || 'Unknown error'));
       }
     } catch (err: any) {
       console.error('[Push Test Error]', err);
