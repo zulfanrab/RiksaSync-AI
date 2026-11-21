@@ -134,6 +134,24 @@ export default function App() {
   // Deteksi status absensi user hari ini (WIB) untuk tombol melayang mobile
   const [hasAttendedToday, setHasAttendedToday] = useState(false);
 
+  // AI Assistant Drawer / Floating Window Open State (Opsional)
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+
+  // Global Keyboard Shortcut: Ctrl+J / Cmd+J toggle AI Chat, Escape to close
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setIsAiChatOpen(prev => !prev);
+      }
+      if (e.key === 'Escape' && isAiChatOpen) {
+        setIsAiChatOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAiChatOpen]);
+
   useEffect(() => {
     const checkTodayAttendance = () => {
       try {
@@ -1102,6 +1120,7 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         onRefreshAll={loadAllData}
         isRefreshing={isRefreshing}
         onOpenGuide={() => setIsGuideOpen(true)}
+        onToggleAi={() => setIsAiChatOpen(prev => !prev)}
       />
 
       {/* Main Container */}
@@ -1306,82 +1325,111 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
                 {activeTab === 'calendar' ? (
           <>
           {/* Dashboard Analytics & Summary Bento Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              {/* Quick Stats Grid - Left 4 columns */}
-              <div className="lg:col-span-4 grid grid-cols-2 gap-4 h-full">
-                {/* Stat 1: Agenda Hari Ini */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm relative overflow-hidden">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-emerald-50 border border-emerald-100 p-1.5 rounded-lg text-emerald-600">
-                      <CalendarDays className="h-4 w-4" />
-                    </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Agenda Hari Ini</span>
+          <div className="space-y-4">
+            {/* Quick Stats Grid - Full 4 Columns on desktop, 2 columns on mobile */}
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              {/* Stat 1: Agenda Hari Ini */}
+              <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm relative overflow-hidden">
+                <div className="flex items-center gap-2">
+                  <div className="bg-emerald-50 border border-emerald-100 p-1.5 rounded-lg text-emerald-600">
+                    <CalendarDays className="h-4 w-4" />
                   </div>
-                  <div className="mt-2">
-                    <p className="text-2xl font-black font-mono text-slate-800 tracking-tight leading-none">
-                      {stats.todayCount} <span className="text-xs font-sans text-slate-500 font-normal">Job</span>
-                    </p>
-                    <p className="text-[9px] text-emerald-600 font-medium mt-1 truncate">
-                      {stats.todayCount > 0 ? '● Aktif di lapangan' : 'Tidak ada agenda hari ini'}
-                    </p>
-                  </div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Agenda Hari Ini</span>
                 </div>
-
-                {/* Stat 2: Agenda Bulan Ini & Progress % */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-sky-50 border border-sky-100 p-1.5 rounded-lg text-sky-600">
-                        <CheckCircle2 className="h-4 w-4" />
-                      </div>
-                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bulan Ini</span>
-                    </div>
-                    <span className="text-[10px] font-bold text-sky-600 font-mono">{stats.monthProgressPct}%</span>
-                  </div>
-                  <div className="mt-2 space-y-1.5">
-                    <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none">
-                      {stats.monthCompleted}<span className="text-xs font-normal text-slate-400">/{stats.monthTotal} Selesai</span>
-                    </p>
-                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-sky-500 h-full rounded-full transition-all duration-500" style={{ width: `${stats.monthProgressPct}%` }} />
-                    </div>
-                  </div>
+                <div className="mt-2">
+                  <p className="text-2xl font-black font-mono text-slate-800 tracking-tight leading-none">
+                    {stats.todayCount} <span className="text-xs font-sans text-slate-500 font-normal">Job</span>
+                  </p>
+                  <p className="text-[9px] text-emerald-600 font-medium mt-1 truncate">
+                    {stats.todayCount > 0 ? '● Aktif di lapangan' : 'Tidak ada agenda hari ini'}
+                  </p>
                 </div>
+              </div>
 
-                {/* Stat 3: Prioritas P1 Active */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+              {/* Stat 2: Agenda Bulan Ini & Progress % */}
+              <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="bg-rose-50 border border-rose-100 p-1.5 rounded-lg text-rose-600">
-                      <Shield className="h-4 w-4" />
+                    <div className="bg-sky-50 border border-sky-100 p-1.5 rounded-lg text-sky-600">
+                      <CheckCircle2 className="h-4 w-4" />
                     </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bulan Ini</span>
                   </div>
-                  <div className="mt-2">
-                    <p className="text-2xl font-black font-mono text-rose-600 tracking-tight leading-none">{stats.p1Count}</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Job mendesak aktif</p>
-                  </div>
+                  <span className="text-[10px] font-bold text-sky-600 font-mono">{stats.monthProgressPct}%</span>
                 </div>
-
-                {/* Stat 4: Personil On-Site Hari Ini */}
-                <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-amber-50 border border-amber-100 p-1.5 rounded-lg text-amber-600">
-                      <Users className="h-4 w-4" />
-                    </div>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Personil Lapangan</span>
-                  </div>
-                  <div className="mt-2">
-                    <p className="text-2xl font-black font-mono text-amber-600 tracking-tight leading-none">{stats.activeManpowerTodayCount}</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Bertugas hari ini</p>
+                <div className="mt-2 space-y-1.5">
+                  <p className="text-xl font-black font-mono text-slate-800 tracking-tight leading-none">
+                    {stats.monthCompleted}<span className="text-xs font-normal text-slate-400">/{stats.monthTotal} Selesai</span>
+                  </p>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-sky-500 h-full rounded-full transition-all duration-500" style={{ width: `${stats.monthProgressPct}%` }} />
                   </div>
                 </div>
               </div>
 
-              {/* RiksaSync AI Assistant Unified Panel - Right 8 columns */}
-              <div className="lg:col-span-8">
-                <SummaryWidget />
+              {/* Stat 3: Prioritas P1 Active */}
+              <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="bg-rose-50 border border-rose-100 p-1.5 rounded-lg text-rose-600">
+                    <Shield className="h-4 w-4" />
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Prioritas P1</span>
+                </div>
+                <div className="mt-2">
+                  <p className="text-2xl font-black font-mono text-rose-600 tracking-tight leading-none">{stats.p1Count}</p>
+                  <p className="text-[9px] text-slate-400 font-medium mt-1">Job mendesak aktif</p>
+                </div>
+              </div>
+
+              {/* Stat 4: Personil On-Site Hari Ini */}
+              <div className="bg-white border border-slate-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="bg-amber-50 border border-amber-100 p-1.5 rounded-lg text-amber-600">
+                    <Users className="h-4 w-4" />
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Personil Lapangan</span>
+                </div>
+                <div className="mt-2">
+                  <p className="text-2xl font-black font-mono text-amber-600 tracking-tight leading-none">{stats.activeManpowerTodayCount}</p>
+                  <p className="text-[9px] text-slate-400 font-medium mt-1">Bertugas hari ini</p>
+                </div>
               </div>
             </div>
+
+            {/* Compact AI Assistant & Weather Trigger Strip (Slim & Clean) */}
+            <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-950 text-white rounded-2xl p-3 sm:p-3.5 border border-emerald-800/60 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all hover:border-emerald-600/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-900/80 rounded-xl border border-emerald-700/60 text-emerald-300 shrink-0 shadow-inner">
+                  <Sparkles className="h-4 w-4 animate-pulse text-emerald-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-extrabold text-xs sm:text-sm text-emerald-50 tracking-tight">
+                      AksaraSync AI Assistant & Live Cuaca K3
+                    </h4>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 font-mono font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      Opsional / Siap Digunakan
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-300/80 font-medium line-clamp-1 mt-0.5">
+                    Sintesis jadwal otomatis, prakiraan cuaca lapangan, dan tanya jawab ketersediaan personil.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsAiChatOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5 border border-emerald-400/30"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-200" />
+                  <span>Buka Asisten AI</span>
+                  <span className="hidden md:inline text-[10px] text-emerald-200/80 font-mono bg-emerald-700/60 px-1 rounded ml-1">Ctrl+J</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
             {/* Central Calendar & Manpower Row */}
             <div className="space-y-6">
@@ -1624,6 +1672,49 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         <p>© 2026 AksaraSync AI. Hak Cipta Dilindungi Undang-Undang.</p>
         <p className="mt-1 text-slate-500">Dikembangkan khusus sebagai Solusi Manajemen Sumber Daya PJK3</p>
       </footer>
+
+      {/* Floating AI Assistant Action Button (FAB) */}
+      {!isAiChatOpen && (
+        <button
+          onClick={() => setIsAiChatOpen(true)}
+          className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full shadow-xl hover:shadow-2xl border-2 border-emerald-300/40 flex items-center gap-2 transition-all duration-200 active:scale-90 group cursor-pointer"
+          title="Buka AksaraSync AI Assistant (Ctrl+J)"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-100"></span>
+          </span>
+          <Sparkles className="h-4 w-4 text-emerald-100 group-hover:rotate-12 transition-transform" />
+          <span className="font-sans tracking-wide">Tanya AI</span>
+        </button>
+      )}
+
+      {/* AI Assistant Modal (Mobile: Bottom Sheet / Desktop: Floating Window) */}
+      <AnimatePresence>
+        {isAiChatOpen && (
+          <>
+            {/* Backdrop on mobile only */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAiChatOpen(false)}
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 sm:hidden"
+            />
+
+            {/* AI Widget Container */}
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 50, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+              className="fixed inset-x-0 bottom-0 sm:inset-x-auto sm:right-6 sm:bottom-6 z-50 h-[88vh] sm:h-[640px] sm:max-h-[86vh] sm:w-[480px] w-full"
+            >
+              <SummaryWidget onClose={() => setIsAiChatOpen(false)} isFloating={true} />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Mobile Floating Quick Action (HANYA tampil jika user BELUM absen hari ini) */}
       {activeTab !== 'attendance' && !hasAttendedToday && (

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { HelpCircle, RefreshCw, LogOut } from 'lucide-react';
+import { HelpCircle, RefreshCw, LogOut, Sparkles } from 'lucide-react';
 import Logo from './Logo';
 import { useUser } from '../context/UserContext';
 import NotificationCenter from './NotificationCenter';
@@ -15,6 +15,7 @@ interface NavbarProps {
   onRefreshAll: () => void;
   isRefreshing: boolean;
   onOpenGuide: () => void;
+  onToggleAi?: () => void;
 }
 
 export default function Navbar({
@@ -22,7 +23,8 @@ export default function Navbar({
   geminiConnected,
   onRefreshAll,
   isRefreshing,
-  onOpenGuide
+  onOpenGuide,
+  onToggleAi
 }: NavbarProps) {
   const { activeUser, activeUserRole, logout } = useUser();
 
@@ -46,6 +48,18 @@ export default function Navbar({
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {/* Notification Center (Tampil di Desktop & HP) */}
           <NotificationCenter />
+
+          {/* AI Assistant Quick Trigger */}
+          {onToggleAi && (
+            <button
+              onClick={onToggleAi}
+              className="flex items-center gap-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-[11px] sm:text-xs px-2 sm:px-2.5 py-1.5 rounded-lg border border-emerald-400/30 transition-all cursor-pointer shadow-2xs active:scale-95"
+              title="Buka AksaraSync AI Assistant (Ctrl+J)"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-emerald-200 animate-pulse" />
+              <span className="hidden sm:inline">AI Chat</span>
+            </button>
+          )}
 
           {/* Guide Button */}
           <button

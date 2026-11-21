@@ -4,12 +4,17 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Bot, User, Trash2, CalendarDays, CloudSun, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, MapPin, Wind, Droplets, CloudRain, Sun } from 'lucide-react';
+import { Sparkles, Send, Bot, User, Trash2, CalendarDays, CloudSun, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, MapPin, Wind, Droplets, CloudRain, Sun, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface Message {
   role: 'user' | 'model';
   text: string;
+}
+
+export interface SummaryWidgetProps {
+  onClose?: () => void;
+  isFloating?: boolean;
 }
 
 const CITIES = [
@@ -101,17 +106,30 @@ function MarkdownRenderer({ text, colorTheme = 'emerald' }: { text: string; colo
   );
 }
 
-export default function SummaryWidget() {
+export default function SummaryWidget({ onClose, isFloating = false }: SummaryWidgetProps = {}) {
   const [isChatMode, setIsChatMode] = useState<boolean>(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'model',
-      text: 'Halo Zulfan! Saya AksaraSync AI. Silakan tanyakan apa saja tentang operasional K3, jadwal tim, cuaca lapangan, atau status alat uji.'
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('riksa_ai_messages');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        role: 'model',
+        text: 'Halo! Saya AksaraSync AI. Silakan tanyakan apa saja tentang operasional K3, jadwal tim, cuaca lapangan, atau status alat uji.'
+      }
+    ];
+  });
   const [inputText, setInputText] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
   const [errorChat, setErrorChat] = useState<string | null>(null);
+
+  // Sync messages to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('riksa_ai_messages', JSON.stringify(messages));
+    } catch {}
+  }, [messages]);
 
   // Standby (Summary) States
   const [summary, setSummary] = useState<string>('');
@@ -280,12 +298,16 @@ export default function SummaryWidget() {
   };
 
   const handleClearChat = () => {
-    setMessages([
+    const defaultMessages: Message[] = [
       {
         role: 'model',
-        text: 'Halo Zulfan, percakapan telah dibersihkan. Silakan ajukan pertanyaan baru mengenai jadwal operasional lapangan.'
+        text: 'Halo! Percakapan telah dibersihkan. Silakan ajukan pertanyaan baru mengenai jadwal operasional lapangan.'
       }
-    ]);
+    ];
+    setMessages(defaultMessages);
+    try {
+      sessionStorage.setItem('riksa_ai_messages', JSON.stringify(defaultMessages));
+    } catch {}
     setErrorChat(null);
   };
 
@@ -294,46 +316,67 @@ export default function SummaryWidget() {
   };
 
   return (
-    <div className="bg-emerald-950 text-white rounded-3xl p-5 shadow-xl flex flex-col h-[520px] border border-emerald-800/50 relative overflow-hidden">
+    <div className="bg-emerald-950 text-white rounded-t-3xl sm:rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col h-full border border-emerald-700/60 relative overflow-hidden w-full">
+      {/* Mobile Drag Indicator */}
+      {onClose && (
+        <div className="w-12 h-1 bg-emerald-700/70 rounded-full mx-auto mb-2.5 sm:hidden shrink-0" />
+      )}
+
       {/* Dynamic Background Pattern */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#022c22_1px,transparent_1px),linear-gradient(to_bottom,#022c22_1px,transparent_1px)] bg-[size:2rem_2rem] opacity-[0.12] pointer-events-none" />
       <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* 1. Header Area */}
-      <div className="flex items-center justify-between border-b border-emerald-800/60 pb-3 mb-4 z-10">
-        <div className="flex items-center gap-2.5">
-          {isChatMode ? (
-            <button
-              onClick={() => setIsChatMode(false)}
-              className="p-1.5 bg-emerald-900/60 hover:bg-emerald-800/80 rounded-xl text-emerald-300 hover:text-white transition-all cursor-pointer flex items-center gap-1 active:scale-95"
-              title="Kembali ke Ringkasan"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Summary</span>
-            </button>
-          ) : (
-            <div className="bg-emerald-900 p-2 rounded-xl border border-emerald-800/80">
-              <Sparkles className="h-4 w-4 text-emerald-300 animate-pulse" />
-            </div>
-          )}
+      <div className="flex items-center justify-between border-b border-emerald-800/60 pb-3 mb-3.5 z-10 gap-2">
+        <div className="flex items-center gap-2">
+          <div className="bg-emerald-900 p-2 rounded-xl border border-emerald-800/80 shrink-0">
+            <Sparkles className="h-4 w-4 text-emerald-300 animate-pulse" />
+          </div>
           <div>
-            <h3 className="font-extrabold text-emerald-50 text-xs tracking-wider uppercase flex items-center gap-1.5">
-              {isChatMode ? 'RiksaSync AI Chatbot' : 'RiksaSync AI Assistant'}
+            <h3 className="font-extrabold text-emerald-50 text-xs sm:text-sm tracking-wider uppercase flex items-center gap-1.5">
+              <span>AksaraSync AI</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
             </h3>
-            <p className="text-[9px] text-emerald-400 font-mono uppercase tracking-widest">
-              {isChatMode ? 'Interactive Chat Session' : 'Unified Operational Hub'}
+            <p className="text-[9px] text-emerald-400 font-mono uppercase tracking-widest hidden xs:block">
+              {isChatMode ? 'Interactive Chat Session' : 'Operational & Weather Hub'}
             </p>
           </div>
         </div>
 
+        {/* Tab Switcher: Cuaca/Ringkasan vs Chat */}
+        <div className="flex items-center bg-emerald-900/70 p-0.5 rounded-xl border border-emerald-800/80">
+          <button
+            type="button"
+            onClick={() => setIsChatMode(false)}
+            className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+              !isChatMode
+                ? 'bg-emerald-600 text-white shadow-2xs'
+                : 'text-emerald-300 hover:text-white'
+            }`}
+          >
+            Ringkasan & Cuaca
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsChatMode(true)}
+            className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+              isChatMode
+                ? 'bg-emerald-600 text-white shadow-2xs'
+                : 'text-emerald-300 hover:text-white'
+            }`}
+          >
+            Chat AI
+          </button>
+        </div>
+
         {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           {!isChatMode ? (
             summary && (
               <button
                 onClick={loadStandbyData}
                 disabled={loadingSummary}
-                className="p-1.5 bg-emerald-900/40 hover:bg-emerald-800/60 disabled:opacity-50 border border-emerald-800/60 rounded-xl text-emerald-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5 text-[10px] font-bold"
+                className="p-1.5 bg-emerald-900/40 hover:bg-emerald-800/60 disabled:opacity-50 border border-emerald-800/60 rounded-xl text-emerald-300 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold"
                 title="Perbarui Data Ringkasan"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${loadingSummary ? 'animate-spin' : ''}`} />
@@ -350,6 +393,16 @@ export default function SummaryWidget() {
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             )
+          )}
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1.5 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 hover:text-white rounded-xl transition-all cursor-pointer border border-emerald-800/60 active:scale-95"
+              title="Tutup AI Assistant (Esc)"
+            >
+              <X className="h-4 w-4" />
+            </button>
           )}
         </div>
       </div>
