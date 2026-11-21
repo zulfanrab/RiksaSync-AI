@@ -564,7 +564,16 @@ export default function CalendarView({
             {/* Day labels */}
             <div className="grid grid-cols-7 gap-1 sm:gap-1.5 mb-1.5 text-center">
               {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((d, idx) => (
-                <span key={d} className={`text-[9px] sm:text-xs font-extrabold uppercase tracking-wider py-1 ${idx === 0 || idx === 6 ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span 
+                  key={d} 
+                  className={`text-[9px] sm:text-xs font-black uppercase tracking-wider py-1 rounded-md transition-colors ${
+                    idx === 0 
+                      ? 'text-rose-600 bg-rose-50/70 border border-rose-100' 
+                      : idx === 6 
+                      ? 'text-amber-600/90' 
+                      : 'text-slate-500'
+                  }`}
+                >
                   {d}
                 </span>
               ))}
@@ -577,6 +586,7 @@ export default function CalendarView({
                 const isSelected = dateStr === selectedDate;
                 const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
                 const isToday = formatDateString(new Date()) === dateStr;
+                const isSunday = day.getDay() === 0;
                 const daySchedules = getSchedulesForDay(dateStr);
                 const dayAbsences = absences.filter(a => a.date === dateStr);
                 const dayTasks = tasks.filter(t => t.due_date === dateStr);
@@ -599,13 +609,21 @@ export default function CalendarView({
                         : isToday
                         ? 'bg-slate-100 border-slate-300 text-slate-900 font-bold shadow-xs'
                         : isCurrentMonth
-                        ? 'bg-slate-50/20 border-slate-150 text-slate-700 hover:border-emerald-300 hover:bg-slate-50/80 hover:shadow-xs'
+                        ? isSunday
+                          ? 'bg-rose-50/25 border-rose-100/90 text-rose-950 hover:border-rose-300 hover:bg-rose-50/50 hover:shadow-xs'
+                          : 'bg-slate-50/20 border-slate-150 text-slate-700 hover:border-emerald-300 hover:bg-slate-50/80 hover:shadow-xs'
                         : 'bg-slate-50/10 border-transparent text-slate-300 hover:text-slate-400'
                     }`}
                   >
                     {/* Date Header */}
                     <div className="flex justify-between items-center w-full pb-0.5 sm:pb-1">
-                      <span className={`text-[10px] sm:text-xs font-black ${isToday && !isSelected ? 'text-emerald-600 font-bold' : ''}`}>
+                      <span className={`text-[10px] sm:text-xs font-black ${
+                        isToday && !isSelected 
+                          ? 'text-emerald-600 font-bold' 
+                          : isSunday && isCurrentMonth && !isSelected
+                          ? 'text-rose-600 font-black' 
+                          : ''
+                      }`}>
                         {day.getDate()}
                       </span>
                       
@@ -769,6 +787,7 @@ export default function CalendarView({
               const dateStr = formatDateString(day);
               const isSelected = dateStr === selectedDate;
               const isToday = formatDateString(new Date()) === dateStr;
+              const isSunday = day.getDay() === 0;
               const daySchedules = getSchedulesForDay(dateStr);
               const dayName = indonesianDaysShort[day.getDay()];
               const dateLabel = `${day.getDate()} ${monthNames[day.getMonth()].slice(0, 3)}`;
@@ -787,6 +806,8 @@ export default function CalendarView({
                       ? 'bg-emerald-50/40 border-emerald-500 ring-1 ring-emerald-500/20 text-emerald-900 font-medium'
                       : isToday
                       ? 'bg-slate-100/80 border-slate-300 text-slate-900 font-medium shadow-sm'
+                      : isSunday
+                      ? 'bg-rose-50/25 border-rose-200/80 text-rose-950 hover:border-rose-300 hover:bg-rose-50/50'
                       : 'bg-slate-50/20 border-slate-100 text-slate-700 hover:border-slate-200 hover:bg-slate-50/60'
                   }`}
                 >
@@ -800,10 +821,25 @@ export default function CalendarView({
                   {/* Header */}
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100/80">
                     <div>
-                      <h4 className={`text-xs font-black ${isToday ? 'text-emerald-700' : 'text-slate-800'}`}>
-                        {dayName}
-                      </h4>
-                      <span className="text-[10px] text-slate-400 font-mono font-medium">{dateLabel}</span>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className={`text-xs font-black ${
+                          isToday 
+                            ? 'text-emerald-700' 
+                            : isSunday 
+                            ? 'text-rose-600' 
+                            : 'text-slate-800'
+                        }`}>
+                          {dayName}
+                        </h4>
+                        {isSunday && (
+                          <span className="text-[8px] font-extrabold bg-rose-100 text-rose-700 px-1.5 py-0.2 rounded-full border border-rose-200">
+                            Minggu
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] font-mono font-medium ${isSunday ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {dateLabel}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
@@ -899,10 +935,24 @@ export default function CalendarView({
       <div className={`${isSidebarOpen ? 'lg:col-span-4 flex flex-col gap-4' : 'hidden'} transition-all duration-300`}>
         <div className="bg-white border border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-sm flex-1 flex flex-col">
           <div className="mb-3 sm:mb-4 flex items-center justify-between">
-            <div>
-              <h4 className="font-bold text-slate-800 text-xs tracking-wider uppercase">Daftar Riksa Aktif</h4>
-              <p className="text-[11px] text-slate-500">Inspeksi untuk tanggal <span className="text-emerald-600 font-mono font-semibold">{selectedDate}</span></p>
-            </div>
+            {(() => {
+              const isSunday = new Date(selectedDate + 'T00:00:00').getDay() === 0;
+              return (
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="font-bold text-slate-800 text-xs tracking-wider uppercase">Daftar Riksa Aktif</h4>
+                    {isSunday && (
+                      <span className="text-[9px] font-extrabold bg-rose-100 text-rose-700 px-1.5 py-0.2 rounded border border-rose-200">
+                        🔴 Hari Minggu
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Inspeksi untuk tanggal <span className={`font-mono font-semibold ${isSunday ? 'text-rose-600' : 'text-emerald-600'}`}>{selectedDate}</span>
+                  </p>
+                </div>
+              );
+            })()}
             <button
               onClick={() => setActiveModalDate(selectedDate)}
               className="text-[9px] bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 px-2 py-1 rounded-lg font-bold flex items-center gap-1 transition-all"
@@ -1185,17 +1235,28 @@ export default function CalendarView({
                 <div className="p-2 sm:p-2.5 bg-emerald-100/80 text-emerald-700 rounded-xl border border-emerald-200/80 shrink-0">
                   <CalendarIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-800 text-xs sm:text-base tracking-tight flex items-center gap-2">
-                    <span>Rincian Agenda Operasional</span>
-                    <span className="text-[10px] bg-slate-200/70 text-slate-700 px-2 py-0.5 rounded-full font-bold">
-                      {getSchedulesForDay(activeModalDate).length} Agenda
-                    </span>
-                  </h3>
-                  <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
-                    {formatIndonesianFullDate(activeModalDate)}
-                  </p>
-                </div>
+                {(() => {
+                  const isSunday = activeModalDate ? new Date(activeModalDate + 'T00:00:00').getDay() === 0 : false;
+                  return (
+                    <div>
+                      <h3 className="font-extrabold text-slate-800 text-xs sm:text-base tracking-tight flex items-center gap-2 flex-wrap">
+                        <span>Rincian Agenda Operasional</span>
+                        <span className="text-[10px] bg-slate-200/70 text-slate-700 px-2 py-0.5 rounded-full font-bold">
+                          {getSchedulesForDay(activeModalDate).length} Agenda
+                        </span>
+                        {isSunday && (
+                          <span className="text-[10px] font-extrabold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                            Hari Minggu (Libur / Lembur K3)
+                          </span>
+                        )}
+                      </h3>
+                      <p className={`text-[11px] sm:text-xs font-medium ${isSunday ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>
+                        {formatIndonesianFullDate(activeModalDate)}
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
 
               <button

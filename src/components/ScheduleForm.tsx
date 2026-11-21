@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Sparkles, User, Save, X, AlertTriangle, Check, Phone, 
-  MapPin, Copy, Trash2, Plus, Loader 
+  MapPin, Copy, Trash2, Plus, Loader, Calendar, Clock 
 } from 'lucide-react';
 import { Schedule, Manpower, Unit, ManpowerAbsence, SupportTeamDetail } from '../types';
 
@@ -66,6 +66,25 @@ const HEAVY_EQUIPMENT_DICT = [
   "Angkur (Anchor Point)", "Gondola (Temporary Suspended Platform)", "Scaffolding (Perancah)", 
   "Lifeline System", "Fall Arrester", "Safety Net"
 ];
+
+// Helper to inspect day of the week, weekend, and Sunday
+const getDayDetailInfo = (dateStr: string) => {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return null;
+  const dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  if (isNaN(dt.getTime())) return null;
+  const dayIdx = dt.getDay(); // 0 = Sunday, 6 = Saturday
+  const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  return {
+    dayName: dayNames[dayIdx],
+    isSunday: dayIdx === 0,
+    isSaturday: dayIdx === 6,
+    formattedShort: `${dayNames[dayIdx]}, ${dt.getDate()} ${monthNames[dt.getMonth()]}`,
+    formattedFull: `${dayNames[dayIdx]}, ${dt.getDate()} ${monthNames[dt.getMonth()]} ${dt.getFullYear()}`
+  };
+};
 
 export default function ScheduleForm({
   initialSchedule,
@@ -185,6 +204,50 @@ export default function ScheduleForm({
       setLocation('');
     }
   }, [initialSchedule]);
+
+  // Quick Date Handlers
+  const handleSetToday = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    setStartDate(todayStr);
+    setEndDate(todayStr);
+    setIsTodayChecked(true);
+  };
+
+  const handleSetTomorrow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const tomorrowStr = d.toISOString().split('T')[0];
+    setStartDate(tomorrowStr);
+    setEndDate(tomorrowStr);
+    setIsTodayChecked(false);
+  };
+
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    setIsTodayChecked(false);
+    if (!endDate || endDate < val || isUntilFinished) {
+      setEndDate(val);
+    }
+  };
+
+  const handleEndDateChange = (val: string) => {
+    setEndDate(val);
+    setIsTodayChecked(false);
+  };
+
+  // Quick Time Preset Handler
+  const handleQuickTime = (start: string, end: string, untilFinished: boolean) => {
+    setStartTime(start);
+    setIsUntilFinished(untilFinished);
+    if (untilFinished) {
+      setEndTime('');
+      if (startDate && (!endDate || endDate !== startDate)) {
+        setEndDate(startDate);
+      }
+    } else {
+      setEndTime(end);
+    }
+  };
 
   // Sync Support Team Details whenever selectedSupportIds or manpowerList changes
   useEffect(() => {
@@ -531,6 +594,7 @@ export default function ScheduleForm({
     if (!picPhone.trim()) return alert('Mohon isi Kontak PIC');
     if (!agendaType) return alert('Mohon tentukan Jenis Agenda');
     if (!startDate || !endDate) return alert('Mohon tentukan tanggal kegiatan');
+    if (startDate > endDate) return alert('Tanggal Selesai tidak boleh mendahului Tanggal Mulai');
 
     // Strict validation guidelines: only technical fields are conditional based on type Riksa Uji
     if (agendaType === 'Riksa Uji') {
@@ -810,77 +874,151 @@ export default function ScheduleForm({
         )}
 
         {/* Date Row with Options */}
-        <div className="space-y-2 bg-slate-50/40 p-3.5 rounded-xl border border-slate-200/50">
+        <div className={`space-y-3 p-3.5 sm:p-4 rounded-xl border transition-all ${
+          (getDayDetailInfo(startDate)?.isSunday || getDayDetailInfo(endDate)?.isSunday)
+            ? 'bg-rose-50/25 border-rose-200 ring-1 ring-rose-100'
+            : 'bg-slate-50/50 border-slate-200/70'
+        }`}>
+          {/* Header & Quick Date Chips */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <label className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">Tanggal Kegiatan</label>
-            <div className="flex items-center gap-4">
-              {/* Checkbox Hari Ini */}
-              <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-extrabold text-slate-500 hover:text-emerald-600 select-none">
-                <input
-                  type="checkbox"
-                  checked={isTodayChecked}
-                  onChange={e => {
-                    const checked = e.target.checked;
-                    setIsTodayChecked(checked);
-                    if (checked) {
-                      const todayStr = new Date().toISOString().split('T')[0];
-                      setStartDate(todayStr);
-                      setEndDate(todayStr);
-                    }
-                  }}
-                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 h-3.5 w-3.5"
-                />
-                <span>Hari Ini (Survey Cepat)</span>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-emerald-600 shrink-0" />
+              <label className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">
+                Tanggal Kegiatan
               </label>
-
-              {/* Status 1 Hari jika Sampai Selesai */}
-              {isUntilFinished && (
-                <span className="text-[9px] font-mono font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded">
-                  1 Hari Penuh
+              {(getDayDetailInfo(startDate)?.isSunday || getDayDetailInfo(endDate)?.isSunday) && (
+                <span className="text-[10px] font-extrabold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full border border-rose-200 animate-pulse flex items-center gap-1">
+                  🔴 Hari Minggu (Lembur)
                 </span>
               )}
             </div>
+
+            {/* Quick 1-tap Date Presets */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold text-slate-400 mr-0.5">Preset:</span>
+              <button
+                type="button"
+                onClick={handleSetToday}
+                className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                  isTodayChecked 
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' 
+                    : 'bg-white text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50 border-slate-200'
+                }`}
+              >
+                Hari Ini
+              </button>
+              <button
+                type="button"
+                onClick={handleSetTomorrow}
+                className="text-[10px] font-bold px-2 py-1 rounded-lg border bg-white text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50 border-slate-200 transition-all active:scale-95"
+              >
+                Besok
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Date Input Grid (Responsive: 1 col on narrow mobile, 2 cols on tablet/desktop) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+            {/* Tanggal Mulai */}
             <div className="space-y-1">
-              <span className="text-[9px] font-extrabold text-slate-400 block uppercase">Mulai</span>
-              <input
-                type="date"
-                required
-                value={startDate}
-                disabled={isTodayChecked}
-                onChange={e => {
-                  setStartDate(e.target.value);
-                  setIsTodayChecked(false);
-                }}
-                className="w-full bg-white border border-slate-200 disabled:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
-              />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                  <span>Mulai</span>
+                  <span className="text-rose-500">*</span>
+                </span>
+                {startDate && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                    getDayDetailInfo(startDate)?.isSunday 
+                      ? 'bg-rose-100 text-rose-700 font-extrabold' 
+                      : 'text-slate-500 bg-slate-100'
+                  }`}>
+                    {getDayDetailInfo(startDate)?.formattedShort}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="date"
+                  required
+                  value={startDate}
+                  onChange={e => handleStartDateChange(e.target.value)}
+                  className={`w-full bg-white border rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none font-semibold h-11 sm:h-10 transition-colors ${
+                    getDayDetailInfo(startDate)?.isSunday
+                      ? 'border-rose-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20'
+                      : 'border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10'
+                  }`}
+                />
+              </div>
             </div>
+
+            {/* Tanggal Selesai */}
             <div className="space-y-1">
-              <span className="text-[9px] font-extrabold text-slate-400 block uppercase">Selesai</span>
-              <input
-                type="date"
-                required
-                value={endDate}
-                disabled={isTodayChecked || isUntilFinished}
-                onChange={e => {
-                  setEndDate(e.target.value);
-                  setIsTodayChecked(false);
-                }}
-                className="w-full bg-white border border-slate-200 disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
-              />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                  <span>Selesai</span>
+                  <span className="text-rose-500">*</span>
+                </span>
+                {isUntilFinished ? (
+                  <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono">
+                    1 Hari Selesai
+                  </span>
+                ) : endDate ? (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                    getDayDetailInfo(endDate)?.isSunday 
+                      ? 'bg-rose-100 text-rose-700 font-extrabold' 
+                      : 'text-slate-500 bg-slate-100'
+                  }`}>
+                    {getDayDetailInfo(endDate)?.formattedShort}
+                  </span>
+                ) : null}
+              </div>
+              <div className="relative">
+                <input
+                  type="date"
+                  required
+                  min={startDate || undefined}
+                  value={endDate}
+                  disabled={isUntilFinished}
+                  onChange={e => handleEndDateChange(e.target.value)}
+                  className={`w-full bg-white border disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none font-semibold h-11 sm:h-10 transition-colors ${
+                    getDayDetailInfo(endDate)?.isSunday
+                      ? 'border-rose-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20'
+                      : 'border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10'
+                  }`}
+                />
+              </div>
             </div>
           </div>
+
+          {/* Sunday Alert Banner */}
+          {(getDayDetailInfo(startDate)?.isSunday || getDayDetailInfo(endDate)?.isSunday) && (
+            <div className="flex items-start gap-2 bg-rose-50 border border-rose-200/90 text-rose-800 p-2.5 rounded-lg text-xs leading-relaxed">
+              <span className="shrink-0 text-sm">⚠️</span>
+              <div>
+                <span className="font-extrabold block text-[11px] text-rose-900">Agenda di Hari Minggu (Hari Libur)</span>
+                <span className="text-[10px] text-rose-700">
+                  Kegiatan ini memerlukan koordinasi lembur personil dan persetujuan izin masuk lokasi pada akhir pekan.
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Jam Kerja */}
-        <div className="bg-slate-50/50 p-3.5 rounded-xl border border-slate-200/60 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">
-              Jam Kerja / Operasional (WIB)
-            </span>
-            <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-extrabold text-slate-600 hover:text-emerald-700 select-none bg-white px-2 py-0.5 rounded-md border border-slate-200/80 shadow-2xs">
+        <div className="bg-slate-50/50 p-3.5 sm:p-4 rounded-xl border border-slate-200/60 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider block">
+                Jam Kerja / Operasional
+              </span>
+              <span className="text-[9px] font-mono font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-200/50">
+                WIB
+              </span>
+            </div>
+
+            {/* Checkbox Sampai Selesai */}
+            <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-extrabold text-slate-600 hover:text-emerald-700 select-none bg-white px-2.5 py-1 rounded-lg border border-slate-200/80 shadow-2xs self-start sm:self-auto transition-all">
               <input
                 type="checkbox"
                 checked={isUntilFinished}
@@ -896,51 +1034,94 @@ export default function ScheduleForm({
                 }}
                 className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 h-3.5 w-3.5"
               />
-              <span>Sampai Selesai</span>
+              <span>Sampai Selesai (Fleksibel)</span>
             </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Quick Shift Chips for Fast Mobile Input */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 mr-0.5">Shift Cepat:</span>
+            <button
+              type="button"
+              onClick={() => handleQuickTime('08:00', '', true)}
+              className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                startTime === '08:00' && isUntilFinished
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                  : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
+              }`}
+            >
+              08:00 - Selesai
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickTime('08:00', '17:00', false)}
+              className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                startTime === '08:00' && endTime === '17:00' && !isUntilFinished
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                  : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
+              }`}
+            >
+              08:00 - 17:00
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickTime('08:30', '', true)}
+              className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                startTime === '08:30' && isUntilFinished
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                  : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
+              }`}
+            >
+              08:30 - Selesai
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickTime('09:00', '16:00', false)}
+              className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                startTime === '09:00' && endTime === '16:00' && !isUntilFinished
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                  : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
+              }`}
+            >
+              09:00 - 16:00
+            </button>
+          </div>
+
+          {/* Time Input Grid */}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
             <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Jam Mulai</label>
-                <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1 py-0.2 rounded">WIB</span>
-              </div>
-              <div className="relative">
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={e => setStartTime(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-lg pl-3 pr-10 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono h-10"
-                />
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none font-mono">WIB</span>
-              </div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                Jam Mulai
+              </label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={e => setStartTime(e.target.value)}
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono font-semibold h-11 sm:h-10"
+              />
             </div>
+
             <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Jam Selesai</label>
-                <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1 py-0.2 rounded">WIB</span>
-              </div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                Jam Selesai
+              </label>
               {isUntilFinished ? (
-                <div className="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-xs text-emerald-800 font-extrabold flex items-center justify-between h-10 select-none">
+                <div className="w-full bg-emerald-50/90 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-800 font-extrabold flex items-center justify-between h-11 sm:h-10 select-none shadow-2xs">
                   <span className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     Sampai Selesai
                   </span>
-                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-mono">
+                  <span className="text-[9px] font-bold bg-emerald-200/80 text-emerald-800 px-1.5 py-0.5 rounded font-mono">
                     WIB
                   </span>
                 </div>
               ) : (
-                <div className="relative">
-                  <input
-                    type="time"
-                    value={endTime}
-                    onChange={e => setEndTime(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-lg pl-3 pr-10 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono h-10"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none font-mono">WIB</span>
-                </div>
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={e => setEndTime(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono font-semibold h-11 sm:h-10"
+                />
               )}
             </div>
           </div>
