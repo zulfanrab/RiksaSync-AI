@@ -1034,6 +1034,11 @@ app.post('/api/push-send', async (req, res) => {
     const record = payload?.record || payload?.new || {};
     const eventType = payload?.type || 'INSERT';
 
+    // Absensi / Presensi bersifat privasi: tidak disiarkan ke push notification publik
+    if (table === 'manpower_absences' || payload?.tag === 'aksarasync-attendance' || payload?.tag === 'aksarasync-absence') {
+      return res.status(200).json({ success: true, message: 'Absensi bersifat privasi, tidak dipublikasikan ke notifikasi tim.' });
+    }
+
     // Build notification content based on event
     let title = '🔔 AksaraSync AI';
     let body = 'Ada pembaruan baru di database.';
@@ -1144,11 +1149,6 @@ app.post('/api/push-send', async (req, res) => {
           tag = 'aksarasync-schedule-update';
         }
       }
-    } else if (table === 'manpower_absences') {
-      const absenceType = record.absence_type || 'Izin';
-      title = `🏥 Absensi K3: ${absenceType}`;
-      body = `Ada pengajuan ${absenceType} baru pada ${record.date || 'hari ini'}.`;
-      tag = 'aksarasync-absence';
     }
 
     const pushPayload = JSON.stringify({ title, body, tag, url: '/' });

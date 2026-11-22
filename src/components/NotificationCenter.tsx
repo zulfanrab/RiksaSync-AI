@@ -308,6 +308,15 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
         const dbNotifications = data
           .filter(dbNotif => !dismissedIds.has(`db_${dbNotif.id}`))
+          .filter(dbNotif => {
+            // Absensi bersifat privasi karyawan: kecualikan dari notifikasi tim
+            const t = (dbNotif.title || '').toLowerCase();
+            const m = (dbNotif.message || '').toLowerCase();
+            if (t.includes('absensi') || t.includes('presensi') || t.includes('cuti/sakit') || m.includes('presensi') || m.includes('absen')) {
+              return false;
+            }
+            return true;
+          })
           .map(dbNotif => ({
             id: `db_${dbNotif.id}`,
             title: dbNotif.title,
@@ -362,40 +371,6 @@ export default function NotificationCenter({ isFloating = false, className = '' 
 
           // Play custom sound
           playNotificationSound();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'manpower_absences' },
-        (payload: any) => {
-          const absence = payload.new;
-          if (!absence) return;
-
-          Promise.resolve(
-            supabase
-              .from('manpower')
-              .select('name')
-              .eq('id', absence.manpower_id)
-              .single()
-          ).then(({ data }) => {
-              const name = data?.name || 'Staf';
-              const notif: AppNotification = {
-                id: `notif_${Date.now()}_${absence.id}`,
-                title: `🏥 Absensi K3: ${absence.absence_type}`,
-                message: `${name} mengajukan ${absence.absence_type} pada ${absence.date}${absence.reason ? ` (${absence.reason})` : ''}.`,
-                timestamp: new Date().toISOString(),
-                read: false,
-                priority: 'P2',
-              };
-
-              setNotifications(prev => [notif, ...prev]);
-
-              // Play custom sound
-              playNotificationSound();
-            })
-            .catch(err => {
-              console.error('Error retrieving manpower name for absence', err);
-            });
         }
       )
       .subscribe();

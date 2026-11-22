@@ -16,7 +16,6 @@ import {
   formatDurationHours
 } from '../lib/dateUtils';
 import AttendanceRecapModule, { isAllowedAttendanceAdmin, ManualAttendanceNote } from './AttendanceRecapModule';
-import { sendPushNotification } from '../lib/pushNotifier';
 import {
   FileText,
   Camera,
@@ -1199,12 +1198,7 @@ export default function AttendanceModule({
       window.dispatchEvent(new Event('aksara_attendance_updated'));
     } catch (e) {}
 
-    // 5. Broadcast Web Push notification ke seluruh perangkat tim
-    sendPushNotification({
-      title: `📍 Presensi ${attendanceType}: ${newRecord.employee_name}`,
-      body: `${newRecord.employee_name} telah melakukan absen ${attendanceType} pada ${newRecord.time} WIB.`,
-      tag: 'aksarasync-attendance'
-    }).catch(() => {});
+    // Presensi bersifat privasi karyawan: tidak disiarkan ke push notification publik
 
     setHistory((prev) => [newRecord, ...prev]);
     setSubmitting(false);

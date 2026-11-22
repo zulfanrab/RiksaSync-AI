@@ -11,7 +11,6 @@ import {
 import { Manpower, ManpowerAbsence } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
-import { sendPushNotification } from '../lib/pushNotifier';
 
 interface ManpowerManagementProps {
   manpowerList: Manpower[];
@@ -271,16 +270,6 @@ export default function ManpowerManagement({
           throw dbErr;
         }
         setSuccessMsg('Berhasil mencatat ketidakhadiran di cloud database.');
-
-        // Broadcast Web Push
-        sendPushNotification({
-          table: 'manpower_absences',
-          type: 'INSERT',
-          record: {
-            absence_type: absenceType,
-            date: absenceDate
-          }
-        }).catch(() => {});
       } else {
         throw new Error('Supabase client is offline.');
       }

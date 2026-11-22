@@ -1673,11 +1673,11 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         <p className="mt-1 text-slate-500">Dikembangkan khusus sebagai Solusi Manajemen Sumber Daya PJK3</p>
       </footer>
 
-      {/* Floating AI Assistant Action Button (FAB) */}
+      {/* Floating AI Assistant Action Button (FAB) - Khusus Desktop (Hidden di HP agar layar mobile lega & tidak sempit) */}
       {!isAiChatOpen && (
         <button
           onClick={() => setIsAiChatOpen(true)}
-          className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full shadow-xl hover:shadow-2xl border-2 border-emerald-300/40 flex items-center gap-2 transition-all duration-200 active:scale-90 group cursor-pointer"
+          className="hidden sm:flex fixed sm:bottom-6 sm:right-6 z-40 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs sm:px-4 sm:py-3 rounded-full shadow-xl hover:shadow-2xl border-2 border-emerald-300/40 items-center gap-2 transition-all duration-200 active:scale-90 group cursor-pointer"
           title="Buka AksaraSync AI Assistant (Ctrl+J)"
         >
           <span className="relative flex h-2.5 w-2.5">
