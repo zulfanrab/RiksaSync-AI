@@ -94,7 +94,7 @@ export default function WhatsappDispatcher({
     if (s.end_time) {
       return `s.d. ${s.end_time} WIB`;
     }
-    return '08:00 WIB - Selesai';
+    return '09:00 WIB - Selesai';
   };
 
   const generateTodayText = (): string => {

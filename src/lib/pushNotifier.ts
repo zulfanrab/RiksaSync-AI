@@ -74,9 +74,9 @@ export function formatScheduleNotification(
   }
 
   // Format Jam
-  let timeStr = '08:00 WIB';
+  let timeStr = '09:00 WIB';
   if (schedule.is_until_finished) {
-    timeStr = `${schedule.start_time || '08:00'} WIB - Selesai`;
+    timeStr = `${schedule.start_time || '09:00'} WIB - Selesai`;
   } else if (schedule.start_time && schedule.end_time) {
     timeStr = `${schedule.start_time} - ${schedule.end_time} WIB`;
   } else if (schedule.start_time) {

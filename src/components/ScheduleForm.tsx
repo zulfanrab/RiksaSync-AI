@@ -177,16 +177,18 @@ export default function ScheduleForm({
       const todayStr = new Date().toISOString().split('T')[0];
       setIsTodayChecked(initialSchedule.start_date === todayStr && initialSchedule.end_date === todayStr);
     } else {
-      // Clear form & Set Dynamic defaults
+      // Clear form & Set Dynamic defaults based on company operating hours
       setClientName('');
       setClientAddress('');
       setPicName('');
       setPicPhone('');
-      const todayStr = new Date().toISOString().split('T')[0];
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      const isSat = today.getDay() === 6;
       setStartDate(todayStr);
       setEndDate(todayStr);
-      setStartTime('09:00'); // Default Start Time is automatically 09:00
-      setEndTime('');
+      setStartTime('09:00');
+      setEndTime(isSat ? '14:00' : '17:00'); // Senin-Jumat: 09:00-17:00, Sabtu: 09:00-14:00
       setSelectedUnitIds([]);
       setUnitDescriptions(['']);
       setLeadExpertId('');
@@ -205,21 +207,30 @@ export default function ScheduleForm({
     }
   }, [initialSchedule]);
 
-  // Quick Date Handlers
+  // Quick Date Handlers with automatic company operating hours adjustment
   const handleSetToday = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const isSat = today.getDay() === 6;
     setStartDate(todayStr);
     setEndDate(todayStr);
     setIsTodayChecked(true);
+    if (!isUntilFinished && (!endTime || endTime === '17:00' || endTime === '14:00')) {
+      setEndTime(isSat ? '14:00' : '17:00');
+    }
   };
 
   const handleSetTomorrow = () => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     const tomorrowStr = d.toISOString().split('T')[0];
+    const isSat = d.getDay() === 6;
     setStartDate(tomorrowStr);
     setEndDate(tomorrowStr);
     setIsTodayChecked(false);
+    if (!isUntilFinished && (!endTime || endTime === '17:00' || endTime === '14:00')) {
+      setEndTime(isSat ? '14:00' : '17:00');
+    }
   };
 
   const handleStartDateChange = (val: string) => {
@@ -227,6 +238,19 @@ export default function ScheduleForm({
     setIsTodayChecked(false);
     if (!endDate || endDate < val || isUntilFinished) {
       setEndDate(val);
+    }
+    // Auto-adjust operating hours to Saturday (14:00) vs Weekday (17:00) if not custom
+    if (!isUntilFinished && val) {
+      const parts = val.split('-');
+      if (parts.length === 3) {
+        const dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        if (!isNaN(dt.getTime())) {
+          const isSat = dt.getDay() === 6;
+          if (!endTime || endTime === '17:00' || endTime === '14:00') {
+            setEndTime(isSat ? '14:00' : '17:00');
+          }
+        }
+      }
     }
   };
 
@@ -705,7 +729,7 @@ export default function ScheduleForm({
       </div>
 
       {/* SCROLLABLE FORM BODY */}
-      <div className="overflow-y-auto flex-1 p-5 md:p-6 space-y-4">
+      <div className="overflow-y-auto flex-1 p-3 sm:p-6 space-y-3.5">
         
         {/* Basic Inputs (Klien, PIC, and Contact) */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -874,14 +898,14 @@ export default function ScheduleForm({
         )}
 
         {/* Date Row with Options */}
-        <div className={`space-y-3 p-3.5 sm:p-4 rounded-xl border transition-all ${
+        <div className={`space-y-3 p-3 sm:p-4 rounded-xl border transition-all ${
           (getDayDetailInfo(startDate)?.isSunday || getDayDetailInfo(endDate)?.isSunday)
             ? 'bg-rose-50/25 border-rose-200 ring-1 ring-rose-100'
             : 'bg-slate-50/50 border-slate-200/70'
         }`}>
           {/* Header & Quick Date Chips */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Calendar className="h-4 w-4 text-emerald-600 shrink-0" />
               <label className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">
                 Tanggal Kegiatan
@@ -917,76 +941,76 @@ export default function ScheduleForm({
             </div>
           </div>
 
-          {/* Date Input Grid (Responsive: 1 col on narrow mobile, 2 cols on tablet/desktop) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+          {/* Date Input Grid (Strict symmetrical 2 columns with min-w-0 for mobile precision) */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 min-w-0">
             {/* Tanggal Mulai */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+            <div className="space-y-1 min-w-0 overflow-hidden">
+              <div className="flex items-center justify-between min-w-0 gap-1">
+                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-0.5 shrink-0">
                   <span>Mulai</span>
                   <span className="text-rose-500">*</span>
                 </span>
                 {startDate && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                  <span className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded truncate ${
                     getDayDetailInfo(startDate)?.isSunday 
                       ? 'bg-rose-100 text-rose-700 font-extrabold' 
-                      : 'text-slate-500 bg-slate-100'
+                      : getDayDetailInfo(startDate)?.isSaturday
+                        ? 'bg-amber-100 text-amber-800 font-bold'
+                        : 'text-slate-500 bg-slate-100'
                   }`}>
                     {getDayDetailInfo(startDate)?.formattedShort}
                   </span>
                 )}
               </div>
-              <div className="relative">
-                <input
-                  type="date"
-                  required
-                  value={startDate}
-                  onChange={e => handleStartDateChange(e.target.value)}
-                  className={`w-full bg-white border rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none font-semibold h-11 sm:h-10 transition-colors ${
-                    getDayDetailInfo(startDate)?.isSunday
-                      ? 'border-rose-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20'
-                      : 'border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10'
-                  }`}
-                />
-              </div>
+              <input
+                type="date"
+                required
+                value={startDate}
+                onChange={e => handleStartDateChange(e.target.value)}
+                className={`w-full min-w-0 max-w-full bg-white border rounded-lg px-2 sm:px-3 py-1.5 text-xs text-slate-800 focus:outline-none font-semibold h-10 transition-colors ${
+                  getDayDetailInfo(startDate)?.isSunday
+                    ? 'border-rose-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20'
+                    : 'border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10'
+                }`}
+              />
             </div>
 
             {/* Tanggal Selesai */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+            <div className="space-y-1 min-w-0 overflow-hidden">
+              <div className="flex items-center justify-between min-w-0 gap-1">
+                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-0.5 shrink-0">
                   <span>Selesai</span>
                   <span className="text-rose-500">*</span>
                 </span>
                 {isUntilFinished ? (
-                  <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono">
-                    1 Hari Selesai
+                  <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-mono truncate">
+                    1 Hari
                   </span>
                 ) : endDate ? (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                  <span className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded truncate ${
                     getDayDetailInfo(endDate)?.isSunday 
                       ? 'bg-rose-100 text-rose-700 font-extrabold' 
-                      : 'text-slate-500 bg-slate-100'
+                      : getDayDetailInfo(endDate)?.isSaturday
+                        ? 'bg-amber-100 text-amber-800 font-bold'
+                        : 'text-slate-500 bg-slate-100'
                   }`}>
                     {getDayDetailInfo(endDate)?.formattedShort}
                   </span>
                 ) : null}
               </div>
-              <div className="relative">
-                <input
-                  type="date"
-                  required
-                  min={startDate || undefined}
-                  value={endDate}
-                  disabled={isUntilFinished}
-                  onChange={e => handleEndDateChange(e.target.value)}
-                  className={`w-full bg-white border disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none font-semibold h-11 sm:h-10 transition-colors ${
-                    getDayDetailInfo(endDate)?.isSunday
-                      ? 'border-rose-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20'
-                      : 'border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10'
-                  }`}
-                />
-              </div>
+              <input
+                type="date"
+                required
+                min={startDate || undefined}
+                value={endDate}
+                disabled={isUntilFinished}
+                onChange={e => handleEndDateChange(e.target.value)}
+                className={`w-full min-w-0 max-w-full bg-white border disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed rounded-lg px-2 sm:px-3 py-1.5 text-xs text-slate-800 focus:outline-none font-semibold h-10 transition-colors ${
+                  getDayDetailInfo(endDate)?.isSunday
+                    ? 'border-rose-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20'
+                    : 'border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10'
+                }`}
+              />
             </div>
           </div>
 
@@ -1005,15 +1029,15 @@ export default function ScheduleForm({
         </div>
 
         {/* Jam Kerja */}
-        <div className="bg-slate-50/50 p-3.5 sm:p-4 rounded-xl border border-slate-200/60 space-y-3">
+        <div className="bg-slate-50/50 p-3 sm:p-4 rounded-xl border border-slate-200/60 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Clock className="h-4 w-4 text-emerald-600 shrink-0" />
               <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider block">
-                Jam Kerja / Operasional
+                Jam Operasional
               </span>
               <span className="text-[9px] font-mono font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-200/50">
-                WIB
+                Sen-Jum 09:00-17:00 • Sab 09:00-14:00 WIB
               </span>
             </div>
 
@@ -1040,87 +1064,71 @@ export default function ScheduleForm({
 
           {/* Quick Shift Chips for Fast Mobile Input */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] font-bold text-slate-400 mr-0.5">Shift Cepat:</span>
+            <span className="text-[10px] font-bold text-slate-400 mr-0.5">Preset:</span>
             <button
               type="button"
-              onClick={() => handleQuickTime('08:00', '', true)}
+              onClick={() => handleQuickTime('09:00', '17:00', false)}
               className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
-                startTime === '08:00' && isUntilFinished
+                startTime === '09:00' && endTime === '17:00' && !isUntilFinished
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                   : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
               }`}
             >
-              08:00 - Selesai
+              09:00 - 17:00 (Sen-Jum)
             </button>
             <button
               type="button"
-              onClick={() => handleQuickTime('08:00', '17:00', false)}
+              onClick={() => handleQuickTime('09:00', '14:00', false)}
               className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
-                startTime === '08:00' && endTime === '17:00' && !isUntilFinished
+                startTime === '09:00' && endTime === '14:00' && !isUntilFinished
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                   : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
               }`}
             >
-              08:00 - 17:00
+              09:00 - 14:00 (Sabtu)
             </button>
             <button
               type="button"
-              onClick={() => handleQuickTime('08:30', '', true)}
+              onClick={() => handleQuickTime('09:00', '', true)}
               className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
-                startTime === '08:30' && isUntilFinished
+                startTime === '09:00' && isUntilFinished
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                   : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
               }`}
             >
-              08:30 - Selesai
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickTime('09:00', '16:00', false)}
-              className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all active:scale-95 ${
-                startTime === '09:00' && endTime === '16:00' && !isUntilFinished
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                  : 'bg-white text-slate-600 hover:bg-emerald-50 border-slate-200'
-              }`}
-            >
-              09:00 - 16:00
+              09:00 - Selesai
             </button>
           </div>
 
-          {/* Time Input Grid */}
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+          {/* Time Input Grid (Strict symmetrical 2 columns with min-w-0 for mobile precision) */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 min-w-0">
+            <div className="space-y-1 min-w-0 overflow-hidden">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block truncate">
                 Jam Mulai
               </label>
               <input
                 type="time"
                 value={startTime}
                 onChange={e => setStartTime(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono font-semibold h-11 sm:h-10"
+                className="w-full min-w-0 max-w-full bg-white border border-slate-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono font-semibold h-10"
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+            <div className="space-y-1 min-w-0 overflow-hidden">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block truncate">
                 Jam Selesai
               </label>
               {isUntilFinished ? (
-                <div className="w-full bg-emerald-50/90 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-800 font-extrabold flex items-center justify-between h-11 sm:h-10 select-none shadow-2xs">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Sampai Selesai
-                  </span>
-                  <span className="text-[9px] font-bold bg-emerald-200/80 text-emerald-800 px-1.5 py-0.5 rounded font-mono">
-                    WIB
-                  </span>
+                <div className="w-full h-10 min-w-0 max-w-full bg-emerald-50 border border-emerald-300 rounded-lg px-2 flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-800 select-none shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></span>
+                  <span className="truncate">Sampai Selesai</span>
                 </div>
               ) : (
                 <input
                   type="time"
                   value={endTime}
                   onChange={e => setEndTime(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono font-semibold h-11 sm:h-10"
+                  className="w-full min-w-0 max-w-full bg-white border border-slate-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-mono font-semibold h-10"
                 />
               )}
             </div>
@@ -1128,25 +1136,25 @@ export default function ScheduleForm({
         </div>
 
         {/* Priority & Status Controls */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Prioritas Riksa</label>
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 min-w-0">
+          <div className="space-y-1 min-w-0 overflow-hidden">
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">Prioritas Riksa</label>
             <select
               value={priority}
               onChange={e => setPriority(e.target.value as any)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
+              className="w-full min-w-0 max-w-full bg-slate-50 border border-slate-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
             >
               <option value="P1">P1 - Critical (Red)</option>
               <option value="P2">P2 - High (Yellow)</option>
               <option value="P3">P3 - Medium (Green)</option>
             </select>
           </div>
-          <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Status Riksa</label>
+          <div className="space-y-1 min-w-0 overflow-hidden">
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">Status Riksa</label>
             <select
               value={status}
               onChange={e => setStatus(e.target.value as any)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
+              className="w-full min-w-0 max-w-full bg-slate-50 border border-slate-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/10 font-semibold h-10"
             >
               <option value="Draft">Draft (Rencana)</option>
               <option value="Scheduled">Scheduled (Aktif)</option>

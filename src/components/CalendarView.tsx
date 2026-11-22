@@ -1033,7 +1033,7 @@ export default function CalendarView({
                           <div className="flex items-center gap-1 text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded font-mono text-[9px] font-semibold shrink-0">
                             <span>🕒 {s.is_until_finished || !s.end_time
                               ? (s.start_time ? `${s.start_time} WIB - Selesai` : 'Sampai Selesai')
-                              : `${s.start_time || '08:00'} - ${s.end_time} WIB`}</span>
+                              : `${s.start_time || '09:00'} - ${s.end_time} WIB`}</span>
                           </div>
                         )}
                       </div>
