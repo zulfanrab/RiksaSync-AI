@@ -713,24 +713,36 @@ export default function DivisionLinksModule({
       {/* 3. Link Cards Grid */}
       {filteredLinks.length === 0 ? (
         <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center space-y-3 shadow-sm">
-          <div className="w-14 h-14 rounded-3xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto text-2xl shadow-inner">
-            🔗
-          </div>
-          <h3 className="text-base font-bold text-slate-800">
-            {searchQuery ? 'Tautan Tidak Ditemukan' : 'Belum Ada Tautan di Divisi Ini'}
-          </h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-            {searchQuery
-              ? `Tidak ada tautan yang cocok dengan kata kunci "${searchQuery}". Silakan coba kata kunci lain.`
-              : 'Mulai simpan tautan penting, Google Drive, atau formulir kerja dengan menekan tombol Tambah Tautan Baru.'}
-          </p>
-          <button
-            onClick={openAddLinkModal}
-            className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Tambah Tautan Pertama</span>
-          </button>
+          {isRefreshing && quickLinks.length === 0 ? (
+            <div className="space-y-3">
+              <RefreshCw className="h-8 w-8 text-indigo-600 animate-spin mx-auto" />
+              <h3 className="text-base font-bold text-slate-800">Menghubungkan Link Akses...</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                Sedang memuat tautan divisi dari database...
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="w-14 h-14 rounded-3xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto text-2xl shadow-inner">
+                🔗
+              </div>
+              <h3 className="text-base font-bold text-slate-800">
+                {searchQuery ? 'Tautan Tidak Ditemukan' : 'Belum Ada Tautan di Divisi Ini'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                {searchQuery
+                  ? `Tidak ada tautan yang cocok dengan kata kunci "${searchQuery}". Silakan coba kata kunci lain.`
+                  : 'Mulai simpan tautan penting, Google Drive, atau formulir kerja dengan menekan tombol Tambah Tautan Baru.'}
+              </p>
+              <button
+                onClick={openAddLinkModal}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Tambah Tautan Pertama</span>
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

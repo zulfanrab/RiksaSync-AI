@@ -126,7 +126,16 @@ export default function App() {
   const [clients, setClients] = useState<{ id: string; client_name: string; pic_name: string; pic_phone: string }[]>([]);
   const [absences, setAbsences] = useState<ManpowerAbsence[]>([]);
   const [tasks, setTasks] = useState<TeamTask[]>([]);
-  const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
+  const [quickLinks, setQuickLinks] = useState<QuickLink[]>(() => {
+    try {
+      const cached = localStorage.getItem('cached_quick_links');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'links' | 'attendance' | 'penomoran'>('calendar');
   const [dbError, setDbError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -704,6 +713,9 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       setAbsences(absencesData as ManpowerAbsence[]);
       setTasks(tasksData);
       setQuickLinks(quickLinksData);
+      try {
+        localStorage.setItem('cached_quick_links', JSON.stringify(quickLinksData));
+      } catch (e) {}
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);
@@ -714,7 +726,18 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       setSchedules(getLocalSchedules());
       setClients(INITIAL_CLIENTS);
       setTasks([]);
-      setQuickLinks([]);
+      // Keep existing quickLinks or recover from persistent cache (NEVER wipe out with [])
+      setQuickLinks(prev => {
+        if (prev && prev.length > 0) return prev;
+        try {
+          const cached = localStorage.getItem('cached_quick_links');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
+        } catch (e) {}
+        return [];
+      });
       const localAbs = localStorage.getItem('local_manpower_absences');
       if (localAbs) {
         try {
@@ -1322,8 +1345,8 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
           </button>
         </div>
 
-                {activeTab === 'calendar' ? (
-          <>
+                {/* VIEW ROUTING (Preserved in DOM to prevent unmounting & data disappearing on tab switch) */}
+        <div className={activeTab === 'calendar' ? 'space-y-6' : 'hidden'}>
           {/* Dashboard Analytics & Summary Bento Row */}
           <div className="space-y-4">
             {/* Quick Stats Grid - Full 4 Columns on desktop, 2 columns on mobile */}
@@ -1469,38 +1492,41 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
                 </div>
               </div>
             </div>
-          </>
-        ) : activeTab === 'tasks' ? (
-          <div className="h-full flex-1">
-            <TaskBoard
-              tasks={tasks}
-              quickLinks={quickLinks}
-              manpowerList={manpowerList}
-              activeUser={activeUser}
-              onRefreshAll={loadAllData}
-            />
           </div>
-        ) : activeTab === 'links' ? (
-          <div className="h-full flex-1">
-            <DivisionLinksModule
-              quickLinks={quickLinks}
-              activeUser={activeUser}
-              onRefreshAll={loadAllData}
-            />
-          </div>
-        ) : activeTab === 'attendance' ? (
-          <div className="h-full flex-1">
-            <AttendanceModule
-              absences={absences}
-              manpowerList={manpowerList}
-              onOpenManpowerMgmt={() => setIsManpowerMgmtOpen(true)}
-            />
-          </div>
-        ) : (
-          <div className="h-full flex-1">
-            <PenomoranModule />
-          </div>
-        )}
+
+        {/* TASKS VIEW */}
+        <div className={activeTab === 'tasks' ? 'h-full flex-1' : 'hidden'}>
+          <TaskBoard
+            tasks={tasks}
+            quickLinks={quickLinks}
+            manpowerList={manpowerList}
+            activeUser={activeUser}
+            onRefreshAll={loadAllData}
+          />
+        </div>
+
+        {/* LINKS VIEW */}
+        <div className={activeTab === 'links' ? 'h-full flex-1' : 'hidden'}>
+          <DivisionLinksModule
+            quickLinks={quickLinks}
+            activeUser={activeUser}
+            onRefreshAll={loadAllData}
+          />
+        </div>
+
+        {/* ATTENDANCE VIEW */}
+        <div className={activeTab === 'attendance' ? 'h-full flex-1' : 'hidden'}>
+          <AttendanceModule
+            absences={absences}
+            manpowerList={manpowerList}
+            onOpenManpowerMgmt={() => setIsManpowerMgmtOpen(true)}
+          />
+        </div>
+
+        {/* PENOMORAN VIEW */}
+        <div className={activeTab === 'penomoran' ? 'h-full flex-1' : 'hidden'}>
+          <PenomoranModule />
+        </div>
       </main>
 
       {/* Modal Slideover for Creating/Modifying Plotting */}

@@ -47,10 +47,35 @@ export default function PenomoranModule() {
   // Main Tab Navigation: 'catalog' = Katalog Jenis Dokumen, 'recap' = Rekapitulasi & Export
   const [mainTab, setMainTab] = useState<'catalog' | 'recap'>('catalog');
 
-  // Master & Transactional states
-  const [allJenis, setAllJenis] = useState<PnJenis[]>([]);
-  const [allNomor, setAllNomor] = useState<PnNomor[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Master & Transactional states with Persistent Local Storage Cache
+  const [allJenis, setAllJenis] = useState<PnJenis[]>(() => {
+    try {
+      const cached = localStorage.getItem('cached_pn_jenis');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [allNomor, setAllNomor] = useState<PnNomor[]>(() => {
+    try {
+      const cached = localStorage.getItem('cached_pn_nomor');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const cachedJenis = localStorage.getItem('cached_pn_jenis');
+      const cachedNomor = localStorage.getItem('cached_pn_nomor');
+      if (cachedJenis && cachedNomor) return false;
+    } catch {}
+    return true;
+  });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Active view on catalog: null = Beranda, string = jenis_kode
@@ -103,37 +128,39 @@ export default function PenomoranModule() {
     setErrorMsg(null);
 
     try {
-      // 1. Ambil Jenis Dokumen
-      const { data: jenisData, error: jenisErr } = await supabase
-        .from('pn_jenis')
-        .select('*')
-        .order('urutan', { ascending: true });
+      // Parallelize Supabase requests for 3x faster loading without sequential waterfall
+      const [jenisRes, nomorRes, usersRes] = await Promise.all([
+        supabase
+          .from('pn_jenis')
+          .select('*')
+          .order('urutan', { ascending: true }),
+        supabase
+          .from('pn_nomor')
+          .select('*')
+          .order('tahun', { ascending: false })
+          .order('no_urut', { ascending: false })
+          .limit(10000),
+        supabase
+          .from('app_users')
+          .select('auth_id, username, full_name')
+      ]);
 
-      if (jenisErr) throw jenisErr;
-      setAllJenis((jenisData || []) as PnJenis[]);
+      if (jenisRes.error) throw jenisRes.error;
+      if (nomorRes.error) throw nomorRes.error;
 
-      // 2. Ambil Seluruh Nomor Surat yang Diterbitkan (Semua Tahun tanpa dibatasi clock perangkat HP)
-      const { data: nomorData, error: nomorErr } = await supabase
-        .from('pn_nomor')
-        .select('*')
-        .order('tahun', { ascending: false })
-        .order('no_urut', { ascending: false })
-        .limit(10000);
-
-      if (nomorErr) throw nomorErr;
-
-      // 3. Ambil Nama Pembuat dari app_users / pn_profil
-      const { data: usersData } = await supabase
-        .from('app_users')
-        .select('auth_id, username, full_name');
+      const jenisData = (jenisRes.data || []) as PnJenis[];
+      setAllJenis(jenisData);
+      try {
+        localStorage.setItem('cached_pn_jenis', JSON.stringify(jenisData));
+      } catch {}
 
       const userMap = new Map<string, string>();
-      (usersData || []).forEach((u: any) => {
+      ((usersRes.data as any[]) || []).forEach((u: any) => {
         if (u.auth_id) userMap.set(u.auth_id, u.full_name || u.username);
       });
 
       // Petakan nama pembuat dan rujukan nomor revisi
-      const nomorList = (nomorData || []) as PnNomor[];
+      const nomorList = (nomorRes.data || []) as PnNomor[];
       const noUrutMap = new Map(nomorList.map(n => [n.id, n.no_urut]));
       const revisiTargetMap = new Map<string, number>();
 
@@ -151,10 +178,14 @@ export default function PenomoranModule() {
       }));
 
       setAllNomor(enrichedNomor);
+      try {
+        localStorage.setItem('cached_pn_nomor', JSON.stringify(enrichedNomor));
+      } catch {}
 
     } catch (err: any) {
       console.error('[Penomoran Load Error]:', err);
-      setErrorMsg(err.message || 'Gagal memuat data penomoran.');
+      // Keep existing cached data active so UI never turns blank on transient network glitches
+      setErrorMsg(err.message || 'Gagal menyinkronkan data penomoran terbaru.');
     } finally {
       setLoading(false);
     }
@@ -1220,14 +1251,20 @@ export default function PenomoranModule() {
           ══════════════════════════════════════════════════════════════════════════ */}
       {mainTab === 'catalog' && !activeJenis && (
         <div className="space-y-6">
+          {loading && allJenis.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 sm:p-12 shadow-xs text-center space-y-3">
+              <RefreshCw className="h-8 w-8 text-emerald-600 animate-spin mx-auto" />
+              <h4 className="text-sm font-bold text-slate-800">Menghubungkan Data Penomoran...</h4>
+              <p className="text-xs text-slate-400">Sedang memuat katalog jenis dokumen dan nomor surat dari database.</p>
+            </div>
+          ) : (
+            (['tagihan', 'pemeriksaan', 'umum', 'tugas'] as PnKelompok[]).map(kelompokKey => {
+              const groupConfig = KELOMPOK_TITLES[kelompokKey];
+              const groupItems = summaryData.filter(s => s.jenis.kelompok === kelompokKey);
 
-          {(['tagihan', 'pemeriksaan', 'umum', 'tugas'] as PnKelompok[]).map(kelompokKey => {
-            const groupConfig = KELOMPOK_TITLES[kelompokKey];
-            const groupItems = summaryData.filter(s => s.jenis.kelompok === kelompokKey);
+              if (groupItems.length === 0) return null;
 
-            if (groupItems.length === 0) return null;
-
-            return (
+              return (
               <div key={kelompokKey} className="bg-white border border-slate-200 rounded-3xl shadow-xs overflow-hidden">
                 {/* Header Kelompok */}
                 <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
@@ -1357,8 +1394,8 @@ export default function PenomoranModule() {
                 </div>
               </div>
             );
-          })}
-
+          })
+        )}
         </div>
       )}
 
