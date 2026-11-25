@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QuickLink, QuickLinkPinsConfig } from '../types';
 import { supabase } from '../lib/supabase';
+import { useUser } from '../context/UserContext';
 import {
   Link as LinkIcon,
   ExternalLink,
@@ -130,6 +131,14 @@ export default function DivisionLinksModule({
   activeUser,
   onRefreshAll
 }: DivisionLinksModuleProps) {
+  const { currentUser, activeUserEmail } = useUser();
+  // Hanya akun Zulfan yang berhak melihat, mengatur, atau mengubah konfigurasi PIN
+  const isPinAdmin = useMemo(() => {
+    const uname = (currentUser?.username || activeUser || '').trim().toLowerCase();
+    const email = (currentUser?.email || activeUserEmail || '').trim().toLowerCase();
+    return uname === 'zulfan' || email === 'zulfan@aksarariksapjk3.com' || email.startsWith('zulfan@');
+  }, [currentUser, activeUser, activeUserEmail]);
+
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -193,14 +202,17 @@ export default function DivisionLinksModule({
   const [linkIsLocked, setLinkIsLocked] = useState(true);
   const [useCustomPin, setUseCustomPin] = useState(false);
   const [linkPin, setLinkPin] = useState('');
+  const [showDivisionPinPreview, setShowDivisionPinPreview] = useState(false);
   const [isSavingLink, setIsSavingLink] = useState(false);
 
   // PIN Settings Modal State
   const [isPinSettingsOpen, setIsPinSettingsOpen] = useState(false);
   const [tempMasterPin, setTempMasterPin] = useState('0000');
   const [tempDivisionPins, setTempDivisionPins] = useState<Record<string, string>>({});
+  const [showSetupPins, setShowSetupPins] = useState(false);
   const [isSavingPins, setIsSavingPins] = useState(false);
   const [pinSettingsSuccess, setPinSettingsSuccess] = useState(false);
+  const [pinSettingsError, setPinSettingsError] = useState<string | null>(null);
 
   // PIN Unlock Modal State
   const [pinModalLink, setPinModalLink] = useState<QuickLink | null>(null);
@@ -255,34 +267,67 @@ export default function DivisionLinksModule({
     return Array.from(set);
   }, [quickLinks]);
 
+  // Helper Lookup PIN & Status Kunci
+  const getDivisionPin = (division?: string): string => {
+    const div = division || 'Umum / Shared';
+    return (
+      pinsConfig.divisionPins?.[div] ||
+      (div === 'Umum' ? pinsConfig.divisionPins?.['Umum / Shared'] : undefined) ||
+      pinsConfig.masterPin ||
+      '0000'
+    );
+  };
+
+  const resolveLinkCustomPin = (link: QuickLink): string | null => {
+    const rawPin = link.pin ? link.pin.trim() : '';
+    if (!rawPin || link.is_custom_pin === false) return null;
+    const divPin = getDivisionPin(link.division);
+    const master = pinsConfig.masterPin || '0000';
+    // Tautan lama yang tersimpan sebelum pembaruan membawa default '0000'; abaikan bila Zulfan sudah mengubah PIN
+    if (link.is_custom_pin === undefined && rawPin === '0000' && (divPin !== '0000' || master !== '0000')) {
+      return null;
+    }
+    return rawPin;
+  };
+
+  const isLinkCurrentlyUnlocked = (link: QuickLink): boolean => {
+    if (link.is_locked === false) return true;
+    if (unlockedLinkIds.has(link.id)) return true;
+    const customPin = resolveLinkCustomPin(link);
+    if (customPin) return false;
+    const div = link.division || 'Umum';
+    return unlockedDivisions.has(div) || (div === 'Umum' && unlockedDivisions.has('Umum / Shared'));
+  };
+
   // Statistics
   const stats = useMemo(() => {
     const total = quickLinks.length;
     const locked = quickLinks.filter(l => l.is_locked !== false).length;
-    const unlocked = quickLinks.filter(l => {
-      const isLocked = l.is_locked !== false;
-      const div = l.division || 'Umum';
-      return isLocked && (unlockedLinkIds.has(l.id) || unlockedDivisions.has(div));
-    }).length;
+    const unlocked = quickLinks.filter(l => l.is_locked !== false && isLinkCurrentlyUnlocked(l)).length;
     return { total, locked, unlocked };
-  }, [quickLinks, unlockedLinkIds, unlockedDivisions]);
+  }, [quickLinks, unlockedLinkIds, unlockedDivisions, pinsConfig]);
 
-  // Handlers for PIN Settings
+  // Handlers for PIN Settings (Eksklusif untuk akun Zulfan)
   const openPinSettingsModal = () => {
+    if (!isPinAdmin) return;
     setTempMasterPin(pinsConfig.masterPin || '0000');
     setTempDivisionPins({ ...DEFAULT_PINS_CONFIG.divisionPins, ...pinsConfig.divisionPins });
+    setShowSetupPins(false);
     setPinSettingsSuccess(false);
+    setPinSettingsError(null);
     setIsPinSettingsOpen(true);
   };
 
   const handleSavePinsConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPinAdmin) return;
     setIsSavingPins(true);
+    setPinSettingsError(null);
 
     const cleanMaster = tempMasterPin.replace(/\D/g, '').slice(0, 4) || '0000';
     const cleanDivPins: Record<string, string> = {};
     for (const [k, v] of Object.entries(tempDivisionPins)) {
-      cleanDivPins[k] = v.replace(/\D/g, '').slice(0, 4) || cleanMaster;
+      cleanDivPins[k] = String(v ?? '').replace(/\D/g, '').slice(0, 4) || cleanMaster;
     }
 
     const newConfig: QuickLinkPinsConfig = {
@@ -298,24 +343,67 @@ export default function DivisionLinksModule({
         created_by: JSON.stringify(newConfig)
       };
 
-      const { data: existing } = await supabase
+      const { data: existingRows, error: fetchErr } = await supabase
         .from('quick_links')
         .select('id')
-        .eq('url', 'sys://quick-links/pins-config')
-        .maybeSingle();
+        .eq('url', 'sys://quick-links/pins-config');
 
-      if (existing && existing.id) {
-        await supabase
+      if (fetchErr) throw fetchErr;
+
+      if (existingRows && existingRows.length > 0) {
+        const { error: updateErr } = await supabase
           .from('quick_links')
           .update(payload)
-          .eq('id', existing.id);
+          .eq('url', 'sys://quick-links/pins-config');
+        if (updateErr) throw updateErr;
       } else {
-        await supabase
+        const { error: insertErr } = await supabase
           .from('quick_links')
           .insert([payload]);
+        if (insertErr) throw insertErr;
       }
-    } catch (err) {
-      console.warn('Error saving pins config to Supabase:', err);
+
+      // Bersihkan sisa stamp PIN default lama ('0000') pada link eksisting yang bukan custom PIN
+      try {
+        const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+          const cleanedLocal = local.map((l: any) => {
+            if (!l.is_custom_pin && l.pin === '0000') {
+              return { ...l, pin: '', is_custom_pin: false };
+            }
+            return l;
+          });
+          localStorage.setItem('local_quick_links', JSON.stringify(cleanedLocal));
+        }
+
+        const legacyZeroLinks = quickLinks.filter(
+          l => !l.id.startsWith('ql-') && l.is_custom_pin !== true && l.pin === '0000'
+        );
+        if (legacyZeroLinks.length > 0) {
+          await Promise.all(
+            legacyZeroLinks.map(l => {
+              const meta = JSON.stringify({
+                u: l.created_by || 'System',
+                d: l.division || 'Umum / Shared',
+                l: l.is_locked !== false,
+                p: '',
+                cp: false
+              });
+              return supabase
+                .from('quick_links')
+                .update({ pin: '', created_by: meta })
+                .eq('id', l.id);
+            })
+          );
+        }
+      } catch (cleanupErr) {
+        console.warn('Legacy link PIN cleanup info:', cleanupErr);
+      }
+    } catch (err: any) {
+      console.error('Error saving pins config to Supabase:', err);
+      setPinSettingsError(err?.message || 'Gagal menyimpan PIN ke database. Pastikan koneksi lancar.');
+      setIsSavingPins(false);
+      return;
     }
 
     setPinsConfig(newConfig);
@@ -340,12 +428,20 @@ export default function DivisionLinksModule({
     setLinkIsLocked(true);
     setUseCustomPin(false);
     setLinkPin('');
+    setShowDivisionPinPreview(false);
     setIsLinkModalOpen(true);
   };
 
   const openEditLinkModal = (link: QuickLink, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Cegah akses melihat/mengedit URL tautan terkunci jika belum membuka PIN (kecuali Zulfan)
+    if (link.is_locked !== false && !isLinkCurrentlyUnlocked(link) && !isPinAdmin) {
+      handleOpenLink(link, e);
+      return;
+    }
+
     setEditingLink(link);
     setLinkTitle(link.title);
     setLinkUrl(link.url);
@@ -358,13 +454,15 @@ export default function DivisionLinksModule({
       setCustomDivision(link.division || '');
     }
     setLinkIsLocked(link.is_locked !== false);
-    if (link.pin && link.pin.trim() !== '') {
+    const activeCustomPin = resolveLinkCustomPin(link);
+    if (activeCustomPin) {
       setUseCustomPin(true);
-      setLinkPin(link.pin);
+      setLinkPin(activeCustomPin);
     } else {
       setUseCustomPin(false);
       setLinkPin('');
     }
+    setShowDivisionPinPreview(false);
     setIsLinkModalOpen(true);
   };
 
@@ -374,14 +472,35 @@ export default function DivisionLinksModule({
     setIsSavingLink(true);
 
     const resolvedDiv = linkDivision === 'Kustom' ? (customDivision.trim() || 'Umum') : linkDivision;
-    const divPin = pinsConfig.divisionPins[resolvedDiv] || pinsConfig.masterPin || '0000';
-    const resolvedPin = linkIsLocked ? (useCustomPin && linkPin ? linkPin.replace(/\D/g, '').slice(0, 4) : divPin) : '';
+
+    // Hanya Zulfan yang dapat mengatur status kunci atau custom PIN;
+    // Staf lain mempertahankan pengaturan PIN yang sudah ada (atau otomatis terkunci PIN Divisi untuk link baru)
+    const cleanCustomPin = linkPin.replace(/\D/g, '').slice(0, 4);
+    let resolvedLocked: boolean;
+    let resolvedPin: string;
+    let resolvedIsCustomPin: boolean;
+
+    if (isPinAdmin) {
+      resolvedLocked = linkIsLocked;
+      resolvedIsCustomPin = Boolean(resolvedLocked && useCustomPin && cleanCustomPin.length > 0);
+      resolvedPin = resolvedIsCustomPin ? cleanCustomPin : '';
+    } else if (editingLink) {
+      resolvedLocked = editingLink.is_locked !== false;
+      const existingCustom = resolveLinkCustomPin(editingLink);
+      resolvedIsCustomPin = Boolean(resolvedLocked && existingCustom);
+      resolvedPin = resolvedIsCustomPin ? (existingCustom || '') : '';
+    } else {
+      resolvedLocked = true;
+      resolvedIsCustomPin = false;
+      resolvedPin = '';
+    }
 
     const authorMetadata = JSON.stringify({
       u: activeUser || 'System',
       d: resolvedDiv,
-      l: linkIsLocked,
-      p: resolvedPin
+      l: resolvedLocked,
+      p: resolvedPin,
+      cp: resolvedIsCustomPin
     });
 
     const linkPayload: QuickLink = {
@@ -390,8 +509,9 @@ export default function DivisionLinksModule({
       url: linkUrl.startsWith('http') ? linkUrl.trim() : `https://${linkUrl.trim()}`,
       emoji: linkEmoji || '🔗',
       division: resolvedDiv,
-      is_locked: linkIsLocked,
+      is_locked: resolvedLocked,
       pin: resolvedPin,
+      is_custom_pin: resolvedIsCustomPin,
       created_by: authorMetadata,
       created_at: editingLink ? editingLink.created_at : new Date().toISOString()
     };
@@ -455,19 +575,25 @@ export default function DivisionLinksModule({
     setEditingLink(null);
   };
 
-  const handleDeleteQuickLink = async (id: string, e: React.MouseEvent) => {
+  const handleDeleteQuickLink = async (link: QuickLink, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    if (link.is_locked !== false && !isLinkCurrentlyUnlocked(link) && !isPinAdmin) {
+      handleOpenLink(link, e);
+      return;
+    }
+
     if (!confirm('Apakah Anda yakin ingin menghapus tautan ini secara permanen?')) return;
     try {
-      if (!id.startsWith('ql-')) {
-        await supabase.from('quick_links').delete().eq('id', id);
+      if (!link.id.startsWith('ql-')) {
+        await supabase.from('quick_links').delete().eq('id', link.id);
       }
       const local = JSON.parse(localStorage.getItem('local_quick_links') || '[]');
-      localStorage.setItem('local_quick_links', JSON.stringify(local.filter((l: any) => l.id !== id)));
+      localStorage.setItem('local_quick_links', JSON.stringify(local.filter((l: any) => l.id !== link.id)));
 
       const updated = new Set(unlockedLinkIds);
-      updated.delete(id);
+      updated.delete(link.id);
       setUnlockedLinkIds(updated);
       sessionStorage.setItem('unlocked_quick_links', JSON.stringify(Array.from(updated)));
 
@@ -482,8 +608,7 @@ export default function DivisionLinksModule({
       e.preventDefault();
     }
     const isLocked = link.is_locked !== false;
-    const div = link.division || 'Umum';
-    const isUnlocked = unlockedLinkIds.has(link.id) || unlockedDivisions.has(div);
+    const isUnlocked = isLinkCurrentlyUnlocked(link);
 
     if (isLocked && !isUnlocked) {
       setPinModalLink(link);
@@ -500,11 +625,13 @@ export default function DivisionLinksModule({
   const handleVerifyPin = (link: QuickLink, enteredDigits: string[]) => {
     const entered = enteredDigits.join('');
     const div = link.division || 'Umum';
-    const divPin = (pinsConfig.divisionPins && pinsConfig.divisionPins[div]) ? pinsConfig.divisionPins[div] : (pinsConfig.masterPin || '0000');
+    const divPin = getDivisionPin(div);
     const master = pinsConfig.masterPin || '0000';
-    const customPin = (link.pin && link.pin.trim() !== '') ? link.pin.trim() : null;
+    const customPin = resolveLinkCustomPin(link);
 
-    const isMatch = (customPin && entered === customPin) || entered === divPin || entered === master;
+    const isMatch = customPin
+      ? (entered === customPin || entered === master)
+      : (entered === divPin || entered === master);
 
     if (isMatch) {
       setPinSuccess(true);
@@ -514,13 +641,19 @@ export default function DivisionLinksModule({
       updatedLinks.add(link.id);
       setUnlockedLinkIds(updatedLinks);
 
+      // Jika tautan pakai PIN Divisi (bukan custom PIN), buka sesi untuk seluruh link di divisi tsb
       const updatedDivs = new Set(unlockedDivisions);
-      updatedDivs.add(div);
-      setUnlockedDivisions(updatedDivs);
+      if (!customPin) {
+        updatedDivs.add(div);
+        if (div === 'Umum') updatedDivs.add('Umum / Shared');
+        setUnlockedDivisions(updatedDivs);
+      }
 
       try {
         sessionStorage.setItem('unlocked_quick_links', JSON.stringify(Array.from(updatedLinks)));
-        sessionStorage.setItem('unlocked_divisions', JSON.stringify(Array.from(updatedDivs)));
+        if (!customPin) {
+          sessionStorage.setItem('unlocked_divisions', JSON.stringify(Array.from(updatedDivs)));
+        }
       } catch {}
 
       setTimeout(() => {
@@ -581,19 +714,34 @@ export default function DivisionLinksModule({
   const handleRelockDivision = (division: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const updated = new Set(unlockedDivisions);
-    updated.delete(division);
-    setUnlockedDivisions(updated);
+    const updatedDivs = new Set(unlockedDivisions);
+    updatedDivs.delete(division);
+    if (division === 'Umum') updatedDivs.delete('Umum / Shared');
+    setUnlockedDivisions(updatedDivs);
+
+    const updatedLinks = new Set(unlockedLinkIds);
+    quickLinks.forEach(l => {
+      if ((l.division || 'Umum') === division) {
+        updatedLinks.delete(l.id);
+      }
+    });
+    setUnlockedLinkIds(updatedLinks);
+
     try {
-      sessionStorage.setItem('unlocked_divisions', JSON.stringify(Array.from(updated)));
+      sessionStorage.setItem('unlocked_divisions', JSON.stringify(Array.from(updatedDivs)));
+      sessionStorage.setItem('unlocked_quick_links', JSON.stringify(Array.from(updatedLinks)));
     } catch {}
   };
 
-  const handleCopyLink = (url: string, id: string, e: React.MouseEvent) => {
+  const handleCopyLink = (link: QuickLink, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    navigator.clipboard.writeText(url);
-    setCopiedId(id);
+    if (link.is_locked !== false && !isLinkCurrentlyUnlocked(link) && !isPinAdmin) {
+      handleOpenLink(link, e);
+      return;
+    }
+    navigator.clipboard.writeText(link.url);
+    setCopiedId(link.id);
     setTimeout(() => setCopiedId(null), 1500);
   };
 
@@ -622,14 +770,16 @@ export default function DivisionLinksModule({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 shrink-0 self-stretch sm:self-auto">
-          <button
-            onClick={openPinSettingsModal}
-            className="flex-1 sm:flex-none px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-            title="Atur PIN Master &amp; PIN per Divisi"
-          >
-            <KeyRound className="h-4 w-4 text-amber-600" />
-            <span>Atur PIN Divisi</span>
-          </button>
+          {isPinAdmin && (
+            <button
+              onClick={openPinSettingsModal}
+              className="flex-1 sm:flex-none px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+              title="Atur PIN Master &amp; PIN per Divisi (Khusus Zulfan)"
+            >
+              <KeyRound className="h-4 w-4 text-amber-600" />
+              <span>Atur PIN Divisi</span>
+            </button>
+          )}
 
           <button
             onClick={openAddLinkModal}
@@ -688,20 +838,31 @@ export default function DivisionLinksModule({
             })}
           </div>
 
-          {/* Quick Search Input */}
+          {/* Quick Search Input (type="search" + anti-autofill agar tidak terisi username oleh browser) */}
           <div className="relative shrink-0 sm:w-64">
             <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
-              type="text"
+              id="division_links_filter"
+              name="division_links_filter"
+              type="search"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Cari nama tautan atau link..."
-              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all shadow-2xs"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
+              className="w-full pl-8 pr-7 py-1.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all shadow-2xs [&::-webkit-search-cancel-button]:hidden"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-0.5"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-0.5 cursor-pointer"
+                title="Hapus kata pencarian"
               >
                 ✕
               </button>
@@ -749,15 +910,20 @@ export default function DivisionLinksModule({
           {filteredLinks.map(link => {
             const isLocked = link.is_locked !== false;
             const div = link.division || 'Umum';
-            const isUnlocked = unlockedLinkIds.has(link.id) || unlockedDivisions.has(div);
+            const isUnlocked = isLinkCurrentlyUnlocked(link);
             const style = getDivisionStyle(link.division);
 
-            // Extract display hostname
+            // Extract display hostname (saat terkunci, tampilkan domain saja tanpa path rahasia)
             let hostname = link.url;
+            let shortHost = link.url;
             try {
               const u = new URL(link.url);
+              shortHost = u.hostname;
               hostname = u.hostname + (u.pathname !== '/' && u.pathname.length > 1 ? u.pathname : '');
             } catch (e) {}
+            const displayPreview = isLocked && !isUnlocked && !isPinAdmin
+              ? `${shortHost} (Terkunci PIN)`
+              : hostname;
 
             return (
               <div
@@ -821,10 +987,10 @@ export default function DivisionLinksModule({
                   <div
                     onClick={(e) => handleOpenLink(link, e)}
                     className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/70 rounded-xl px-3 py-2 text-[11px] text-slate-500 hover:text-indigo-600 font-mono truncate flex items-center gap-1.5 cursor-pointer transition-colors"
-                    title={`Klik untuk buka: ${link.url}`}
+                    title={isLocked && !isUnlocked && !isPinAdmin ? 'Tautan terkunci — klik dan masukkan PIN untuk membuka' : `Klik untuk buka: ${link.url}`}
                   >
                     <ExternalLink className="h-3 w-3 text-slate-400 shrink-0" />
-                    <span className="truncate">{hostname}</span>
+                    <span className="truncate">{displayPreview}</span>
                   </div>
                 </div>
 
@@ -832,9 +998,9 @@ export default function DivisionLinksModule({
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={(e) => handleCopyLink(link.url, link.id, e)}
+                      onClick={(e) => handleCopyLink(link, e)}
                       className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                      title={copiedId === link.id ? 'URL Tersalin!' : 'Salin alamat URL'}
+                      title={copiedId === link.id ? 'URL Tersalin!' : (isLocked && !isUnlocked && !isPinAdmin ? 'Masukkan PIN untuk menyalin URL' : 'Salin alamat URL')}
                     >
                       {copiedId === link.id ? (
                         <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -852,7 +1018,7 @@ export default function DivisionLinksModule({
                     </button>
 
                     <button
-                      onClick={(e) => handleDeleteQuickLink(link.id, e)}
+                      onClick={(e) => handleDeleteQuickLink(link, e)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                       title="Hapus link ini"
                     >
@@ -922,20 +1088,34 @@ export default function DivisionLinksModule({
                 </div>
               </div>
 
-              {/* PIN Input Digits */}
-              <div className="p-6 flex flex-col items-center">
+              {/* PIN Input Digits (type="text" + CSS WebkitTextSecurity agar tidak memicu Password Autofill browser!) */}
+              <form
+                autoComplete="off"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (pinModalLink) handleVerifyPin(pinModalLink, pinDigits);
+                }}
+                className="p-6 flex flex-col items-center"
+              >
                 <div className="flex items-center gap-3 justify-center mb-2" onPaste={handleDigitPaste}>
                   {[0, 1, 2, 3].map(i => (
                     <input
                       key={i}
                       ref={pinInputs[i]}
-                      type={showPinMask ? 'text' : 'password'}
+                      id={`pin-unlock-digit-${i}`}
+                      name={`pin-unlock-digit-${i}`}
+                      type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
                       maxLength={1}
+                      autoComplete="one-time-code"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
                       value={pinDigits[i]}
                       onChange={e => handleDigitChange(i, e.target.value)}
                       onKeyDown={e => handleDigitKeyDown(i, e)}
+                      style={!showPinMask ? ({ WebkitTextSecurity: 'disc' } as React.CSSProperties) : undefined}
                       className={`w-12 h-14 text-center text-2xl font-bold font-mono rounded-xl border transition-all focus:outline-none shadow-xs ${
                         pinError
                           ? 'border-rose-400 bg-rose-50/50 text-rose-700 animate-shake'
@@ -974,11 +1154,11 @@ export default function DivisionLinksModule({
                 </div>
 
                 <div className="mt-3 text-center">
-                  <span className="text-[11px] text-slate-400 bg-slate-100/80 px-2.5 py-1 rounded-full font-medium">
-                    💡 PIN default: <strong className="text-slate-700 font-mono">0000</strong>
+                  <span className="text-[11px] text-slate-400 bg-slate-100/80 px-3 py-1 rounded-full font-medium">
+                    🔒 Belum tahu kode PIN? Hubungi <strong className="text-slate-600">Zulfan (IT)</strong>
                   </span>
                 </div>
-              </div>
+              </form>
 
               {/* Footer Actions */}
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
@@ -1004,9 +1184,9 @@ export default function DivisionLinksModule({
         )}
       </AnimatePresence>
 
-      {/* 5. Centralized PIN Settings Modal */}
+      {/* 5. Centralized PIN Settings Modal (Eksklusif Zulfan) */}
       <AnimatePresence>
-        {isPinSettingsOpen && (
+        {isPinAdmin && isPinSettingsOpen && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsPinSettingsOpen(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -1025,7 +1205,7 @@ export default function DivisionLinksModule({
                       Pengaturan PIN Keamanan Divisi
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Tersinkronisasi otomatis ke seluruh perangkat tim melalui database.
+                      Hanya dapat diatur oleh Zulfan. PIN dipakai anggota tim yang diberi akses.
                     </p>
                   </div>
                 </div>
@@ -1038,7 +1218,18 @@ export default function DivisionLinksModule({
               </div>
 
               <div className="p-6 overflow-y-auto space-y-5">
-                <form id="pin-settings-form" onSubmit={handleSavePinsConfig} className="space-y-5">
+                <form id="pin-settings-form" onSubmit={handleSavePinsConfig} autoComplete="off" className="space-y-5">
+                  <div className="flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowSetupPins(!showSetupPins)}
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {showSetupPins ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      <span>{showSetupPins ? 'Sembunyikan Angka PIN' : 'Tampilkan Angka PIN'}</span>
+                    </button>
+                  </div>
+
                   {/* Master PIN */}
                   <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4">
                     <div className="flex items-center justify-between mb-2">
@@ -1057,10 +1248,14 @@ export default function DivisionLinksModule({
                       inputMode="numeric"
                       pattern="[0-9]*"
                       maxLength={4}
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-form-type="other"
                       value={tempMasterPin}
                       onChange={e => setTempMasterPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      style={!showSetupPins ? ({ WebkitTextSecurity: 'disc' } as React.CSSProperties) : undefined}
                       className="w-full bg-white border border-indigo-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-xl px-4 py-2.5 text-center text-xl font-mono font-bold tracking-[0.5em] text-indigo-900 shadow-2xs"
-                      placeholder="0000"
+                      placeholder="••••"
                       required
                     />
                   </div>
@@ -1101,19 +1296,30 @@ export default function DivisionLinksModule({
                               inputMode="numeric"
                               pattern="[0-9]*"
                               maxLength={4}
+                              autoComplete="off"
+                              data-lpignore="true"
+                              data-form-type="other"
                               value={tempDivisionPins[divName] ?? tempMasterPin}
                               onChange={e => {
                                 const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                                 setTempDivisionPins(prev => ({ ...prev, [divName]: val }));
                               }}
+                              style={!showSetupPins ? ({ WebkitTextSecurity: 'disc' } as React.CSSProperties) : undefined}
                               className="w-24 bg-slate-50 focus:bg-white border border-slate-200 focus:border-amber-400 rounded-lg px-2 py-1.5 text-center text-sm font-mono font-bold tracking-widest text-slate-800 focus:outline-none"
-                              placeholder={tempMasterPin}
+                              placeholder="••••"
                             />
                           </div>
                         );
                       })}
                     </div>
                   </div>
+
+                  {pinSettingsError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                      <span>{pinSettingsError}</span>
+                    </div>
+                  )}
 
                   {pinSettingsSuccess && (
                     <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
@@ -1175,7 +1381,7 @@ export default function DivisionLinksModule({
               </div>
 
               <div className="p-6 overflow-y-auto space-y-4">
-                <form id="link-form" onSubmit={handleSaveQuickLink} className="space-y-4">
+                <form id="link-form" onSubmit={handleSaveQuickLink} autoComplete="off" className="space-y-4">
                   {/* Title & Emoji Picker */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700 block">
@@ -1263,66 +1469,99 @@ export default function DivisionLinksModule({
                     )}
                   </div>
 
-                  {/* PIN Lock Protection Card */}
-                  <div className="bg-amber-50/50 border border-amber-200/80 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
-                          <Lock className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">Kunci dengan PIN Divisi</p>
-                          <p className="text-[10px] text-slate-500">
-                            Menggunakan PIN Divisi <strong className="text-amber-800">{linkDivision === 'Kustom' ? (customDivision || 'Umum') : linkDivision}</strong>
-                          </p>
-                        </div>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={linkIsLocked}
-                          onChange={e => setLinkIsLocked(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
-                      </label>
-                    </div>
-
-                    {linkIsLocked && (
-                      <div className="pt-2 border-t border-amber-200/60 space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-[11px] text-slate-600">
-                            PIN Aktif Divisi Ini: <strong className="font-mono text-amber-800">{pinsConfig.divisionPins[linkDivision === 'Kustom' ? (customDivision || 'Umum') : linkDivision] || pinsConfig.masterPin || '0000'}</strong>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setUseCustomPin(!useCustomPin)}
-                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
-                          >
-                            {useCustomPin ? 'Gunakan PIN Divisi Saja' : 'Custom PIN Khusus Link Ini?'}
-                          </button>
-                        </div>
-
-                        {useCustomPin && (
-                          <div>
-                            <label className="text-[11px] font-bold text-amber-900 block mb-1">
-                              Custom PIN 4-Digit Khusus:
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              pattern="[0-9]*"
-                              maxLength={4}
-                              value={linkPin}
-                              onChange={e => setLinkPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                              className="w-full bg-white border border-amber-300 rounded-xl px-4 py-2 text-center text-base font-mono font-bold tracking-[0.5em] text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
-                              placeholder="0000"
-                            />
+                  {/* PIN Lock Protection Card (Hanya dapat diatur oleh Zulfan; staf lain tidak melihat/mengubah PIN) */}
+                  {isPinAdmin ? (
+                    <div className="bg-amber-50/50 border border-amber-200/80 rounded-2xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
+                            <Lock className="h-4 w-4" />
                           </div>
-                        )}
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">Kunci dengan PIN Divisi</p>
+                            <p className="text-[10px] text-slate-500">
+                              Menggunakan PIN Divisi <strong className="text-amber-800">{linkDivision === 'Kustom' ? (customDivision || 'Umum') : linkDivision}</strong>
+                            </p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={linkIsLocked}
+                            onChange={e => setLinkIsLocked(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                        </label>
                       </div>
-                    )}
-                  </div>
+
+                      {linkIsLocked && (
+                        <div className="pt-2 border-t border-amber-200/60 space-y-2">
+                          <div className="flex items-center justify-between text-xs gap-2 flex-wrap">
+                            <span className="text-[11px] text-slate-600 flex items-center gap-1.5">
+                              <span>PIN Divisi:</span>
+                              <strong className="font-mono text-amber-800">
+                                {showDivisionPinPreview
+                                  ? getDivisionPin(linkDivision === 'Kustom' ? (customDivision || 'Umum') : linkDivision)
+                                  : '••••'}
+                              </strong>
+                              <button
+                                type="button"
+                                onClick={() => setShowDivisionPinPreview(!showDivisionPinPreview)}
+                                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                                title={showDivisionPinPreview ? 'Sembunyikan PIN' : 'Intip PIN Divisi'}
+                              >
+                                {showDivisionPinPreview ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                              </button>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setUseCustomPin(!useCustomPin)}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                            >
+                              {useCustomPin ? 'Gunakan PIN Divisi Saja' : 'Custom PIN Khusus Link Ini?'}
+                            </button>
+                          </div>
+
+                          {useCustomPin && (
+                            <div>
+                              <label className="text-[11px] font-bold text-amber-900 block mb-1">
+                                Custom PIN 4-Digit Khusus:
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={4}
+                                autoComplete="off"
+                                data-lpignore="true"
+                                data-form-type="other"
+                                value={linkPin}
+                                onChange={e => setLinkPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                style={!showDivisionPinPreview ? ({ WebkitTextSecurity: 'disc' } as React.CSSProperties) : undefined}
+                                className="w-full bg-white border border-amber-300 rounded-xl px-4 py-2 text-center text-base font-mono font-bold tracking-[0.5em] text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                                placeholder="••••"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-start gap-2.5">
+                      <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg shrink-0 mt-0.5">
+                        <Lock className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="text-[11px] text-slate-600 leading-relaxed">
+                        <p className="font-bold text-slate-800">Keamanan PIN Dikelola Admin</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          {editingLink
+                            ? 'Pengaturan kunci & kode PIN tautan ini hanya dapat diubah oleh akun Zulfan.'
+                            : 'Tautan baru otomatis dilindungi oleh PIN Divisi yang diatur oleh Zulfan.'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </form>
               </div>
 

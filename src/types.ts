@@ -127,6 +127,7 @@ export interface QuickLink {
   division?: string;
   is_locked?: boolean;
   pin?: string;
+  is_custom_pin?: boolean;
   created_by?: string;
   created_at: string;
 }

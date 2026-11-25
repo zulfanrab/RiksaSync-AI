@@ -631,69 +631,85 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
         }
       }
 
-      let quickLinksData = quickLinksRes && !quickLinksRes.error && Array.isArray(quickLinksRes.data) ? quickLinksRes.data : [];
-      const localLinksStr = localStorage.getItem('local_quick_links');
-      let localLinks: any[] = [];
-      if (localLinksStr) {
-        try {
-          localLinks = JSON.parse(localLinksStr);
-          if (Array.isArray(localLinks)) {
-            const urls = new Set(quickLinksData.map((l: any) => l.url));
-            const uniqueLocal = localLinks.filter((l: any) => !urls.has(l.url));
-            quickLinksData = [...quickLinksData, ...uniqueLocal];
-          }
-        } catch (e) {}
-      }
+      const quickLinksFetchOk = Boolean(quickLinksRes && !quickLinksRes.error && Array.isArray(quickLinksRes.data));
+      let quickLinksData: any[] = [];
 
-      // 1. Extract and sync system pins config if present
-      const configRow = quickLinksData.find((l: any) => l.url === 'sys://quick-links/pins-config');
-      if (configRow && configRow.created_by) {
-        try {
-          const parsedConfig = JSON.parse(configRow.created_by);
-          if (parsedConfig && typeof parsedConfig === 'object') {
-            localStorage.setItem('quick_links_pins_config', JSON.stringify(parsedConfig));
-          }
-        } catch (e) {}
-      }
-
-      // 2. Filter out config row from visible links list
-      quickLinksData = quickLinksData.filter((l: any) => l.url !== 'sys://quick-links/pins-config');
-
-      // 3. Enrich metadata from created_by JSON and local storage
-      let metaMap: Record<string, any> = {};
-      try {
-        metaMap = JSON.parse(localStorage.getItem('quick_links_metadata') || '{}');
-      } catch (e) {}
-
-      quickLinksData = quickLinksData.map((l: any) => {
-        let div = l.division;
-        let locked = l.is_locked;
-        let pin = l.pin;
-        let author = l.created_by || 'System';
-
-        if (typeof l.created_by === 'string' && l.created_by.startsWith('{')) {
+      if (quickLinksFetchOk) {
+        quickLinksData = [...quickLinksRes.data];
+        const localLinksStr = localStorage.getItem('local_quick_links');
+        let localLinks: any[] = [];
+        if (localLinksStr) {
           try {
-            const meta = JSON.parse(l.created_by);
-            if (meta && typeof meta === 'object') {
-              author = meta.u || meta.author || author;
-              if (!div) div = meta.d || meta.division;
-              if (locked === undefined) locked = meta.l !== undefined ? meta.l : meta.is_locked;
-              if (!pin) pin = meta.p || meta.pin;
+            localLinks = JSON.parse(localLinksStr);
+            if (Array.isArray(localLinks)) {
+              const urls = new Set(quickLinksData.map((l: any) => l.url));
+              const uniqueLocal = localLinks.filter((l: any) => !urls.has(l.url));
+              quickLinksData = [...quickLinksData, ...uniqueLocal];
             }
           } catch (e) {}
         }
 
-        const localMatch = localLinks.find((loc: any) => loc.id === l.id || loc.url === l.url);
-        const meta = metaMap[l.url] || metaMap[l.id] || {};
+        // 1. Extract and sync system pins config if present (ordered newest first)
+        const configRow = quickLinksData.find((l: any) => l.url === 'sys://quick-links/pins-config');
+        if (configRow && configRow.created_by) {
+          try {
+            const parsedConfig = JSON.parse(configRow.created_by);
+            if (parsedConfig && typeof parsedConfig === 'object') {
+              localStorage.setItem('quick_links_pins_config', JSON.stringify(parsedConfig));
+            }
+          } catch (e) {}
+        }
 
-        return {
-          ...l,
-          created_by: author,
-          division: div || localMatch?.division || meta.division || 'Umum',
-          is_locked: locked !== undefined ? locked : (localMatch?.is_locked !== undefined ? localMatch.is_locked : (meta.is_locked !== undefined ? meta.is_locked : true)),
-          pin: pin || localMatch?.pin || meta.pin || ''
-        };
-      });
+        // 2. Filter out config row from visible links list
+        quickLinksData = quickLinksData.filter((l: any) => l.url !== 'sys://quick-links/pins-config');
+
+        // 3. Enrich metadata from created_by JSON and local storage
+        let metaMap: Record<string, any> = {};
+        try {
+          metaMap = JSON.parse(localStorage.getItem('quick_links_metadata') || '{}');
+        } catch (e) {}
+
+        quickLinksData = quickLinksData.map((l: any) => {
+          let div = l.division;
+          let locked = l.is_locked;
+          let pin = l.pin;
+          let isCustomPin: boolean | undefined = undefined;
+          let author = l.created_by || 'System';
+
+          if (typeof l.created_by === 'string' && l.created_by.startsWith('{')) {
+            try {
+              const meta = JSON.parse(l.created_by);
+              if (meta && typeof meta === 'object') {
+                author = meta.u || meta.author || author;
+                if (!div) div = meta.d || meta.division;
+                if (locked === undefined) locked = meta.l !== undefined ? meta.l : meta.is_locked;
+                if (meta.cp !== undefined) {
+                  isCustomPin = Boolean(meta.cp);
+                  pin = isCustomPin ? (meta.p || meta.pin || l.pin || '') : '';
+                } else if (meta.p !== undefined || meta.pin !== undefined) {
+                  pin = meta.p ?? meta.pin ?? '';
+                }
+              }
+            } catch (e) {}
+          }
+
+          const localMatch = localLinks.find((loc: any) => loc.id === l.id || loc.url === l.url);
+          const meta = metaMap[l.url] || metaMap[l.id] || {};
+          const resolvedCustomPinFlag = isCustomPin !== undefined ? isCustomPin : localMatch?.is_custom_pin;
+          const resolvedPin = resolvedCustomPinFlag === false
+            ? ''
+            : (pin || localMatch?.pin || meta.pin || '');
+
+          return {
+            ...l,
+            created_by: author,
+            division: div || localMatch?.division || meta.division || 'Umum',
+            is_locked: locked !== undefined ? locked : (localMatch?.is_locked !== undefined ? localMatch.is_locked : (meta.is_locked !== undefined ? meta.is_locked : true)),
+            pin: resolvedPin,
+            is_custom_pin: resolvedCustomPinFlag
+          };
+        });
+      }
 
       let tasksData = tasksRes && !tasksRes.error && Array.isArray(tasksRes.data) ? tasksRes.data : [];
       const localTasksStr = localStorage.getItem('local_team_tasks');
@@ -712,10 +728,25 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
       setClients(clientsData);
       setAbsences(absencesData as ManpowerAbsence[]);
       setTasks(tasksData);
-      setQuickLinks(quickLinksData);
-      try {
-        localStorage.setItem('cached_quick_links', JSON.stringify(quickLinksData));
-      } catch (e) {}
+      if (quickLinksFetchOk) {
+        setQuickLinks(quickLinksData);
+        try {
+          localStorage.setItem('cached_quick_links', JSON.stringify(quickLinksData));
+        } catch (e) {}
+      } else {
+        console.warn('[Supabase Warning] quick_links fetch failed, preserving cached links:', quickLinksRes?.error);
+        setQuickLinks(prev => {
+          if (prev && prev.length > 0) return prev;
+          try {
+            const cached = localStorage.getItem('cached_quick_links');
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+          } catch (e) {}
+          return quickLinksData;
+        });
+      }
     } catch (err: any) {
       const exceptionMsg = err?.message || String(err);
       console.warn('[Supabase Warning] Direct data fetching failed, loading local values:', exceptionMsg);

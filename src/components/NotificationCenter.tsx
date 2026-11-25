@@ -460,7 +460,7 @@ export default function NotificationCenter({ isFloating = false, className = '' 
             transition={{ duration: 0.15 }}
             className={isFloating
               ? "fixed bottom-22 right-4 left-4 max-w-md md:absolute md:bottom-auto md:top-full md:right-0 md:left-auto md:w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 text-left"
-              : "fixed inset-x-3 top-14 max-w-sm ml-auto sm:static sm:w-80 sm:inset-auto sm:absolute sm:top-full sm:right-0 sm:mt-3 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 origin-top-right text-left"
+              : "fixed inset-x-3 top-14 max-w-sm ml-auto sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-3 sm:w-80 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col z-50 origin-top-right text-left"
             }
           >
             {/* Header */}
