@@ -327,6 +327,32 @@ export function formatTanggalIndonesia(dateStr: string): string {
 }
 
 /**
+ * Mengembalikan nama hari Bahasa Indonesia dari string YYYY-MM-DD.
+ * Contoh: "2026-11-27" -> "Jumat"
+ */
+export function formatHariIndonesia(dateStr?: string): string {
+  if (!dateStr) return '-';
+  const parts = dateStr.split('-');
+  if (parts.length < 3) return '-';
+  const dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  if (isNaN(dt.getTime())) return '-';
+  const hariNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  return hariNames[dt.getDay()] ?? '-';
+}
+
+/**
+ * Format jam pelaksanaan Surat Tugas (Pukul ... WIB).
+ */
+export function formatWaktuPukul(schedule: Schedule): string {
+  const start = (schedule.start_time || '09:00').trim();
+  const end = (schedule.end_time || '').trim();
+  if (schedule.is_until_finished || !end) {
+    return `Pukul ${start} WIB - Selesai`;
+  }
+  return `Pukul ${start} - ${end} WIB`;
+}
+
+/**
  * Konversi angka hari ke terbilang Bahasa Indonesia (1-30).
  */
 export function terbilangHari(n: number): string {
@@ -486,12 +512,17 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean; 
   }
 
   // 2. Patch Pengikut SPPD menjadi variabel loop {{PENGIKUT_LIST}} dengan Jabatan Italic
-  const pengikutLoopXml = '{{#PENGIKUT_LIST}}<w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{NO}}. {{NAMA}} (</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN}}</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">)</w:t><w:br/></w:r>{{/PENGIKUT_LIST}}{{^PENGIKUT_LIST}}<w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">-</w:t></w:r>{{/PENGIKUT_LIST}}';
+  const pengikutLoopXml = '{{#PENGIKUT_LIST}}<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{NO}}. {{NAMA}} (</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN}}</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">)</w:t><w:br/></w:r>{{/PENGIKUT_LIST}}{{^PENGIKUT_LIST}}<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">-</w:t></w:r>{{/PENGIKUT_LIST}}';
   xml = xml.replace(/<w:r [^>]*><w:rPr>[^<]*<w:rFonts [^>]*\/>[^<]*<w:sz [^>]*\/>[^<]*<w:szCs [^>]*\/>[^<]*<w:rtl [^>]*\/><\/w:rPr><w:t xml:space="preserve">1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*<\/w:t><\/w:r>/, pengikutLoopXml);
   xml = xml.replace(/1\.\s*\{\{NAMA_PERSONEL_2\}\}\s*2\.\s*\{\{NAMA_PERSONEL_3\}\}\s*/g, '{{DAFTAR_PENGIKUT}}');
   xml = xml.replace(/1\.\s*\{NAMA_PERSONEL_2\}\s*2\.\s*\{NAMA_PERSONEL_3\}\s*/g, '{DAFTAR_PENGIKUT}');
 
-  // 2b. Patch Waktu Pelaksanaan Surat Tugas: Jika agenda cuma 1 hari, cukup tulis 1 tanggal (tanpa double "20 Nov 2026 s.d. 20 Nov 2026")
+  // 2b. Patch Waktu Pelaksanaan Surat Tugas (kemunculan pertama pada Tabel Surat Tugas)
+  // agar menampilkan informasi lengkap: Hari, Tanggal, dan Pukul (WIB)
+  xml = xml.replace(
+    /\{\{TANGGAL_MULAI\}\}\s*s\.?d\.?\s*\{\{TANGGAL_SELESAI\}\}/i,
+    '{{WAKTU_PELAKSANAAN_ST}}'
+  );
   if (options.isSingleDay) {
     xml = xml.replace(/\{\{TANGGAL_MULAI\}\}\s*s\.?d\.?\s*\{\{TANGGAL_SELESAI\}\}/gi, '{{TANGGAL_MULAI}}');
     xml = xml.replace(/\{TANGGAL_MULAI\}\s*s\.?d\.?\s*\{TANGGAL_SELESAI\}/gi, '{TANGGAL_MULAI}');
@@ -506,7 +537,7 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean; 
   // 2d. Patch Jabatan Ketua di SPPD agar Italic
   xml = xml.replace(
     '<w:t xml:space="preserve">{{NAMA_KETUA}} ({{JABATAN_KETUA}})</w:t>',
-    '<w:t xml:space="preserve">{{NAMA_KETUA}} (</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN_KETUA}}</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Roboto" w:cs="Roboto" w:eastAsia="Roboto" w:hAnsi="Roboto"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">)</w:t>'
+    '<w:t xml:space="preserve">{{NAMA_KETUA}} (</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/><w:i w:val="1"/><w:iCs w:val="1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">{{JABATAN_KETUA}}</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">)</w:t>'
   );
 
   // 2e. Patch Jabatan Director di Form Header menjadi Italic
@@ -607,7 +638,16 @@ export function patchTemplateXml(zip: PizZip, options: { includeSppd?: boolean; 
   // Menggunakan regex {+([#\/]?[A-Z0-9_]+)}+ sehingga berapa pun kurung awalnya (1, 2, atau 3) selalu dinormalisasi menjadi tepat 2 kurung
   xml = xml.replace(/\{+([#\/]?[A-Z0-9_]+)\}+/g, '{{$1}}');
 
+  // 8. Paksa seluruh font di document.xml dan styles.xml menjadi Times New Roman
+  xml = xml.replace(/w:(ascii|hAnsi|cs|eastAsia)="[^"]*"/g, 'w:$1="Times New Roman"');
   zip.file('word/document.xml', xml);
+
+  const stylesFile = zip.file('word/styles.xml');
+  if (stylesFile) {
+    let stylesXml = stylesFile.asText();
+    stylesXml = stylesXml.replace(/w:(ascii|hAnsi|cs|eastAsia)="[^"]*"/g, 'w:$1="Times New Roman"');
+    zip.file('word/styles.xml', stylesXml);
+  }
 }
 
 // ── BUILD PAYLOAD HELPER ──────────────────────────────────────────────────────
@@ -644,6 +684,9 @@ function buildPayload(
   // Format tanggal cetak: murni tanggal saja, tanpa jam/WIB
   const tglMulaiFormatted = formatTanggalIndonesia(schedule.start_date);
   const tglSelesaiFormatted = formatTanggalIndonesia(schedule.end_date);
+  const hariMulai = formatHariIndonesia(schedule.start_date);
+  const hariSelesai = formatHariIndonesia(schedule.end_date);
+  const pukulFormatted = formatWaktuPukul(schedule);
   const todayIso = new Date().toISOString().split('T')[0];
   const tglCetakFormatted = formatTanggalIndonesia(todayIso);
 
@@ -651,6 +694,11 @@ function buildPayload(
   const lamaHari = hitungLamaHari(schedule.start_date, schedule.end_date);
   const lamaHariFormatted = `${lamaHari} (${terbilangHari(lamaHari)})`;
   const isSingleDay = !schedule.end_date || schedule.start_date === schedule.end_date || lamaHari <= 1;
+
+  // Format Waktu Pelaksanaan lengkap untuk Surat Tugas (Hari, Tanggal + Pukul)
+  const waktuPelaksanaanSt = isSingleDay
+    ? `${hariMulai}, ${tglMulaiFormatted}\n${pukulFormatted}`
+    : `${hariMulai}, ${tglMulaiFormatted} s.d. ${hariSelesai}, ${tglSelesaiFormatted}\n${pukulFormatted}`;
 
   const detailUnit = options.detailUnit ?? (
     schedule.agenda_type === 'Riksa Uji' && schedule.unit_descriptions && schedule.unit_descriptions.length > 0
@@ -682,6 +730,7 @@ function buildPayload(
       ALAMAT_KLIEN: alamatKlien,
       TANGGAL_MULAI: tglMulaiFormatted,
       TANGGAL_SELESAI: tglSelesaiFormatted,
+      WAKTU_PELAKSANAAN_ST: waktuPelaksanaanSt,
       TANGGAL_CETAK: tglCetakFormatted,
       NAMA_KETUA: ketuaNama,
       JABATAN_KETUA: ketuaJabatan,

@@ -204,6 +204,7 @@ export default function DivisionLinksModule({
   const [linkPin, setLinkPin] = useState('');
   const [showDivisionPinPreview, setShowDivisionPinPreview] = useState(false);
   const [isSavingLink, setIsSavingLink] = useState(false);
+  const savingLockRef = useRef(false);
 
   // PIN Settings Modal State
   const [isPinSettingsOpen, setIsPinSettingsOpen] = useState(false);
@@ -469,6 +470,8 @@ export default function DivisionLinksModule({
   const handleSaveQuickLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!linkTitle || !linkUrl) return;
+    if (savingLockRef.current || isSavingLink) return;
+    savingLockRef.current = true;
     setIsSavingLink(true);
 
     const resolvedDiv = linkDivision === 'Kustom' ? (customDivision.trim() || 'Umum') : linkDivision;
@@ -548,14 +551,19 @@ export default function DivisionLinksModule({
         }]).select();
 
         if (error) {
-          const { data: fbData } = await supabase.from('quick_links').insert([{
-            title: linkPayload.title,
-            url: linkPayload.url,
-            emoji: linkPayload.emoji,
-            created_by: authorMetadata
-          }]).select();
-          if (fbData && fbData[0]) {
-            linkPayload.id = fbData[0].id;
+          const isSchemaErr = error.code === '42703' || error.code === 'PGRST204' || /column/i.test(error.message || '');
+          if (isSchemaErr) {
+            const { data: fbData } = await supabase.from('quick_links').insert([{
+              title: linkPayload.title,
+              url: linkPayload.url,
+              emoji: linkPayload.emoji,
+              created_by: authorMetadata
+            }]).select();
+            if (fbData && fbData[0]) {
+              linkPayload.id = fbData[0].id;
+            }
+          } else {
+            throw error;
           }
         } else if (data && data[0]) {
           linkPayload.id = data[0].id;
@@ -569,10 +577,14 @@ export default function DivisionLinksModule({
     const filtered = local.filter((l: any) => l.id !== linkPayload.id && l.url !== linkPayload.url);
     localStorage.setItem('local_quick_links', JSON.stringify([linkPayload, ...filtered]));
 
-    await onRefreshAll();
-    setIsSavingLink(false);
-    setIsLinkModalOpen(false);
-    setEditingLink(null);
+    try {
+      await onRefreshAll();
+    } finally {
+      savingLockRef.current = false;
+      setIsSavingLink(false);
+      setIsLinkModalOpen(false);
+      setEditingLink(null);
+    }
   };
 
   const handleDeleteQuickLink = async (link: QuickLink, e: React.MouseEvent) => {

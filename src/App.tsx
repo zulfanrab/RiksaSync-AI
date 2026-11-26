@@ -709,6 +709,18 @@ ALTER TABLE team_tasks DROP CONSTRAINT IF EXISTS team_tasks_category_check;
             is_custom_pin: resolvedCustomPinFlag
           };
         });
+
+        // 4. Deduplicate links by id & normalized (title + url) so identical links never appear multiple times
+        const seenIds = new Set<string>();
+        const seenTitleUrl = new Set<string>();
+        quickLinksData = quickLinksData.filter((l: any) => {
+          if (l.id && seenIds.has(l.id)) return false;
+          const normKey = `${(l.title || '').trim().toLowerCase()}|${(l.url || '').trim().replace(/\/+$/, '').toLowerCase()}`;
+          if (seenTitleUrl.has(normKey)) return false;
+          if (l.id) seenIds.add(l.id);
+          seenTitleUrl.add(normKey);
+          return true;
+        });
       }
 
       let tasksData = tasksRes && !tasksRes.error && Array.isArray(tasksRes.data) ? tasksRes.data : [];
