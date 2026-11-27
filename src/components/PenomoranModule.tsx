@@ -39,9 +39,27 @@ const BULAN_NAMES = [
 export default function PenomoranModule() {
   const { activeUser, currentUser } = useUser();
 
-  // Role detection: Seluruh akun karyawan internal PT Aksara Riksa Perdana memiliki akses penuh untuk penomoran
+  // Role detection:
+  // 1. Akses Penuh (termasuk 1. Dokumen Tagihan & Komersial): Marsya, Aulia, Zulfan (Developer), serta Bu Nisa / Owner
+  // 2. Akses Standar (2. Pemeriksaan & Riksa Uji, 3. Dokumen Umum & Pengajuan, 4. Surat Tugas Lapangan): Arya, Fazar, & staf internal lainnya
   const isAdmin = useMemo(() => {
     return Boolean(activeUser || currentUser);
+  }, [activeUser, currentUser]);
+
+  const canAccessTagihan = useMemo(() => {
+    const uname = (currentUser?.username || activeUser || '').toLowerCase().trim();
+    const fname = (currentUser?.full_name || '').toLowerCase().trim();
+    const role = (currentUser?.role || '').toLowerCase().trim();
+    return (
+      uname === 'zulfan' ||
+      uname === 'marsya' ||
+      uname === 'aulia' ||
+      uname.includes('nisa') ||
+      fname.includes('nisa') ||
+      role.includes('owner') ||
+      role.includes('director') ||
+      role.includes('direktur')
+    );
   }, [activeUser, currentUser]);
 
   // Main Tab Navigation: 'catalog' = Katalog Jenis Dokumen, 'recap' = Rekapitulasi & Export
@@ -195,20 +213,34 @@ export default function PenomoranModule() {
     loadData();
   }, [loadData]);
 
-  // ─── 1b. DAFTAR TAHUN TERSEDIA & FILTER TAHUN GLOBAL ─────────────────────────
+  // ─── 1b. FILTER HAK AKSES DOKUMEN, TAHUN TERSEDIA & FILTER TAHUN GLOBAL ───────
+  const visibleJenis = useMemo(() => {
+    if (canAccessTagihan) return allJenis;
+    return allJenis.filter(j => j.kelompok !== 'tagihan');
+  }, [allJenis, canAccessTagihan]);
+
+  const visibleJenisIds = useMemo(() => {
+    return new Set(visibleJenis.map(j => j.id));
+  }, [visibleJenis]);
+
+  const visibleNomor = useMemo(() => {
+    if (canAccessTagihan) return allNomor;
+    return allNomor.filter(n => visibleJenisIds.has(n.jenis_id));
+  }, [allNomor, canAccessTagihan, visibleJenisIds]);
+
   const availableYears = useMemo(() => {
     const years = new Set<number>();
-    allNomor.forEach(n => {
+    visibleNomor.forEach(n => {
       if (n.tahun) years.add(n.tahun);
     });
     return Array.from(years).sort((a, b) => b - a);
-  }, [allNomor]);
+  }, [visibleNomor]);
 
   const yearFilteredNomor = useMemo(() => {
-    if (selectedYear === 'all') return allNomor;
+    if (selectedYear === 'all') return visibleNomor;
     const yNum = Number(selectedYear);
-    return allNomor.filter(n => n.tahun === yNum);
-  }, [allNomor, selectedYear]);
+    return visibleNomor.filter(n => n.tahun === yNum);
+  }, [visibleNomor, selectedYear]);
 
   // ─── 2. REKAPITULASI BERANDA PER JENIS ────────────────────────────────────────
   const currentMonthStr = useMemo(() => {
@@ -217,7 +249,7 @@ export default function PenomoranModule() {
   }, []);
 
   const summaryData = useMemo((): PnJenisSummary[] => {
-    return allJenis.map(j => {
+    return visibleJenis.map(j => {
       const records = yearFilteredNomor.filter(n => n.jenis_id === j.id);
       const countTotal = records.length;
       const countBulanIni = records.filter(n => n.tanggal && n.tanggal.split('-')[1] === currentMonthStr).length;
@@ -240,13 +272,13 @@ export default function PenomoranModule() {
         tanggalTerakhir: lastDate
       };
     });
-  }, [allJenis, yearFilteredNomor, currentMonthStr]);
+  }, [visibleJenis, yearFilteredNomor, currentMonthStr]);
 
   // Jenis aktif yang sedang dibuka (jika dalam mode detail)
   const activeJenis = useMemo(() => {
     if (!activeJenisKode) return null;
-    return allJenis.find(j => j.kode === activeJenisKode) || null;
-  }, [activeJenisKode, allJenis]);
+    return visibleJenis.find(j => j.kode === activeJenisKode) || null;
+  }, [activeJenisKode, visibleJenis]);
 
   // ─── 3. FILTER NOMOR PADA HALAMAN PER JENIS ───────────────────────────────────
   const filteredNomorList = useMemo(() => {
@@ -459,7 +491,9 @@ export default function PenomoranModule() {
 
   // ─── 7. MODAL & SYNC HANDLERS ────────────────────────────────────────────────
   const handleOpenAmbilNomor = (jenisToUse?: PnJenis) => {
-    const target = jenisToUse || activeJenis || allJenis[0];
+    const target = jenisToUse || activeJenis || visibleJenis[0];
+    if (!target) return;
+    if (target.kelompok === 'tagihan' && !canAccessTagihan) return;
     setFormJenisTarget(target);
     setFormRevisiTarget(null);
     setShowFormModal(true);
@@ -658,10 +692,10 @@ export default function PenomoranModule() {
                   }}
                   className="text-xs font-bold bg-transparent text-slate-800 cursor-pointer focus:outline-hidden"
                 >
-                  <option value="all">Semua ({allNomor.length})</option>
+                  <option value="all">Semua ({visibleNomor.length})</option>
                   {availableYears.map(y => (
                     <option key={y} value={String(y)}>
-                      {y} ({allNomor.filter(n => n.tahun === y).length})
+                      {y} ({visibleNomor.filter(n => n.tahun === y).length})
                     </option>
                   ))}
                 </select>
@@ -798,7 +832,9 @@ export default function PenomoranModule() {
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white font-semibold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 >
                   <option value="all">Semua Kelompok</option>
-                  <option value="tagihan">1. Tagihan & Komersial</option>
+                  {canAccessTagihan && (
+                    <option value="tagihan">1. Tagihan & Komersial</option>
+                  )}
                   <option value="pemeriksaan">2. Pemeriksaan & Riksa Uji</option>
                   <option value="umum">3. Dokumen Umum & Pengajuan</option>
                   <option value="tugas">4. Surat Tugas Lapangan</option>
@@ -818,8 +854,8 @@ export default function PenomoranModule() {
                   }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white font-semibold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value="all">Semua Jenis Dokumen ({allJenis.length})</option>
-                  {allJenis
+                  <option value="all">Semua Jenis Dokumen ({visibleJenis.length})</option>
+                  {visibleJenis
                     .filter(j => recapKelompok === 'all' || j.kelompok === recapKelompok)
                     .map(j => (
                       <option key={j.id} value={j.id}>
